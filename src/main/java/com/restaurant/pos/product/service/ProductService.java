@@ -17,6 +17,7 @@ import com.restaurant.pos.product.dto.ProductListDto;
 import com.restaurant.pos.product.dto.VariantGroupDto;
 import com.restaurant.pos.product.dto.VariantOptionDto;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
@@ -29,6 +30,7 @@ import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class ProductService {
     private final ProductRepository productRepository;
     private final CategoryRepository categoryRepository;
@@ -141,13 +143,15 @@ public class ProductService {
     // --- Variant Methods ---
 
     @Transactional(readOnly = true)
-    @Cacheable(value = "products_variant_groups_v2", key = "T(com.restaurant.pos.common.tenant.TenantContext).getCurrentTenant() + ':' + T(com.restaurant.pos.common.tenant.TenantContext).getCurrentOrg()")
     public List<VariantGroupDto> getVariantGroups() {
-        return variantGroupRepository.findByClientIdAndOrgIdOrGlobal(TenantContext.getCurrentTenant(),
-                TenantContext.getCurrentOrg())
+        UUID clientId = TenantContext.getCurrentTenant();
+        UUID orgId = TenantContext.getCurrentOrg();
+        List<VariantGroupDto> groups = variantGroupRepository.findByClientIdAndOrgIdOrGlobal(clientId, orgId)
                 .stream()
                 .map(this::mapVariantGroupToDto)
                 .collect(Collectors.toList());
+        log.info("Loaded variant groups. clientId={}, orgId={}, count={}", clientId, orgId, groups.size());
+        return groups;
     }
 
     @Transactional
@@ -202,11 +206,11 @@ public class ProductService {
         variantGroupRepository.save(group);
     }
 
-    @Cacheable(value = "variant_options", key = "#groupId")
+    @Transactional(readOnly = true)
     public List<VariantOptionDto> getVariantOptionsByGroup(UUID groupId) {
         return variantOptionRepository.findByGroup_Id(groupId)
                 .stream()
-                .map(this::mapVariantOptionToDto)
+                .map(option -> mapVariantOptionToDto(option, groupId))
                 .collect(Collectors.toList());
     }
 
@@ -334,7 +338,7 @@ public class ProductService {
         List<VariantOptionDto> options = group.getOptions() == null
                 ? List.of()
                 : group.getOptions().stream()
-                        .map(this::mapVariantOptionToDto)
+                        .map(option -> mapVariantOptionToDto(option, group.getId()))
                         .collect(Collectors.toList());
 
         return VariantGroupDto.builder()
@@ -346,9 +350,14 @@ public class ProductService {
     }
 
     private VariantOptionDto mapVariantOptionToDto(VariantOption option) {
+        UUID groupId = option.getGroup() != null ? option.getGroup().getId() : null;
+        return mapVariantOptionToDto(option, groupId);
+    }
+
+    private VariantOptionDto mapVariantOptionToDto(VariantOption option, UUID groupId) {
         return VariantOptionDto.builder()
                 .id(option.getId())
-                .groupId(option.getGroupId())
+                .groupId(groupId)
                 .name(option.getName())
                 .additionalPrice(option.getAdditionalPrice())
                 .isActive(option.isActive())
