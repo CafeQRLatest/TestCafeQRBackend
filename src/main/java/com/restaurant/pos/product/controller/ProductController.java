@@ -6,6 +6,7 @@ import com.restaurant.pos.product.domain.Product;
 import com.restaurant.pos.product.domain.Uom;
 import com.restaurant.pos.product.domain.VariantGroup;
 import com.restaurant.pos.product.domain.VariantOption;
+import com.restaurant.pos.product.dto.ProductDetailDto;
 import com.restaurant.pos.product.dto.ProductListDto;
 import com.restaurant.pos.product.dto.VariantGroupDto;
 import com.restaurant.pos.product.dto.VariantOptionDto;
@@ -34,7 +35,7 @@ public class ProductController {
 
     @GetMapping("/{id}")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
-    public ResponseEntity<ApiResponse<Product>> getProduct(@PathVariable UUID id) {
+    public ResponseEntity<ApiResponse<ProductDetailDto>> getProduct(@PathVariable UUID id) {
         return ResponseEntity.ok(ApiResponse.success(productService.getProduct(id)));
     }
 

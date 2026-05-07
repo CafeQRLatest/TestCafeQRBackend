@@ -13,6 +13,7 @@ import com.restaurant.pos.product.repository.ProductRepository;
 import com.restaurant.pos.product.repository.UomRepository;
 import com.restaurant.pos.product.repository.VariantGroupRepository;
 import com.restaurant.pos.product.repository.VariantOptionRepository;
+import com.restaurant.pos.product.dto.ProductDetailDto;
 import com.restaurant.pos.product.dto.ProductListDto;
 import com.restaurant.pos.product.dto.VariantGroupDto;
 import com.restaurant.pos.product.dto.VariantOptionDto;
@@ -273,13 +274,12 @@ public class ProductService {
     }
 
     @Transactional(readOnly = true)
-    public Product getProduct(UUID id) {
+    public ProductDetailDto getProduct(UUID id) {
         Product product = productRepository.findById(java.util.Objects.requireNonNull(id))
                 .orElseThrow(() -> new ResourceNotFoundException("Product not found"));
 
         validateOwnership(product.getClientId(), product.getOrgId(), "Product", false);
-        initializeProductDetails(product);
-        return product;
+        return mapToDetailDto(product);
     }
 
     private void initializeProductDetails(Product product) {
@@ -320,7 +320,9 @@ public class ProductService {
                 .price(product.getPrice())
                 .isAvailable(product.isAvailable())
                 .imageUrl(product.getImageUrl())
+                .categoryId(product.getCategory() != null ? product.getCategory().getId() : null)
                 .categoryName(product.getCategory() != null ? product.getCategory().getName() : null)
+                .uomId(product.getUom() != null ? product.getUom().getId() : null)
                 .uomName(product.getUom() != null ? product.getUom().getName() : null)
                 .productCode(product.getProductCode())
                 .taxRate(product.getTaxRate())
@@ -331,6 +333,88 @@ public class ProductService {
                 .productType(product.getProductType())
                 .hasVariants(product.getVariantMappings() != null && !product.getVariantMappings().isEmpty())
                 .variantCount(product.getVariantMappings() != null ? product.getVariantMappings().size() : 0)
+                .build();
+    }
+
+    private ProductDetailDto mapToDetailDto(Product product) {
+        ProductDetailDto.CategorySummary category = product.getCategory() == null
+                ? null
+                : ProductDetailDto.CategorySummary.builder()
+                        .id(product.getCategory().getId())
+                        .name(product.getCategory().getName())
+                        .build();
+
+        ProductDetailDto.UomSummary uom = product.getUom() == null
+                ? null
+                : ProductDetailDto.UomSummary.builder()
+                        .id(product.getUom().getId())
+                        .name(product.getUom().getName())
+                        .shortName(product.getUom().getShortName())
+                        .build();
+
+        List<ProductDetailDto.VariantMappingDto> mappings = product.getVariantMappings() == null
+                ? List.of()
+                : product.getVariantMappings().stream()
+                        .map(mapping -> ProductDetailDto.VariantMappingDto.builder()
+                                .id(mapping.getId())
+                                .isRequired(mapping.isRequired())
+                                .variantGroup(mapping.getVariantGroup() == null ? null
+                                        : mapVariantGroupToDto(mapping.getVariantGroup()))
+                                .build())
+                        .collect(Collectors.toList());
+
+        List<ProductDetailDto.VariantPricingDto> pricings = product.getVariantPricings() == null
+                ? List.of()
+                : product.getVariantPricings().stream()
+                        .map(pricing -> ProductDetailDto.VariantPricingDto.builder()
+                                .id(pricing.getId())
+                                .overridePrice(pricing.getOverridePrice())
+                                .isAvailable(pricing.isAvailable())
+                                .variantOption(pricing.getVariantOption() == null ? null
+                                        : mapVariantOptionToDto(pricing.getVariantOption()))
+                                .build())
+                        .collect(Collectors.toList());
+
+        List<ProductDetailDto.UpsellDto> upsells = product.getUpsells() == null
+                ? List.of()
+                : product.getUpsells().stream()
+                        .map(upsell -> ProductDetailDto.UpsellDto.builder()
+                                .id(upsell.getId())
+                                .isActive(upsell.isActive())
+                                .upsellProduct(upsell.getUpsellProduct() == null ? null
+                                        : ProductDetailDto.ProductSummary.builder()
+                                                .id(upsell.getUpsellProduct().getId())
+                                                .name(upsell.getUpsellProduct().getName())
+                                                .price(upsell.getUpsellProduct().getPrice())
+                                                .build())
+                                .build())
+                        .collect(Collectors.toList());
+
+        return ProductDetailDto.builder()
+                .id(product.getId())
+                .name(product.getName())
+                .description(product.getDescription())
+                .price(product.getPrice())
+                .isAvailable(product.isAvailable())
+                .imageUrl(product.getImageUrl())
+                .productType(product.getProductType())
+                .isVariant(product.isVariant())
+                .isPackagedGood(product.isPackagedGood())
+                .isIngredient(product.isIngredient())
+                .productCode(product.getProductCode())
+                .taxRate(product.getTaxRate())
+                .taxCode(product.getTaxCode())
+                .mrp(product.getMrp())
+                .costPrice(product.getCostPrice())
+                .barcode(product.getBarcode())
+                .minStockLevel(product.getMinStockLevel())
+                .kdsStation(product.getKdsStation())
+                .isActive(product.isActive())
+                .category(category)
+                .uom(uom)
+                .variantMappings(mappings)
+                .variantPricings(pricings)
+                .upsells(upsells)
                 .build();
     }
 
@@ -520,13 +604,14 @@ public class ProductService {
         existing.setMinStockLevel(product.getMinStockLevel());
         existing.setKdsStation(product.getKdsStation());
 
-        existing.setCategory(product.getCategory());
-        existing.setUom(product.getUom());
+        existing.setCategory(resolveCategoryReference(product.getCategory(), clientId, orgId));
+        existing.setUom(resolveUomReference(product.getUom(), clientId, orgId));
 
         // Update Mappings
         existing.getVariantMappings().clear();
         if (product.getVariantMappings() != null) {
             product.getVariantMappings().forEach(vm -> {
+                vm.setVariantGroup(resolveVariantGroupReference(vm.getVariantGroup()));
                 vm.setProduct(existing);
                 vm.setClientId(clientId);
                 vm.setOrgId(orgId);
@@ -538,6 +623,7 @@ public class ProductService {
         existing.getVariantPricings().clear();
         if (product.getVariantPricings() != null) {
             product.getVariantPricings().forEach(vp -> {
+                vp.setVariantOption(resolveVariantOptionReference(vp.getVariantOption()));
                 vp.setProduct(existing);
                 vp.setClientId(clientId);
                 vp.setOrgId(orgId);
@@ -553,6 +639,12 @@ public class ProductService {
                         && existing.getId().equals(upsell.getUpsellProduct().getId())) {
                     throw new BusinessException("A product cannot be an upsell to itself");
                 }
+                if (upsell.getUpsellProduct() != null && upsell.getUpsellProduct().getId() != null) {
+                    Product upsellProduct = productRepository.findById(upsell.getUpsellProduct().getId())
+                            .orElseThrow(() -> new ResourceNotFoundException("Upsell product not found"));
+                    validateOwnership(upsellProduct.getClientId(), upsellProduct.getOrgId(), "Upsell Product", false);
+                    upsell.setUpsellProduct(upsellProduct);
+                }
                 upsell.setParentProduct(existing);
                 upsell.setClientId(clientId);
                 upsell.setOrgId(orgId);
@@ -561,6 +653,50 @@ public class ProductService {
         }
 
         return productRepository.save(existing);
+    }
+
+    private Category resolveCategoryReference(Category category, UUID clientId, UUID orgId) {
+        if (category == null || category.getId() == null) {
+            return null;
+        }
+
+        Category resolved = categoryRepository.findById(category.getId())
+                .orElseThrow(() -> new ResourceNotFoundException("Category not found"));
+        validateOwnership(resolved.getClientId(), resolved.getOrgId(), "Category", false);
+        return resolved;
+    }
+
+    private Uom resolveUomReference(Uom uom, UUID clientId, UUID orgId) {
+        if (uom == null || uom.getId() == null) {
+            return null;
+        }
+
+        Uom resolved = uomRepository.findById(uom.getId())
+                .orElseThrow(() -> new ResourceNotFoundException("UOM not found"));
+        validateOwnership(resolved.getClientId(), resolved.getOrgId(), "UOM", false);
+        return resolved;
+    }
+
+    private VariantGroup resolveVariantGroupReference(VariantGroup group) {
+        if (group == null || group.getId() == null) {
+            return null;
+        }
+
+        VariantGroup resolved = variantGroupRepository.findById(group.getId())
+                .orElseThrow(() -> new ResourceNotFoundException("Variant Group not found"));
+        validateOwnership(resolved.getClientId(), resolved.getOrgId(), "Variant Group", false);
+        return resolved;
+    }
+
+    private VariantOption resolveVariantOptionReference(VariantOption option) {
+        if (option == null || option.getId() == null) {
+            return null;
+        }
+
+        VariantOption resolved = variantOptionRepository.findById(option.getId())
+                .orElseThrow(() -> new ResourceNotFoundException("Variant Option not found"));
+        validateOwnership(resolved.getClientId(), resolved.getOrgId(), "Variant Option", false);
+        return resolved;
     }
 
     @Transactional

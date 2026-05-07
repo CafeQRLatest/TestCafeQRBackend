@@ -21,7 +21,9 @@ public class ProductListDto {
     @JsonProperty("isAvailable")
     private boolean isAvailable;
     private String imageUrl;
+    private UUID categoryId;
     private String categoryName;
+    private UUID uomId;
     private String uomName;
     private String productCode;
     private String productType;
