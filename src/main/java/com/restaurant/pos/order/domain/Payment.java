@@ -34,6 +34,27 @@ public class Payment extends BaseEntity {
     @Column(name = "terminal_id")
     private UUID terminalId;
 
+    @Column(name = "source_device_id")
+    private UUID sourceDeviceId;
+
+    @Column(name = "source_terminal_id")
+    private UUID sourceTerminalId;
+
+    @Column(name = "source_operation_id", length = 160)
+    private String sourceOperationId;
+
+    @Column(name = "source_offline_id", length = 160)
+    private String sourceOfflineId;
+
+    @Column(name = "source_local_ref", length = 160)
+    private String sourceLocalRef;
+
+    @Column(name = "offline_created_at")
+    private LocalDateTime offlineCreatedAt;
+
+    @Column(name = "sync_origin", length = 40)
+    private String syncOrigin;
+
     @Column(name = "order_id")
     private UUID orderId;
 

@@ -48,6 +48,18 @@ public class Terminal extends BaseEntity {
     @Column(name = "device_id")
     private UUID deviceId;
 
+    @Column(name = "offline_billing_mode", length = 30)
+    @Builder.Default
+    private String offlineBillingMode = "NONE";
+
+    @Column(name = "offline_billing_enabled")
+    @Builder.Default
+    private Boolean offlineBillingEnabled = false;
+
+    @Column(name = "print_station_enabled")
+    @Builder.Default
+    private Boolean printStationEnabled = false;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "device_id", insertable = false, updatable = false)
     private Device device;

@@ -41,5 +41,8 @@ public interface OrderRepository extends JpaRepository<Order, UUID>, JpaSpecific
     @EntityGraph(attributePaths = "lines")
     Optional<Order> findByOrderNoAndClientId(String orderNo, UUID clientId);
 
+    @EntityGraph(attributePaths = "lines")
+    Optional<Order> findBySourceOperationIdAndClientId(String sourceOperationId, UUID clientId);
+
     long countByClientId(UUID clientId);
 }

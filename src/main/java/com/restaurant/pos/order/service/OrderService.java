@@ -14,10 +14,13 @@ import com.restaurant.pos.order.domain.PaymentType;
 import com.restaurant.pos.invoice.repository.InvoiceRepository;
 import com.restaurant.pos.order.repository.OrderRepository;
 import com.restaurant.pos.order.repository.PaymentRepository;
+import com.restaurant.pos.print.domain.PrintJobKind;
+import com.restaurant.pos.print.service.PrintJobService;
 import com.restaurant.pos.product.domain.Product;
 import com.restaurant.pos.product.repository.ProductRepository;
 import com.restaurant.pos.sequence.domain.DocumentType;
 import com.restaurant.pos.sequence.service.DocumentSequenceService;
+import com.restaurant.pos.sequence.service.OfflineSequenceLeaseService;
 import com.restaurant.pos.table.domain.RestaurantTable;
 import com.restaurant.pos.table.repository.RestaurantTableRepository;
 import lombok.RequiredArgsConstructor;
@@ -31,6 +34,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -45,7 +49,70 @@ public class OrderService {
     private final InventoryService inventoryService;
     private final RestaurantTableRepository tableRepository;
     private final DocumentSequenceService sequenceService;
+    private final OfflineSequenceLeaseService offlineSequenceLeaseService;
+    private final PrintJobService printJobService;
     private final ProductRepository productRepository;
+
+    private void prepareSourceFields(Order order) {
+        UUID terminalId = TenantContext.getCurrentTerminal();
+        if (order.getTerminalId() == null) {
+            order.setTerminalId(terminalId);
+        }
+        if (order.getSourceTerminalId() == null) {
+            order.setSourceTerminalId(order.getTerminalId() != null ? order.getTerminalId() : terminalId);
+        }
+        if (order.getSyncOrigin() == null || order.getSyncOrigin().isBlank()) {
+            order.setSyncOrigin(order.getSourceOperationId() == null ? "CLOUD_ONLINE" : "OFFLINE_QUEUE");
+        }
+    }
+
+    private void assignOrderNumber(Order order) {
+        OrderType type = order.getOrderType() == null ? OrderType.SALE : order.getOrderType();
+        DocumentType docType = switch (type) {
+            case PURCHASE -> DocumentType.PURCHASE_ORDER;
+            case EXPENSE -> DocumentType.EXPENSE;
+            default -> DocumentType.SALE_ORDER;
+        };
+        order.setOrderNo(resolveDocumentNumber(order, docType, order.getOrderNo()));
+    }
+
+    private String resolveDocumentNumber(Order order, DocumentType documentType, String requestedNumber) {
+        if (requestedNumber != null && !requestedNumber.isBlank() && isMainOfflineSync(order)) {
+            offlineSequenceLeaseService.consumeLeasedNumber(
+                    documentType,
+                    requestedNumber,
+                    order.getSourceTerminalId() != null ? order.getSourceTerminalId() : order.getTerminalId()
+            );
+            return requestedNumber;
+        }
+        return sequenceService.generateNextSequence(documentType);
+    }
+
+    private boolean isMainOfflineSync(Order order) {
+        return order != null && "MAIN_OFFLINE".equalsIgnoreCase(order.getSyncOrigin());
+    }
+
+    private boolean shouldGenerateInvoice(Order order) {
+        if (order == null || "CANCELLED".equalsIgnoreCase(order.getOrderStatus()) || "VOID".equalsIgnoreCase(order.getOrderStatus())) {
+            return false;
+        }
+        return "COMPLETED".equalsIgnoreCase(order.getOrderStatus());
+    }
+
+    private void enqueueCloudPrintJobs(Order order) {
+        try {
+            if (order == null || order.getOrderType() != OrderType.SALE || isMainOfflineSync(order)) {
+                return;
+            }
+            if ("KITCHEN".equalsIgnoreCase(order.getOrderStatus()) || "CONFIRMED".equalsIgnoreCase(order.getOrderStatus())) {
+                printJobService.enqueueForOrder(order, PrintJobKind.KOT, "auto");
+            } else if ("COMPLETED".equalsIgnoreCase(order.getOrderStatus())) {
+                printJobService.enqueueForOrder(order, PrintJobKind.BILL, "auto");
+            }
+        } catch (Exception ex) {
+            log.warn("Unable to enqueue cloud print job for order {}", order == null ? null : order.getId(), ex);
+        }
+    }
 
     private Order hydrateOrderLines(Order order) {
         if (order == null || order.getLines() == null || order.getLines().isEmpty()) {
@@ -118,7 +185,7 @@ public class OrderService {
         orders.stream()
             .filter(o -> "COMPLETED".equalsIgnoreCase(o.getOrderStatus()) && (o.getInvoiceNo() == null || o.getInvoiceNo().isEmpty()))
             .forEach(o -> {
-                try { generatePayment(o); } catch (Exception ignored) {}
+                try { generateInvoice(o); } catch (Exception ignored) {}
             });
 
         return hydrateOrderLines(orders);
@@ -163,25 +230,20 @@ public class OrderService {
     @Transactional
     public Order createOrder(Order order) {
         log.info("Creating order: {} | Tenant: {} | Org: {}", order, TenantContext.getCurrentTenant(), TenantContext.getCurrentOrg());
+        String requestedInvoiceNo = order.getOfflineInvoiceNo();
+        String requestedPaymentNo = order.getOfflinePaymentNo();
         
         order.setClientId(TenantContext.getCurrentTenant());
         if (!SecurityUtils.isSuperAdmin() || order.getOrgId() == null) {
             order.setOrgId(TenantContext.getCurrentOrg());
         }
+        prepareSourceFields(order);
 
         if (order.getOrderStatus() == null) {
             order.setOrderStatus("DRAFT");
         }
 
-        // Auto-generate orderNo if not provided
-        if (order.getOrderNo() == null || order.getOrderNo().isEmpty()) {
-            DocumentType docType = switch (order.getOrderType()) {
-                case PURCHASE -> DocumentType.PURCHASE_ORDER;
-                case EXPENSE  -> DocumentType.EXPENSE;
-                default       -> DocumentType.SALE_ORDER;
-            };
-            order.setOrderNo(sequenceService.generateNextSequence(docType));
-        }
+        assignOrderNumber(order);
 
         // Ensure bidirectional mapping
         if (order.getLines() != null) {
@@ -191,19 +253,29 @@ public class OrderService {
 
         Order saved = orderRepository.save(order);
         
-        // Always create Invoice for non-draft orders
-        if (!"DRAFT".equalsIgnoreCase(saved.getOrderStatus())) {
-            generateInvoice(saved);
+        if (shouldGenerateInvoice(saved)) {
+            generateInvoice(saved, null, requestedInvoiceNo);
         }
         
         // Create payment only if completed and paid
         if ("COMPLETED".equalsIgnoreCase(saved.getOrderStatus()) && "PAID".equalsIgnoreCase(saved.getPaymentStatus())) {
             String paymentMethod = saved.getReference() != null ? saved.getReference() : "CASH";
-            generatePayment(saved, paymentMethod);
+            generatePayment(saved, paymentMethod, requestedPaymentNo);
         }
 
         handleTableStatus(saved);
-        return hydrateOrderLines(saved);
+        Order hydrated = hydrateOrderLines(saved);
+        enqueueCloudPrintJobs(hydrated);
+        return hydrated;
+    }
+
+    @Transactional(readOnly = true)
+    public Optional<Order> findBySourceOperationId(String sourceOperationId) {
+        if (sourceOperationId == null || sourceOperationId.isBlank()) {
+            return Optional.empty();
+        }
+        return orderRepository.findBySourceOperationIdAndClientId(sourceOperationId, TenantContext.getCurrentTenant())
+                .map(this::hydrateOrderLines);
     }
 
     @Transactional
@@ -234,6 +306,13 @@ public class OrderService {
             .orderStatus(updates.getOrderStatus() != null ? updates.getOrderStatus() : oldOrder.getOrderStatus())
             .paymentStatus(updates.getPaymentStatus() != null ? updates.getPaymentStatus() : oldOrder.getPaymentStatus())
             .orderSource(oldOrder.getOrderSource())
+            .sourceDeviceId(oldOrder.getSourceDeviceId())
+            .sourceTerminalId(oldOrder.getSourceTerminalId())
+            .sourceOperationId(oldOrder.getSourceOperationId())
+            .sourceOfflineId(oldOrder.getSourceOfflineId())
+            .sourceLocalRef(oldOrder.getSourceLocalRef())
+            .offlineCreatedAt(oldOrder.getOfflineCreatedAt())
+            .syncOrigin(oldOrder.getSyncOrigin())
             .fulfillmentType(updates.getFulfillmentType())
             .tableNumber(updates.getTableNumber())
             .tableId(updates.getTableId())
@@ -260,7 +339,9 @@ public class OrderService {
         
         // 4. Generate new ERP documents (Invoice/Payment)
         UUID oldInvId = oldInvoiceIdList.isEmpty() ? null : oldInvoiceIdList.get(0);
-        generateInvoice(saved, oldInvId);
+        if (shouldGenerateInvoice(saved)) {
+            generateInvoice(saved, oldInvId);
+        }
         if ("PAID".equalsIgnoreCase(saved.getPaymentStatus())) {
             String paymentMethod = saved.getReference() != null ? saved.getReference() : "CASH";
             generatePayment(saved, paymentMethod);
@@ -273,7 +354,9 @@ public class OrderService {
             processInventoryForOrder(saved);
         }
         
-        return hydrateOrderLines(saved);
+        Order hydrated = hydrateOrderLines(saved);
+        enqueueCloudPrintJobs(hydrated);
+        return hydrated;
     }
 
     @Transactional
@@ -285,8 +368,7 @@ public class OrderService {
         
         Order result = orderRepository.save(order);
         
-        // Generate Invoice if missing for any active status
-        if (!"DRAFT".equalsIgnoreCase(result.getOrderStatus()) && !"CANCELLED".equalsIgnoreCase(result.getOrderStatus())) {
+        if (shouldGenerateInvoice(result)) {
             generateInvoice(result);
         }
 
@@ -301,7 +383,9 @@ public class OrderService {
         if (result.getOrderType() == OrderType.PURCHASE && "COMPLETED".equalsIgnoreCase(result.getOrderStatus())) {
             processInventoryForOrder(result);
         }
-        return hydrateOrderLines(result);
+        Order hydrated = hydrateOrderLines(result);
+        enqueueCloudPrintJobs(hydrated);
+        return hydrated;
     }
 
     @Transactional
@@ -311,26 +395,30 @@ public class OrderService {
 
     @Transactional
     public Invoice generateInvoice(Order order) {
-        return generateInvoice(order, null);
+        return generateInvoice(order, null, null);
     }
 
     @Transactional
     public Invoice generateInvoice(Order order, UUID originalInvoiceId) {
-        // Return existing if found (checked via Formula or direct repo check)
-        // Since we are using @Formula, we can check if it already has one
-        if (order.getInvoiceNo() != null && !order.getInvoiceNo().isEmpty()) return null;
+        return generateInvoice(order, originalInvoiceId, null);
+    }
+
+    @Transactional
+    public Invoice generateInvoice(Order order, UUID originalInvoiceId, String requestedInvoiceNo) {
+        if (!invoiceRepository.findByOrderId(order.getId()).isEmpty()) return null;
 
         UUID clientId = order.getClientId();
         UUID orgId = order.getOrgId();
         
         // Determine invoice document type from order type
-        DocumentType invoiceDocType = switch (order.getOrderType()) {
+        OrderType orderType = order.getOrderType() == null ? OrderType.SALE : order.getOrderType();
+        DocumentType invoiceDocType = switch (orderType) {
             case PURCHASE -> DocumentType.VENDOR_BILL;
             case EXPENSE  -> DocumentType.EXPENSE_RECEIPT;
             default       -> DocumentType.CUSTOMER_INVOICE;
         };
         
-        String invNo = sequenceService.generateNextSequence(invoiceDocType);
+        String invNo = resolveDocumentNumber(order, invoiceDocType, requestedInvoiceNo);
         
         // Map to entity InvoiceType
         InvoiceType invoiceType = switch (invoiceDocType) {
@@ -342,6 +430,13 @@ public class OrderService {
         Invoice invoice = Invoice.builder()
             .invoiceType(invoiceType)
             .terminalId(order.getTerminalId())
+            .sourceDeviceId(order.getSourceDeviceId())
+            .sourceTerminalId(order.getSourceTerminalId())
+            .sourceOperationId(order.getSourceOperationId())
+            .sourceOfflineId(order.getSourceOfflineId())
+            .sourceLocalRef(order.getSourceLocalRef())
+            .offlineCreatedAt(order.getOfflineCreatedAt())
+            .syncOrigin(order.getSyncOrigin())
             .orderId(order.getId())
             .customerId(order.getCustomerId())
             .vendorId(order.getVendorId())
@@ -367,6 +462,11 @@ public class OrderService {
 
     @Transactional
     public void generatePayment(Order order, String paymentMethod) {
+        generatePayment(order, paymentMethod, null);
+    }
+
+    @Transactional
+    public void generatePayment(Order order, String paymentMethod, String requestedPaymentNo) {
         if (order.getPaymentNo() != null && !order.getPaymentNo().isEmpty()) return;
 
         // Try to find the invoice
@@ -377,11 +477,11 @@ public class OrderService {
         UUID orgId = order.getOrgId();
         
         // INBOUND = money received (Sales), OUTBOUND = money paid (Purchase/Expense)
-        DocumentType paymentDocType = (order.getOrderType() == OrderType.SALE)
+        DocumentType paymentDocType = (order.getOrderType() == null || order.getOrderType() == OrderType.SALE)
                 ? DocumentType.INBOUND_PAYMENT
                 : DocumentType.OUTBOUND_PAYMENT;
                 
-        String payNo = sequenceService.generateNextSequence(paymentDocType);
+        String payNo = resolveDocumentNumber(order, paymentDocType, requestedPaymentNo);
 
         PaymentType paymentType = (paymentDocType == DocumentType.INBOUND_PAYMENT)
                 ? PaymentType.INBOUND
@@ -390,6 +490,13 @@ public class OrderService {
         Payment payment = Payment.builder()
             .paymentType(paymentType)
             .terminalId(order.getTerminalId())
+            .sourceDeviceId(order.getSourceDeviceId())
+            .sourceTerminalId(order.getSourceTerminalId())
+            .sourceOperationId(order.getSourceOperationId())
+            .sourceOfflineId(order.getSourceOfflineId())
+            .sourceLocalRef(order.getSourceLocalRef())
+            .offlineCreatedAt(order.getOfflineCreatedAt())
+            .syncOrigin(order.getSyncOrigin())
             .orderId(order.getId())
             .invoiceId(invoice != null ? invoice.getId() : null)
             .paymentMethod(paymentMethod)

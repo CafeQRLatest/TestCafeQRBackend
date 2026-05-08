@@ -130,7 +130,17 @@ public class SyncService {
         String path = resolvePath(operation);
 
         if ("POST".equals(method) && "/api/v1/orders".equals(path)) {
-            return orderService.createOrder(convert(operation.getPayload(), Order.class));
+            Order order = convert(operation.getPayload(), Order.class);
+            String operationId = operation.getOperationId() != null ? operation.getOperationId() : operation.getId();
+            var existingOrder = orderService.findBySourceOperationId(operationId);
+            if (existingOrder.isPresent()) {
+                return existingOrder.get();
+            }
+            if (order.getSourceOperationId() == null) order.setSourceOperationId(operationId);
+            if (order.getSourceOfflineId() == null) order.setSourceOfflineId(operation.getOfflineId());
+            if (order.getSourceLocalRef() == null) order.setSourceLocalRef(operation.getClientRequestId());
+            if (order.getSyncOrigin() == null || order.getSyncOrigin().isBlank()) order.setSyncOrigin("OFFLINE_QUEUE");
+            return orderService.createOrder(order);
         }
         if ("PUT".equals(method) && path.startsWith("/api/v1/orders/")) {
             return orderService.updateOrder(extractUuid(path, 3), convert(operation.getPayload(), Order.class));
