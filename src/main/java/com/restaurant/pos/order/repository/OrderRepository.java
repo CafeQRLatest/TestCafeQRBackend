@@ -41,6 +41,8 @@ public interface OrderRepository extends JpaRepository<Order, UUID>, JpaSpecific
     @EntityGraph(attributePaths = "lines")
     Optional<Order> findByOrderNoAndClientId(String orderNo, UUID clientId);
 
+    boolean existsByClientIdAndOrgIdAndOrderNo(UUID clientId, UUID orgId, String orderNo);
+
     @EntityGraph(attributePaths = "lines")
     Optional<Order> findBySourceOperationIdAndClientId(String sourceOperationId, UUID clientId);
 

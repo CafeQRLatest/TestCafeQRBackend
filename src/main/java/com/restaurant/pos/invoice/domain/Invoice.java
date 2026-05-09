@@ -59,7 +59,7 @@ public class Invoice extends BaseEntity {
     @Column(name = "vendor_id")
     private UUID vendorId;
 
-    @Column(name = "invoice_no", unique = true, nullable = false)
+    @Column(name = "invoice_no", nullable = false)
     private String invoiceNo;
 
     @Column(name = "invoice_date")

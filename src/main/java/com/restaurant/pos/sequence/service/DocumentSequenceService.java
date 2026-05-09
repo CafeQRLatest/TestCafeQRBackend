@@ -2,6 +2,9 @@ package com.restaurant.pos.sequence.service;
 
 import com.restaurant.pos.common.exception.BusinessException;
 import com.restaurant.pos.common.tenant.TenantContext;
+import com.restaurant.pos.invoice.repository.InvoiceRepository;
+import com.restaurant.pos.order.repository.OrderRepository;
+import com.restaurant.pos.order.repository.PaymentRepository;
 import com.restaurant.pos.sequence.domain.DocumentSequence;
 import com.restaurant.pos.sequence.domain.DocumentType;
 import com.restaurant.pos.sequence.repository.DocumentSequenceRepository;
@@ -24,11 +27,15 @@ public class DocumentSequenceService {
 
     private final DocumentSequenceRepository sequenceRepository;
     private final OrganizationRepository organizationRepository;
+    private final OrderRepository orderRepository;
+    private final InvoiceRepository invoiceRepository;
+    private final PaymentRepository paymentRepository;
 
     /**
      * CRITICAL: Uses REQUIRES_NEW to ensure the sequence increment is immediately committed
      * regardless of whether the parent transaction succeeds or rolls back. This prevents
-     * gaps in numbering but guarantees no duplicate numbers are ever issued.
+     * issued values are committed even if the parent transaction rolls back, which
+     * guarantees no duplicate numbers are ever issued.
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public String generateNextSequence(DocumentType type) {
@@ -43,35 +50,16 @@ public class DocumentSequenceService {
             throw new BusinessException("Document sequence for " + type + " is disabled.");
         }
 
-        // 2. Format the number
+        String prefix = resolvePlaceholders(sequence.getPrefix(), orgId, clientId);
+        String suffix = resolvePlaceholders(sequence.getSuffix(), orgId, clientId);
         long currentNum = sequence.getNextNumber();
-        String formattedNum = String.format("%0" + sequence.getPaddingLength() + "d", currentNum);
+        String fullSequence = format(prefix, suffix, sequence.getPaddingLength(), currentNum);
 
-        // Parse year placeholders if used in prefix/suffix
-        String year = String.valueOf(LocalDateTime.now().getYear());
-        
-        // Fetch branch code for parsing {BRANCH_CODE}
-        String branchCode = organizationRepository.findByIdAndClientId(orgId, clientId)
-                .map(Organization::getBranchCode)
-                .orElse("HQ");
-        
-        String prefix = sequence.getPrefix();
-        if (prefix != null) {
-            prefix = prefix.replace("{YYYY}", year).replace("{BRANCH_CODE}", branchCode);
-        } else {
-            prefix = "";
-        }
-        
-        String suffix = sequence.getSuffix();
-        if (suffix != null) {
-            suffix = suffix.replace("{YYYY}", year).replace("{BRANCH_CODE}", branchCode);
-        } else {
-            suffix = "";
+        while (documentNumberExists(type, clientId, orgId, fullSequence)) {
+            currentNum++;
+            fullSequence = format(prefix, suffix, sequence.getPaddingLength(), currentNum);
         }
 
-        String fullSequence = prefix + formattedNum + suffix;
-
-        // 3. Increment and save
         sequence.setNextNumber(currentNum + 1);
         sequenceRepository.saveAndFlush(sequence);
 
@@ -128,6 +116,32 @@ public class DocumentSequenceService {
         if (updateData.getNextNumber() != null) seq.setNextNumber(updateData.getNextNumber());
 
         return sequenceRepository.saveAndFlush(seq);
+    }
+
+    private String resolvePlaceholders(String value, UUID orgId, UUID clientId) {
+        if (value == null) return "";
+        String year = String.valueOf(LocalDateTime.now().getYear());
+        String branchCode = organizationRepository.findByIdAndClientId(orgId, clientId)
+                .map(Organization::getBranchCode)
+                .orElse("HQ");
+        return value.replace("{YYYY}", year).replace("{BRANCH_CODE}", branchCode);
+    }
+
+    private String format(String prefix, String suffix, Integer paddingLength, long number) {
+        int padding = paddingLength == null ? 7 : paddingLength;
+        String formattedNum = String.format("%0" + padding + "d", number);
+        return (prefix == null ? "" : prefix) + formattedNum + (suffix == null ? "" : suffix);
+    }
+
+    private boolean documentNumberExists(DocumentType type, UUID clientId, UUID orgId, String documentNo) {
+        return switch (type) {
+            case SALE_ORDER, PURCHASE_ORDER, EXPENSE ->
+                    orderRepository.existsByClientIdAndOrgIdAndOrderNo(clientId, orgId, documentNo);
+            case CUSTOMER_INVOICE, VENDOR_BILL, EXPENSE_RECEIPT ->
+                    invoiceRepository.existsByClientIdAndOrgIdAndInvoiceNo(clientId, orgId, documentNo);
+            case INBOUND_PAYMENT, OUTBOUND_PAYMENT ->
+                    paymentRepository.existsByClientIdAndOrgIdAndReferenceNo(clientId, orgId, documentNo);
+        };
     }
 
     private DocumentSequence createDefaultSequence(UUID clientId, UUID orgId, DocumentType type) {

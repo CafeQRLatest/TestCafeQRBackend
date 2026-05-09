@@ -19,6 +19,8 @@ public interface InvoiceRepository extends JpaRepository<Invoice, UUID> {
     
     Optional<Invoice> findByInvoiceNoAndClientId(String invoiceNo, UUID clientId);
     Optional<Invoice> findByInvoiceNoAndClientIdAndOrgId(String invoiceNo, UUID clientId, UUID orgId);
+
+    boolean existsByClientIdAndOrgIdAndInvoiceNo(UUID clientId, UUID orgId, String invoiceNo);
     
     long countByClientId(UUID clientId);
 }

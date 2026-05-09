@@ -41,7 +41,7 @@ public class Order extends BaseEntity {
     @Builder.Default
     private UUID id = UUID.randomUUID();
 
-    @Column(name = "order_no", unique = true, nullable = false)
+    @Column(name = "order_no", nullable = false)
     private String orderNo;
 
     @Enumerated(EnumType.STRING)

@@ -4,6 +4,9 @@ import com.restaurant.pos.client.domain.Organization;
 import com.restaurant.pos.client.repository.OrganizationRepository;
 import com.restaurant.pos.common.exception.BusinessException;
 import com.restaurant.pos.common.tenant.TenantContext;
+import com.restaurant.pos.invoice.repository.InvoiceRepository;
+import com.restaurant.pos.order.repository.OrderRepository;
+import com.restaurant.pos.order.repository.PaymentRepository;
 import com.restaurant.pos.sequence.domain.DocumentSequence;
 import com.restaurant.pos.sequence.domain.DocumentType;
 import com.restaurant.pos.sequence.domain.OfflineSequenceLease;
@@ -27,6 +30,9 @@ public class OfflineSequenceLeaseService {
     private final DocumentSequenceRepository sequenceRepository;
     private final OfflineSequenceLeaseRepository leaseRepository;
     private final OrganizationRepository organizationRepository;
+    private final OrderRepository orderRepository;
+    private final InvoiceRepository invoiceRepository;
+    private final PaymentRepository paymentRepository;
 
     @Transactional
     public List<OfflineSequenceLease> reserveDefaults(UUID requestedTerminalId, Integer requestedBlockSize) {
@@ -90,13 +96,13 @@ public class OfflineSequenceLeaseService {
             throw new BusinessException("Document sequence for " + documentType + " is disabled.");
         }
 
-        long start = sequence.getNextNumber();
+        String prefix = resolvePlaceholders(sequence.getPrefix(), orgId, clientId);
+        String suffix = resolvePlaceholders(sequence.getSuffix(), orgId, clientId);
+        long start = findAvailableRangeStart(documentType, clientId, orgId, prefix, suffix, sequence.getPaddingLength(), sequence.getNextNumber(), blockSize);
         long end = start + blockSize - 1;
         sequence.setNextNumber(end + 1);
         sequenceRepository.saveAndFlush(sequence);
 
-        String prefix = resolvePlaceholders(sequence.getPrefix(), orgId, clientId);
-        String suffix = resolvePlaceholders(sequence.getSuffix(), orgId, clientId);
         String leaseKey = terminalId + ":" + documentType + ":" + start + "-" + end;
 
         OfflineSequenceLease lease = OfflineSequenceLease.builder()
@@ -153,6 +159,53 @@ public class OfflineSequenceLeaseService {
     private String format(String prefix, String suffix, Integer paddingLength, long number) {
         String formatted = String.format("%0" + (paddingLength == null ? 7 : paddingLength) + "d", number);
         return (prefix == null ? "" : prefix) + formatted + (suffix == null ? "" : suffix);
+    }
+
+    private long findAvailableRangeStart(
+            DocumentType documentType,
+            UUID clientId,
+            UUID orgId,
+            String prefix,
+            String suffix,
+            Integer paddingLength,
+            long candidateStart,
+            int blockSize
+    ) {
+        long start = candidateStart;
+        while (rangeContainsUsedNumber(documentType, clientId, orgId, prefix, suffix, paddingLength, start, blockSize)) {
+            start++;
+        }
+        return start;
+    }
+
+    private boolean rangeContainsUsedNumber(
+            DocumentType documentType,
+            UUID clientId,
+            UUID orgId,
+            String prefix,
+            String suffix,
+            Integer paddingLength,
+            long start,
+            int blockSize
+    ) {
+        for (long number = start; number < start + blockSize; number++) {
+            String documentNo = format(prefix, suffix, paddingLength, number);
+            if (documentNumberExists(documentType, clientId, orgId, documentNo)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean documentNumberExists(DocumentType type, UUID clientId, UUID orgId, String documentNo) {
+        return switch (type) {
+            case SALE_ORDER, PURCHASE_ORDER, EXPENSE ->
+                    orderRepository.existsByClientIdAndOrgIdAndOrderNo(clientId, orgId, documentNo);
+            case CUSTOMER_INVOICE, VENDOR_BILL, EXPENSE_RECEIPT ->
+                    invoiceRepository.existsByClientIdAndOrgIdAndInvoiceNo(clientId, orgId, documentNo);
+            case INBOUND_PAYMENT, OUTBOUND_PAYMENT ->
+                    paymentRepository.existsByClientIdAndOrgIdAndReferenceNo(clientId, orgId, documentNo);
+        };
     }
 
     private DocumentSequence createDefaultSequence(UUID clientId, UUID orgId, DocumentType type) {
