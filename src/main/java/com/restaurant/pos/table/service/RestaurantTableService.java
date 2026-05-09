@@ -93,7 +93,9 @@ public class RestaurantTableService {
         RestaurantTable table = getTable(id);
         
         // Validation: Ensure table is not "Used"
-        if ("OCCUPIED".equalsIgnoreCase(table.getStatus()) || "RESERVED".equalsIgnoreCase(table.getStatus())) {
+        if ("OCCUPIED".equalsIgnoreCase(table.getStatus())
+                || "BILLED".equalsIgnoreCase(table.getStatus())
+                || "RESERVED".equalsIgnoreCase(table.getStatus())) {
             throw new IllegalStateException("Cannot delete Table " + table.getTableNumber() + " because it is currently " + table.getStatus());
         }
 

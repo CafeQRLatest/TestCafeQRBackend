@@ -3,6 +3,9 @@ package com.restaurant.pos.order.controller;
 import com.restaurant.pos.common.dto.ApiResponse;
 import com.restaurant.pos.order.domain.Order;
 import com.restaurant.pos.order.domain.OrderType;
+import com.restaurant.pos.order.dto.OrderCancelRequest;
+import com.restaurant.pos.order.dto.OrderMoveTableRequest;
+import com.restaurant.pos.order.dto.OrderSettleRequest;
 import com.restaurant.pos.order.service.OrderService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -88,5 +91,29 @@ public class OrderController {
             @RequestParam(required = false) String description
     ) {
         return ResponseEntity.ok(ApiResponse.success(orderService.updateOrderStatus(id, status, paymentStatus, description)));
+    }
+
+    @PostMapping("/{id}/bill")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
+    public ResponseEntity<ApiResponse<Order>> billOrder(@PathVariable UUID id) {
+        return ResponseEntity.ok(ApiResponse.success(orderService.billOrder(id)));
+    }
+
+    @PostMapping("/{id}/settle")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
+    public ResponseEntity<ApiResponse<Order>> settleOrder(@PathVariable UUID id, @RequestBody(required = false) OrderSettleRequest request) {
+        return ResponseEntity.ok(ApiResponse.success(orderService.settleOrder(id, request)));
+    }
+
+    @PostMapping("/{id}/move-table")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
+    public ResponseEntity<ApiResponse<Order>> moveTable(@PathVariable UUID id, @RequestBody OrderMoveTableRequest request) {
+        return ResponseEntity.ok(ApiResponse.success(orderService.moveTable(id, request)));
+    }
+
+    @PostMapping("/{id}/cancel")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
+    public ResponseEntity<ApiResponse<Order>> cancelOrder(@PathVariable UUID id, @RequestBody(required = false) OrderCancelRequest request) {
+        return ResponseEntity.ok(ApiResponse.success(orderService.cancelOrder(id, request)));
     }
 }

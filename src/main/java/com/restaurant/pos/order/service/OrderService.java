@@ -11,6 +11,9 @@ import com.restaurant.pos.order.domain.OrderLine;
 import com.restaurant.pos.order.domain.OrderType;
 import com.restaurant.pos.order.domain.Payment;
 import com.restaurant.pos.order.domain.PaymentType;
+import com.restaurant.pos.order.dto.OrderCancelRequest;
+import com.restaurant.pos.order.dto.OrderMoveTableRequest;
+import com.restaurant.pos.order.dto.OrderSettleRequest;
 import com.restaurant.pos.invoice.repository.InvoiceRepository;
 import com.restaurant.pos.order.repository.OrderRepository;
 import com.restaurant.pos.order.repository.PaymentRepository;
@@ -29,6 +32,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.List;
@@ -96,7 +100,7 @@ public class OrderService {
         if (order == null || "CANCELLED".equalsIgnoreCase(order.getOrderStatus()) || "VOID".equalsIgnoreCase(order.getOrderStatus())) {
             return false;
         }
-        return "COMPLETED".equalsIgnoreCase(order.getOrderStatus());
+        return "COMPLETED".equalsIgnoreCase(order.getOrderStatus()) || "BILLED".equalsIgnoreCase(order.getOrderStatus());
     }
 
     private void enqueueCloudPrintJobs(Order order) {
@@ -394,6 +398,122 @@ public class OrderService {
     }
 
     @Transactional
+    public Order billOrder(UUID id) {
+        Order order = getOrder(id);
+        ensureOrderCanChange(order, "bill");
+
+        order.setOrderStatus("BILLED");
+        if (!"PAID".equalsIgnoreCase(order.getPaymentStatus())) {
+            order.setPaymentStatus("PENDING");
+        }
+
+        Order saved = orderRepository.save(order);
+        generateInvoice(saved);
+        handleTableStatus(saved);
+        return hydrateOrderLines(saved);
+    }
+
+    @Transactional
+    public Order settleOrder(UUID id, OrderSettleRequest request) {
+        Order order = getOrder(id);
+        ensureOrderCanChange(order, "settle");
+
+        OrderSettleRequest safeRequest = request == null ? new OrderSettleRequest() : request;
+        String paymentMethod = normalizePaymentMethod(safeRequest.getPaymentMethod());
+        BigDecimal discountAmount = moneyValue(safeRequest.getDiscountAmount());
+        BigDecimal roundOffAmount = moneyValue(safeRequest.getRoundOffAmount());
+        BigDecimal currentTotal = moneyValue(order.getGrandTotal());
+
+        if (discountAmount.compareTo(BigDecimal.ZERO) > 0) {
+            order.setTotalDiscountAmount(moneyValue(order.getTotalDiscountAmount()).add(discountAmount));
+        }
+
+        BigDecimal payable = currentTotal.subtract(discountAmount).add(roundOffAmount);
+        if (payable.compareTo(BigDecimal.ZERO) < 0) {
+            payable = BigDecimal.ZERO;
+        }
+        payable = payable.setScale(2, RoundingMode.HALF_UP);
+
+        if (discountAmount.compareTo(BigDecimal.ZERO) > 0 || roundOffAmount.compareTo(BigDecimal.ZERO) != 0) {
+            order.setGrandTotal(payable);
+        }
+
+        order.setReference(paymentMethod);
+        order.setOrderStatus("COMPLETED");
+        order.setPaymentStatus("PAID");
+
+        String settlementDescription = buildSettlementDescription(safeRequest, paymentMethod);
+        if (!settlementDescription.isBlank()) {
+            order.setDescription(appendDescription(order.getDescription(), settlementDescription));
+        }
+
+        Order saved = orderRepository.save(order);
+        generateInvoice(saved);
+
+        BigDecimal amountPaid = safeRequest.getAmountPaid() != null
+                ? moneyValue(safeRequest.getAmountPaid())
+                : payable;
+        generatePayment(saved, paymentMethod, null, amountPaid, settlementDescription);
+
+        handleTableStatus(saved);
+
+        if (saved.getOrderType() == OrderType.PURCHASE && "COMPLETED".equalsIgnoreCase(saved.getOrderStatus())) {
+            processInventoryForOrder(saved);
+        }
+
+        return hydrateOrderLines(saved);
+    }
+
+    @Transactional
+    public Order moveTable(UUID id, OrderMoveTableRequest request) {
+        if (request == null || request.getTableId() == null) {
+            throw new IllegalArgumentException("Target table is required");
+        }
+
+        Order order = getOrder(id);
+        ensureOrderCanChange(order, "move");
+
+        UUID oldTableId = order.getTableId();
+        RestaurantTable targetTable = getTenantTable(request.getTableId());
+
+        order.setTableId(targetTable.getId());
+        order.setTableNumber(targetTable.getTableNumber());
+        order.setFulfillmentType("DINE_IN");
+
+        Order saved = orderRepository.save(order);
+        if (oldTableId != null && !oldTableId.equals(targetTable.getId())) {
+            setTableStatus(oldTableId, "AVAILABLE");
+        }
+        handleTableStatus(saved);
+        return hydrateOrderLines(saved);
+    }
+
+    @Transactional
+    public Order cancelOrder(UUID id, OrderCancelRequest request) {
+        Order order = getOrder(id);
+        ensureOrderCanChange(order, "cancel");
+
+        String reason = request != null ? request.getReason() : null;
+        order.setOrderStatus("CANCELLED");
+        if (reason != null && !reason.isBlank()) {
+            order.setDescription(appendDescription(order.getDescription(), "Cancel reason: " + reason.trim()));
+        }
+
+        Order saved = orderRepository.save(order);
+        invoiceRepository.findByOrderId(saved.getId()).forEach(invoice -> {
+            if (!Boolean.TRUE.equals(invoice.getIsPaid())) {
+                invoice.setStatus("VOID");
+                invoice.setDocStatus("VOID");
+                invoice.setAmountDue(BigDecimal.ZERO);
+                invoiceRepository.save(invoice);
+            }
+        });
+
+        handleTableStatus(saved);
+        return hydrateOrderLines(saved);
+    }
+
+    @Transactional
     public Invoice generateInvoice(Order order) {
         return generateInvoice(order, null, null);
     }
@@ -467,6 +587,11 @@ public class OrderService {
 
     @Transactional
     public void generatePayment(Order order, String paymentMethod, String requestedPaymentNo) {
+        generatePayment(order, paymentMethod, requestedPaymentNo, order.getGrandTotal(), null);
+    }
+
+    @Transactional
+    public void generatePayment(Order order, String paymentMethod, String requestedPaymentNo, BigDecimal amountPaid, String description) {
         if (order.getPaymentNo() != null && !order.getPaymentNo().isEmpty()) return;
 
         // Try to find the invoice
@@ -500,8 +625,9 @@ public class OrderService {
             .orderId(order.getId())
             .invoiceId(invoice != null ? invoice.getId() : null)
             .paymentMethod(paymentMethod)
-            .amountPaid(order.getGrandTotal())
+            .amountPaid(moneyValue(amountPaid))
             .referenceNo(payNo)
+            .description(description)
             .status("COMPLETED")
             .build();
             
@@ -522,18 +648,91 @@ public class OrderService {
     private void handleTableStatus(Order order) {
         if (order.getTableId() == null) return;
 
-        // If order is COMPLETED, CANCELLED or PAID, release table
-        boolean shouldRelease = "COMPLETED".equalsIgnoreCase(order.getOrderStatus()) || 
+        boolean shouldRelease = "COMPLETED".equalsIgnoreCase(order.getOrderStatus()) ||
                                 "CANCELLED".equalsIgnoreCase(order.getOrderStatus()) ||
                                 "PAID".equalsIgnoreCase(order.getPaymentStatus());
 
+        String nextStatus = shouldRelease
+                ? "AVAILABLE"
+                : "BILLED".equalsIgnoreCase(order.getOrderStatus()) ? "BILLED" : "OCCUPIED";
+
         tableRepository.findById(order.getTableId()).ifPresent(table -> {
-            String newStatus = shouldRelease ? "AVAILABLE" : "OCCUPIED";
-            if (!newStatus.equals(table.getStatus())) {
-                table.setStatus(newStatus);
+            if (!nextStatus.equalsIgnoreCase(String.valueOf(table.getStatus()))) {
+                table.setStatus(nextStatus);
                 tableRepository.save(table);
             }
         });
+    }
+
+    private RestaurantTable getTenantTable(UUID tableId) {
+        UUID tenantId = TenantContext.getCurrentTenant();
+        if (SecurityUtils.isSuperAdmin()) {
+            return tableRepository.findByIdAndClientId(tableId, tenantId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Target table not found"));
+        }
+        return tableRepository.findByIdAndClientIdAndOrgId(tableId, tenantId, TenantContext.getCurrentOrg())
+                .orElseThrow(() -> new ResourceNotFoundException("Target table not found"));
+    }
+
+    private void setTableStatus(UUID tableId, String status) {
+        tableRepository.findById(tableId).ifPresent(table -> {
+            table.setStatus(status);
+            tableRepository.save(table);
+        });
+    }
+
+    private void ensureOrderCanChange(Order order, String action) {
+        if (order == null) {
+            throw new ResourceNotFoundException("Order not found");
+        }
+        String status = String.valueOf(order.getOrderStatus());
+        if ("CANCELLED".equalsIgnoreCase(status) || "VOID".equalsIgnoreCase(status)) {
+            throw new IllegalStateException("Cannot " + action + " a " + status.toLowerCase() + " order");
+        }
+        if (!"settle".equalsIgnoreCase(action)
+                && ("COMPLETED".equalsIgnoreCase(status) || "PAID".equalsIgnoreCase(order.getPaymentStatus()))) {
+            throw new IllegalStateException("Cannot " + action + " a completed order");
+        }
+    }
+
+    private String normalizePaymentMethod(String paymentMethod) {
+        String method = paymentMethod == null || paymentMethod.isBlank() ? "CASH" : paymentMethod.trim().toUpperCase();
+        if (!List.of("CASH", "ONLINE", "MIXED").contains(method)) {
+            return "CASH";
+        }
+        return method;
+    }
+
+    private BigDecimal moneyValue(BigDecimal value) {
+        return (value == null ? BigDecimal.ZERO : value).setScale(2, RoundingMode.HALF_UP);
+    }
+
+    private String buildSettlementDescription(OrderSettleRequest request, String paymentMethod) {
+        List<String> parts = new java.util.ArrayList<>();
+        if ("MIXED".equalsIgnoreCase(paymentMethod)) {
+            parts.add("Cash: " + moneyValue(request.getCashAmount()));
+            parts.add("Online: " + moneyValue(request.getOnlineAmount()));
+        }
+        if (request.getDiscountAmount() != null && moneyValue(request.getDiscountAmount()).compareTo(BigDecimal.ZERO) > 0) {
+            parts.add("Discount: " + moneyValue(request.getDiscountAmount()));
+        }
+        if (request.getRoundOffAmount() != null && moneyValue(request.getRoundOffAmount()).compareTo(BigDecimal.ZERO) != 0) {
+            parts.add("Round off: " + moneyValue(request.getRoundOffAmount()));
+        }
+        if (request.getDescription() != null && !request.getDescription().isBlank()) {
+            parts.add(request.getDescription().trim());
+        }
+        return String.join("; ", parts);
+    }
+
+    private String appendDescription(String existing, String addition) {
+        if (addition == null || addition.isBlank()) {
+            return existing;
+        }
+        if (existing == null || existing.isBlank()) {
+            return addition;
+        }
+        return existing + "\n" + addition;
     }
 
     private void processInventoryForOrder(Order order) {
