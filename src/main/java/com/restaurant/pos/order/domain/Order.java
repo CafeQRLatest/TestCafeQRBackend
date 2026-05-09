@@ -98,6 +98,15 @@ public class Order extends BaseEntity {
     @Column(name = "customer_id")
     private UUID customerId;
 
+    @Column(name = "customer_name", length = 200)
+    private String customerName;
+
+    @Column(name = "customer_phone", length = 50)
+    private String customerPhone;
+
+    @Column(name = "customer_ids", columnDefinition = "TEXT")
+    private String customerIds; // JSON array of linked customer objects
+
     @Column(name = "vendor_id")
     private UUID vendorId;
 

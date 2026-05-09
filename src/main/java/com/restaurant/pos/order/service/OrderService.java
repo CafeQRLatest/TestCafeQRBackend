@@ -26,6 +26,9 @@ import com.restaurant.pos.sequence.service.DocumentSequenceService;
 import com.restaurant.pos.sequence.service.OfflineSequenceLeaseService;
 import com.restaurant.pos.table.domain.RestaurantTable;
 import com.restaurant.pos.table.repository.RestaurantTableRepository;
+import com.restaurant.pos.purchasing.domain.Customer;
+import com.restaurant.pos.purchasing.repository.CustomerRepository;
+import com.restaurant.pos.table.repository.RestaurantTableRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -56,6 +59,7 @@ public class OrderService {
     private final OfflineSequenceLeaseService offlineSequenceLeaseService;
     private final PrintJobService printJobService;
     private final ProductRepository productRepository;
+    private final CustomerRepository customerRepository;
 
     private void prepareSourceFields(Order order) {
         UUID terminalId = TenantContext.getCurrentTerminal();
@@ -172,6 +176,71 @@ public class OrderService {
         return orders;
     }
 
+    /**
+     * Ensures a customer record exists for the order.
+     * If customerName/customerPhone are provided but customerId is null,
+     * searches for an existing customer by phone (or name). If found, links it.
+     * If not found, auto-creates a new customer record.
+     */
+    private void hydrateCustomer(Order order) {
+        if (order == null) return;
+        if (order.getOrderType() != null && order.getOrderType() != OrderType.SALE) return;
+
+        UUID clientId = order.getClientId();
+        UUID orgId = order.getOrgId();
+
+        String custName = order.getCustomerName() != null ? order.getCustomerName().trim() : null;
+        String custPhone = order.getCustomerPhone() != null ? order.getCustomerPhone().trim() : null;
+
+        if ((custName == null || custName.isEmpty()) && (custPhone == null || custPhone.isEmpty())) {
+            return; // No customer info provided
+        }
+
+        // If customerId is already set, populate name/phone from the record if missing
+        if (order.getCustomerId() != null) {
+            if ((custName == null || custName.isEmpty()) || (custPhone == null || custPhone.isEmpty())) {
+                customerRepository.findByIdAndClientId(order.getCustomerId(), clientId)
+                    .ifPresent(c -> {
+                        if (order.getCustomerName() == null || order.getCustomerName().isBlank()) {
+                            order.setCustomerName(c.getName());
+                        }
+                        if (order.getCustomerPhone() == null || order.getCustomerPhone().isBlank()) {
+                            order.setCustomerPhone(c.getPhone());
+                        }
+                    });
+            }
+            return;
+        }
+
+        // Try to find existing customer by phone (strong match)
+        Optional<Customer> existing = Optional.empty();
+        if (custPhone != null && !custPhone.isEmpty()) {
+            existing = customerRepository.findByPhoneAndClientId(custPhone, clientId);
+        }
+
+        if (existing.isPresent()) {
+            Customer c = existing.get();
+            order.setCustomerId(c.getId());
+            if (order.getCustomerName() == null || order.getCustomerName().isBlank()) {
+                order.setCustomerName(c.getName());
+            }
+            return;
+        }
+
+        // Auto-create a new customer
+        Customer newCustomer = Customer.builder()
+                .name(custName != null && !custName.isEmpty() ? custName : "Guest")
+                .phone(custPhone)
+                .customerCategory("REGULAR")
+                .build();
+        newCustomer.setClientId(clientId);
+        newCustomer.setOrgId(orgId);
+
+        Customer saved = customerRepository.save(newCustomer);
+        order.setCustomerId(saved.getId());
+        log.info("Auto-created customer '{}' (phone: {}) for order {}", saved.getName(), saved.getPhone(), order.getOrderNo());
+    }
+
     public List<Order> getOrders(String status) {
         UUID tenantId = TenantContext.getCurrentTenant();
         List<String> statuses = (status != null && !status.isEmpty()) ? Arrays.asList(status.split(",")) : null;
@@ -254,6 +323,7 @@ public class OrderService {
             order.getLines().forEach(line -> line.setOrder(order));
         }
         hydrateOrderLines(order);
+        hydrateCustomer(order);
 
         Order saved = orderRepository.save(order);
         
@@ -321,6 +391,9 @@ public class OrderService {
             .tableNumber(updates.getTableNumber())
             .tableId(updates.getTableId())
             .customerId(updates.getCustomerId())
+            .customerName(updates.getCustomerName())
+            .customerPhone(updates.getCustomerPhone())
+            .customerIds(updates.getCustomerIds())
             .totalAmount(updates.getTotalAmount())
             .totalTaxAmount(updates.getTotalTaxAmount())
             .totalDiscountAmount(updates.getTotalDiscountAmount())
