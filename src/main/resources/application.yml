@@ -3,6 +3,8 @@ server:
   max-http-request-header-size: 65536
 
 spring:
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:local}
   main:
     allow-bean-definition-overriding: true
   application:

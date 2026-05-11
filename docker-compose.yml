@@ -10,6 +10,8 @@ services:
       - SPRING_DATASOURCE_USERNAME=pos_user
       - SPRING_DATASOURCE_PASSWORD=pos_password
       - JWT_SECRET=${JWT_SECRET:-your_fallback_secret_for_development}
+      - RAZORPAY_KEY_ID=rzp_live_RHGyElzudRSzgz
+      - RAZORPAY_KEY_SECRET=jCqjRcfddWa2NkfLdSmu2awB
     depends_on:
       - db
       - redis
