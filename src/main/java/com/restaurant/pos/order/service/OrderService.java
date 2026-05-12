@@ -1,6 +1,7 @@
 package com.restaurant.pos.order.service;
 
 import com.restaurant.pos.common.exception.ResourceNotFoundException;
+import com.restaurant.pos.common.exception.BusinessException;
 import com.restaurant.pos.common.tenant.TenantContext;
 import com.restaurant.pos.common.util.SecurityUtils;
 import com.restaurant.pos.inventory.service.InventoryService;
@@ -120,6 +121,41 @@ public class OrderService {
         } catch (Exception ex) {
             log.warn("Unable to enqueue cloud print job for order {}", order == null ? null : order.getId(), ex);
         }
+    }
+
+    private void validateTableAvailableForNewOrder(Order order) {
+        if (order == null || order.getTableId() == null) {
+            return;
+        }
+
+        OrderType orderType = order.getOrderType() == null ? OrderType.SALE : order.getOrderType();
+        if (orderType != OrderType.SALE) {
+            return;
+        }
+
+        ensureTableAvailableForOrder(getTenantTable(order.getTableId()));
+    }
+
+    private void ensureTableAvailableForOrder(RestaurantTable table) {
+        String status = normalizeTableStatus(table.getStatus());
+        if (!"AVAILABLE".equals(status)) {
+            throw new BusinessException(
+                    "Table " + table.getTableNumber()
+                            + " is currently " + tableStatusLabel(status)
+                            + ". Change it to Available before placing an order."
+            );
+        }
+    }
+
+    private String normalizeTableStatus(String status) {
+        if (status == null || status.isBlank()) {
+            return "AVAILABLE";
+        }
+        return status.trim().toUpperCase();
+    }
+
+    private String tableStatusLabel(String status) {
+        return "MAINTENANCE".equalsIgnoreCase(status) ? "HOLD" : status;
     }
 
     private Order hydrateOrderLines(Order order) {
@@ -316,6 +352,7 @@ public class OrderService {
             order.setOrderStatus("DRAFT");
         }
 
+        validateTableAvailableForNewOrder(order);
         assignOrderNumber(order);
 
         // Ensure bidirectional mapping
@@ -548,6 +585,9 @@ public class OrderService {
 
         UUID oldTableId = order.getTableId();
         RestaurantTable targetTable = getTenantTable(request.getTableId());
+        if (oldTableId == null || !oldTableId.equals(targetTable.getId())) {
+            ensureTableAvailableForOrder(targetTable);
+        }
 
         order.setTableId(targetTable.getId());
         order.setTableNumber(targetTable.getTableNumber());
