@@ -101,16 +101,20 @@ public class Order extends BaseEntity {
     private UUID customerId;
 
     @Transient
+    @JsonProperty("customerName")
     private String customerName;
 
     @Transient
+    @JsonProperty("customerPhone")
     private String customerPhone;
 
     @Transient
+    @JsonProperty("customerIds")
     private JsonNode customerIds;
 
     @Transient
     @Builder.Default
+    @JsonProperty("customers")
     private List<OrderCustomerDto> customers = new ArrayList<>();
 
     @Column(name = "vendor_id")
