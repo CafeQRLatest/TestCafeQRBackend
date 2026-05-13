@@ -96,11 +96,13 @@ public class ExpenseService {
      */
     @Transactional(timeout = 5)
     public ExpenseResponse createExpense(String idempotencyKey, CreateExpenseRequest request) {
+        boolean hasIdempotencyKey = idempotencyKey != null && !idempotencyKey.isBlank();
+
         // Idempotency check — prevents duplicate Order+Invoice+Payment triplets on retries
         String cacheKey = TenantContext.getCurrentOrg() + ":" + idempotencyKey;
         ExpenseResponse cached = idempotencyStore.get(cacheKey);
         if (cached != null) {
-            log.info("Idempotency hit | key={}", idempotencyKey);
+            log.info("Expense idempotency hit | keyPresent={}", hasIdempotencyKey);
             return cached;
         }
 
@@ -113,8 +115,47 @@ public class ExpenseService {
 
         Expense expense = buildExpenseEntity(request, category);
 
-        // OrderService handles Sequences, Invoices, and Payments for the unified 'orders' table.
-        Expense savedExpense = (Expense) orderService.createOrder(expense);
+        log.info(
+                "Creating expense | categoryId={} | branchId={} | amount={} | paymentMethod={} | keyPresent={}",
+                request.getCategoryId(),
+                request.getBranchId(),
+                request.getAmount(),
+                request.getPaymentMethod(),
+                hasIdempotencyKey
+        );
+
+        Expense savedExpense;
+        try {
+            // OrderService handles Sequences, Invoices, and Payments for the unified 'orders' table.
+            Order createdOrder = orderService.createOrder(expense);
+
+            if (createdOrder == null || createdOrder.getId() == null) {
+                throw new BusinessException("Failed to create expense order");
+            }
+
+            log.info(
+                    "Expense order created | orderId={} | categoryId={} | branchId={} | keyPresent={}",
+                    createdOrder.getId(),
+                    category.getId(),
+                    expense.getOrgId(),
+                    hasIdempotencyKey
+            );
+
+            // Refetch as Expense to avoid ClassCastException with JPA proxies/base Order returns.
+            savedExpense = expenseRepository.findById(createdOrder.getId())
+                    .orElseThrow(() -> new BusinessException("Failed to retrieve saved expense"));
+        } catch (RuntimeException ex) {
+            log.error(
+                    "Expense creation failed | categoryId={} | branchId={} | amount={} | paymentMethod={} | keyPresent={}",
+                    request.getCategoryId(),
+                    request.getBranchId(),
+                    request.getAmount(),
+                    request.getPaymentMethod(),
+                    hasIdempotencyKey,
+                    ex
+            );
+            throw ex;
+        }
 
         ExpenseResponse response = expenseMapper.toExpenseResponse(savedExpense, category.getName());
 
