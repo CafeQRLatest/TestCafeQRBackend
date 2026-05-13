@@ -3,6 +3,7 @@ package com.restaurant.pos.order.service;
 import com.restaurant.pos.common.tenant.TenantContext;
 import com.restaurant.pos.common.util.SecurityUtils;
 import com.restaurant.pos.invoice.domain.Invoice;
+import com.restaurant.pos.invoice.domain.InvoiceType;
 import com.restaurant.pos.invoice.repository.InvoiceRepository;
 import com.restaurant.pos.order.domain.Order;
 import com.restaurant.pos.order.domain.OrderLine;
@@ -122,6 +123,47 @@ public class ReportService {
                     .lines(lines)
                     .build();
         }).collect(Collectors.toList());
+    }
+
+    // ─── Unified Sales + Invoices ───────────────────────────────────────────
+
+    public List<SalesInvoiceReportDto> getSalesInvoices(Instant from, Instant to, String filterType) {
+        List<SalesInvoiceReportDto> rows = new ArrayList<>();
+        Set<UUID> includedOrderIds = new HashSet<>();
+
+        for (Order order : fetchSaleOrders(from, to)) {
+            includedOrderIds.add(order.getId());
+            Invoice invoice = selectDisplayInvoice(invoiceRepository.findByOrderId(order.getId()));
+            Payment payment = latestPayment(paymentRepository.findByOrderId(order.getId()));
+            SalesInvoiceReportDto row = buildSalesInvoiceRow(order, invoice, payment, true);
+            if (matchesSalesInvoiceFilter(row, filterType)) {
+                rows.add(row);
+            }
+        }
+
+        for (Invoice invoice : fetchCustomerInvoices(from, to)) {
+            UUID orderId = invoice.getOrderId();
+            if (orderId != null && includedOrderIds.contains(orderId)) {
+                continue;
+            }
+
+            Optional<Order> linkedOrder = orderId != null ? orderRepository.findById(orderId) : Optional.empty();
+            if (linkedOrder.isPresent() && linkedOrder.get().getOrderType() != OrderType.SALE) {
+                continue;
+            }
+
+            Payment payment = orderId != null ? latestPayment(paymentRepository.findByOrderId(orderId)) : null;
+            SalesInvoiceReportDto row = buildSalesInvoiceRow(linkedOrder.orElse(null), invoice, payment, false);
+            if (matchesSalesInvoiceFilter(row, filterType)) {
+                rows.add(row);
+            }
+        }
+
+        return rows.stream()
+                .sorted(Comparator.comparing(
+                        SalesInvoiceReportDto::getTransactionDate,
+                        Comparator.nullsLast(Comparator.reverseOrder())))
+                .collect(Collectors.toList());
     }
 
     // ─── Item-wise Sales ────────────────────────────────────────────────────
@@ -448,6 +490,165 @@ public class ReportService {
     }
 
     // ─── Private Helpers ────────────────────────────────────────────────────
+
+    private SalesInvoiceReportDto buildSalesInvoiceRow(Order order, Invoice invoice, Payment payment, boolean preferOrderDate) {
+        LocalDateTime orderDate = order != null && order.getOrderDate() != null
+                ? LocalDateTime.ofInstant(order.getOrderDate(), IST)
+                : null;
+        LocalDateTime invoiceDate = invoice != null ? invoice.getInvoiceDate() : null;
+        LocalDateTime createdAt = order != null ? order.getCreatedAt() : (invoice != null ? invoice.getCreatedAt() : null);
+        LocalDateTime transactionDate = preferOrderDate
+                ? firstDate(orderDate, invoiceDate, createdAt)
+                : firstDate(invoiceDate, orderDate, createdAt);
+
+        UUID orderId = order != null ? order.getId() : (invoice != null ? invoice.getOrderId() : null);
+        UUID invoiceId = invoice != null ? invoice.getId() : null;
+        String id = orderId != null ? orderId.toString() : (invoiceId != null ? invoiceId.toString() : UUID.randomUUID().toString());
+
+        return SalesInvoiceReportDto.builder()
+                .id(id)
+                .orderId(orderId)
+                .invoiceId(invoiceId)
+                .orderNo(order != null ? order.getOrderNo() : null)
+                .invoiceNo(invoice != null ? invoice.getInvoiceNo() : null)
+                .paymentNo(payment != null ? payment.getReferenceNo() : (order != null ? order.getPaymentNo() : null))
+                .orderStatus(order != null ? order.getOrderStatus() : null)
+                .paymentStatus(order != null ? order.getPaymentStatus() : null)
+                .invoiceStatus(invoice != null ? invoice.getStatus() : null)
+                .invoiceDocStatus(invoice != null ? invoice.getDocStatus() : null)
+                .fulfillmentType(order != null ? order.getFulfillmentType() : null)
+                .tableNumber(order != null ? order.getTableNumber() : null)
+                .customerName(order != null ? order.getCustomerName() : null)
+                .customerPhone(order != null ? order.getCustomerPhone() : null)
+                .paymentMethod(payment != null ? payment.getPaymentMethod() : null)
+                .totalAmount(order != null ? safe(order.getTotalAmount()) : (invoice != null ? safe(invoice.getTotalAmount()) : BigDecimal.ZERO))
+                .totalTaxAmount(order != null ? safe(order.getTotalTaxAmount()) : BigDecimal.ZERO)
+                .totalDiscountAmount(order != null ? safe(order.getTotalDiscountAmount()) : BigDecimal.ZERO)
+                .grandTotal(order != null ? safe(order.getGrandTotal()) : (invoice != null ? safe(invoice.getTotalAmount()) : BigDecimal.ZERO))
+                .amountDue(invoice != null ? safe(invoice.getAmountDue()) : null)
+                .transactionDate(transactionDate)
+                .orderDate(orderDate)
+                .invoiceDate(invoiceDate)
+                .createdAt(createdAt)
+                .voidable(invoice != null && !isVoidStatus(invoice.getStatus()) && !isVoidStatus(invoice.getDocStatus()))
+                .lines(toSalesInvoiceLines(order))
+                .build();
+    }
+
+    private List<SalesInvoiceReportDto.LineDto> toSalesInvoiceLines(Order order) {
+        if (order == null || order.getLines() == null) {
+            return List.of();
+        }
+        return order.getLines().stream()
+                .filter(OrderLine::isActive)
+                .map(line -> SalesInvoiceReportDto.LineDto.builder()
+                        .productId(line.getProductId())
+                        .productName(line.getProductName())
+                        .categoryName(line.getCategoryName())
+                        .quantity(safe(line.getQuantity()))
+                        .unitPrice(safe(line.getUnitPrice()))
+                        .taxRate(safe(line.getTaxRate()))
+                        .taxAmount(safe(line.getTaxAmount()))
+                        .discountAmount(safe(line.getDiscountAmount()))
+                        .lineTotal(safe(line.getLineTotal()))
+                        .build())
+                .collect(Collectors.toList());
+    }
+
+    private Invoice selectDisplayInvoice(List<Invoice> invoices) {
+        if (invoices == null || invoices.isEmpty()) {
+            return null;
+        }
+        return invoices.stream()
+                .filter(this::isCustomerInvoice)
+                .max(Comparator
+                        .comparing((Invoice invoice) -> !isVoidStatus(invoice.getStatus()) && !isVoidStatus(invoice.getDocStatus()))
+                        .thenComparing(this::invoiceSortDate))
+                .orElse(null);
+    }
+
+    private Payment latestPayment(List<Payment> payments) {
+        if (payments == null || payments.isEmpty()) {
+            return null;
+        }
+        return payments.stream()
+                .max(Comparator.comparing(this::paymentSortDate))
+                .orElse(null);
+    }
+
+    private boolean matchesSalesInvoiceFilter(SalesInvoiceReportDto row, String filterType) {
+        String ft = filterType != null ? filterType.toUpperCase(Locale.ROOT) : "ALL";
+        boolean isVoided = isVoidStatus(row.getInvoiceStatus()) || isVoidStatus(row.getInvoiceDocStatus()) || isVoidStatus(row.getOrderStatus());
+        BigDecimal due = row.getAmountDue();
+        boolean hasDue = due != null && due.compareTo(BigDecimal.ZERO) > 0;
+        boolean invoicePaid = "PAID".equalsIgnoreCase(row.getInvoiceStatus()) && !hasDue;
+        boolean orderPaid = "PAID".equalsIgnoreCase(row.getPaymentStatus());
+        boolean invoiceCredit = "UNPAID".equalsIgnoreCase(row.getInvoiceStatus())
+                || "PARTIAL".equalsIgnoreCase(row.getInvoiceStatus())
+                || hasDue;
+        boolean orderCredit = row.getInvoiceId() == null
+                && ("PENDING".equalsIgnoreCase(row.getPaymentStatus()) || "PARTIAL".equalsIgnoreCase(row.getPaymentStatus()));
+
+        if ("PAID".equals(ft)) {
+            return !isVoided && (invoicePaid || orderPaid);
+        }
+        if ("CREDIT".equals(ft)) {
+            return !isVoided && (invoiceCredit || orderCredit);
+        }
+        if ("VOIDED".equals(ft)) {
+            return isVoided;
+        }
+        return true;
+    }
+
+    private boolean isCustomerInvoice(Invoice invoice) {
+        return invoice != null && invoice.getInvoiceType() == InvoiceType.CUSTOMER_INVOICE;
+    }
+
+    private boolean isVoidStatus(String status) {
+        return status != null && ("VOID".equalsIgnoreCase(status) || "VOIDED".equalsIgnoreCase(status));
+    }
+
+    private LocalDateTime invoiceSortDate(Invoice invoice) {
+        return firstDate(invoice.getInvoiceDate(), invoice.getCreatedAt(), LocalDateTime.MIN);
+    }
+
+    private LocalDateTime paymentSortDate(Payment payment) {
+        return firstDate(payment.getPaymentDate(), payment.getCreatedAt(), LocalDateTime.MIN);
+    }
+
+    private LocalDateTime firstDate(LocalDateTime... dates) {
+        for (LocalDateTime date : dates) {
+            if (date != null) {
+                return date;
+            }
+        }
+        return null;
+    }
+
+    private List<Invoice> fetchCustomerInvoices(Instant from, Instant to) {
+        UUID clientId = TenantContext.getCurrentTenant();
+        UUID orgId = SecurityUtils.isSuperAdmin() ? null : TenantContext.getCurrentOrg();
+        LocalDateTime ldFrom = from != null ? LocalDateTime.ofInstant(from, IST) : null;
+        LocalDateTime ldTo = to != null ? LocalDateTime.ofInstant(to, IST) : null;
+
+        return invoiceRepository.findAll((root, query, cb) -> {
+            var predicates = new ArrayList<jakarta.persistence.criteria.Predicate>();
+            predicates.add(cb.equal(root.get("clientId"), clientId));
+            if (orgId != null) {
+                predicates.add(cb.equal(root.get("orgId"), orgId));
+            }
+            predicates.add(cb.equal(root.get("invoiceType"), InvoiceType.CUSTOMER_INVOICE));
+            if (ldFrom != null) {
+                predicates.add(cb.greaterThanOrEqualTo(root.get("invoiceDate"), ldFrom));
+            }
+            if (ldTo != null) {
+                predicates.add(cb.lessThanOrEqualTo(root.get("invoiceDate"), ldTo));
+            }
+            query.orderBy(cb.desc(root.get("invoiceDate")));
+            return cb.and(predicates.toArray(new jakarta.persistence.criteria.Predicate[0]));
+        });
+    }
 
     private List<Order> fetchSaleOrders(Instant from, Instant to) {
         UUID clientId = TenantContext.getCurrentTenant();

@@ -37,6 +37,15 @@ public class ReportController {
         return ResponseEntity.ok(ApiResponse.success(reportService.getSalesOrders(from, to)));
     }
 
+    @GetMapping("/sales-invoices")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
+    public ResponseEntity<ApiResponse<List<SalesInvoiceReportDto>>> getSalesInvoices(
+            @RequestParam(required = false) Instant from,
+            @RequestParam(required = false) Instant to,
+            @RequestParam(defaultValue = "ALL") String type) {
+        return ResponseEntity.ok(ApiResponse.success(reportService.getSalesInvoices(from, to, type)));
+    }
+
     @GetMapping("/item-wise")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
     public ResponseEntity<ApiResponse<List<ItemSalesDto>>> getItemWiseSales(
