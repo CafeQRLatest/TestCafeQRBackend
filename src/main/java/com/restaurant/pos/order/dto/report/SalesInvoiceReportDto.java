@@ -1,5 +1,6 @@
 package com.restaurant.pos.order.dto.report;
 
+import com.restaurant.pos.order.dto.OrderCustomerDto;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -29,6 +30,7 @@ public class SalesInvoiceReportDto {
     private String tableNumber;
     private String customerName;
     private String customerPhone;
+    private List<OrderCustomerDto> customers;
     private String paymentMethod;
     private BigDecimal totalAmount;
     private BigDecimal totalTaxAmount;

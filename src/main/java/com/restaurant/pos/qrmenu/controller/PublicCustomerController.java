@@ -31,10 +31,9 @@ public class PublicCustomerController {
             return ResponseEntity.badRequest().body(ApiResponse.error("Identifier is required"));
         }
         
-        String sanitized = identifier.trim();
+        boolean isEmail = identifier.contains("@");
+        String sanitized = isEmail ? identifier.trim() : normalizePhone(identifier);
         String otp = otpService.generateAndSaveOtp(sanitized);
-        
-        boolean isEmail = sanitized.contains("@");
         
         if (isEmail) {
             emailService.sendOtpEmail(sanitized, otp);
@@ -61,7 +60,8 @@ public class PublicCustomerController {
             return ResponseEntity.badRequest().body(ApiResponse.error("Missing required fields"));
         }
 
-        String sanitized = identifier.trim();
+        boolean isEmail = identifier.contains("@");
+        String sanitized = isEmail ? identifier.trim() : normalizePhone(identifier);
         if (!otpService.verifyOtp(sanitized, otp)) {
             return ResponseEntity.badRequest().body(ApiResponse.error("Invalid or expired OTP"));
         }
@@ -69,10 +69,9 @@ public class PublicCustomerController {
         UUID clientId = UUID.fromString(clientIdStr);
         UUID orgId = (orgIdStr != null && !orgIdStr.isBlank() && !"null".equals(orgIdStr)) ? UUID.fromString(orgIdStr) : null;
 
-        boolean isEmail = sanitized.contains("@");
         Optional<Customer> existing = isEmail 
                 ? customerRepository.findByEmailAndClientId(sanitized, clientId)
-                : customerRepository.findByPhoneAndClientId(sanitized, clientId);
+                : customerRepository.findFirstByPhoneAndClientIdOrderByCreatedAtAsc(sanitized, clientId);
                 
         Customer customer;
         if (existing.isPresent()) {
@@ -99,5 +98,13 @@ public class PublicCustomerController {
                 "phone", customer.getPhone() != null ? customer.getPhone() : "",
                 "email", customer.getEmail() != null ? customer.getEmail() : ""
         )));
+    }
+
+    private String normalizePhone(String phone) {
+        if (phone == null) {
+            return null;
+        }
+        String normalized = phone.trim().replaceAll("[\\s()\\-]", "");
+        return normalized.isBlank() ? phone.trim() : normalized;
     }
 }

@@ -1,5 +1,6 @@
 package com.restaurant.pos.purchasing.service;
 
+import com.restaurant.pos.common.exception.BusinessException;
 import com.restaurant.pos.common.exception.ResourceNotFoundException;
 import com.restaurant.pos.common.tenant.TenantContext;
 import com.restaurant.pos.common.util.SecurityUtils;
@@ -49,6 +50,8 @@ public class PurchasingService {
         if (!SecurityUtils.isSuperAdmin() || customer.getOrgId() == null) {
             customer.setOrgId(TenantContext.getCurrentOrg());
         }
+        customer.setPhone(normalizePhone(customer.getPhone()));
+        ensureUniqueCustomerPhone(customer.getClientId(), customer.getPhone(), null);
         return customerRepository.save(customer);
     }
 
@@ -56,7 +59,9 @@ public class PurchasingService {
     public Customer updateCustomer(UUID id, Customer updates) {
         Customer existing = getCustomer(id);
         existing.setName(updates.getName());
-        existing.setPhone(updates.getPhone());
+        String normalizedPhone = normalizePhone(updates.getPhone());
+        ensureUniqueCustomerPhone(existing.getClientId(), normalizedPhone, existing.getId());
+        existing.setPhone(normalizedPhone);
         existing.setEmail(updates.getEmail());
         existing.setAddress(updates.getAddress());
         existing.setGstNumber(updates.getGstNumber());
@@ -73,6 +78,26 @@ public class PurchasingService {
     public void deleteCustomer(UUID id) {
         Customer customer = getCustomer(id);
         customerRepository.delete(customer);
+    }
+
+    private String normalizePhone(String phone) {
+        if (phone == null) {
+            return null;
+        }
+        String normalized = phone.trim().replaceAll("[\\s()\\-]", "");
+        return normalized.isBlank() ? null : normalized;
+    }
+
+    private void ensureUniqueCustomerPhone(UUID clientId, String phone, UUID existingCustomerId) {
+        if (clientId == null || phone == null || phone.isBlank()) {
+            return;
+        }
+        boolean duplicate = existingCustomerId == null
+                ? customerRepository.existsByClientIdAndPhone(clientId, phone)
+                : customerRepository.existsByClientIdAndPhoneAndIdNot(clientId, phone, existingCustomerId);
+        if (duplicate) {
+            throw new BusinessException("A customer with this phone number already exists");
+        }
     }
 
     // ═══════════════════════════════════════════════════════════════════════

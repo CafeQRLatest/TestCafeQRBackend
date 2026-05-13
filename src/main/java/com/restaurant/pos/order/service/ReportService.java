@@ -9,9 +9,12 @@ import com.restaurant.pos.order.domain.Order;
 import com.restaurant.pos.order.domain.OrderLine;
 import com.restaurant.pos.order.domain.OrderType;
 import com.restaurant.pos.order.domain.Payment;
+import com.restaurant.pos.order.dto.OrderCustomerDto;
 import com.restaurant.pos.order.dto.report.*;
 import com.restaurant.pos.order.repository.OrderRepository;
 import com.restaurant.pos.order.repository.PaymentRepository;
+import com.restaurant.pos.purchasing.domain.Customer;
+import com.restaurant.pos.purchasing.repository.CustomerRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -35,6 +38,7 @@ public class ReportService {
     private final OrderRepository orderRepository;
     private final InvoiceRepository invoiceRepository;
     private final PaymentRepository paymentRepository;
+    private final CustomerRepository customerRepository;
 
     private static final ZoneId IST = ZoneId.of("Asia/Kolkata");
 
@@ -103,6 +107,7 @@ public class ReportService {
                         .collect(Collectors.toList());
 
             Instant od = o.getOrderDate();
+            List<OrderCustomerDto> customers = linkedCustomers(o);
             return OrderReportDto.builder()
                     .id(o.getId())
                     .orderNo(o.getOrderNo())
@@ -112,8 +117,9 @@ public class ReportService {
                     .paymentStatus(o.getPaymentStatus())
                     .fulfillmentType(o.getFulfillmentType())
                     .tableNumber(o.getTableNumber())
-                    .customerName(o.getCustomerName())
-                    .customerPhone(o.getCustomerPhone())
+                    .customerName(customerDisplay(customers))
+                    .customerPhone(customerPhoneDisplay(customers))
+                    .customers(customers)
                     .totalAmount(safe(o.getTotalAmount()))
                     .totalTaxAmount(safe(o.getTotalTaxAmount()))
                     .totalDiscountAmount(safe(o.getTotalDiscountAmount()))
@@ -368,7 +374,7 @@ public class ReportService {
                 });
                 Optional<Order> linkedOrder = orderRepository.findById(inv.getOrderId());
                 if (linkedOrder.isPresent()) {
-                    customerName = linkedOrder.get().getCustomerName();
+                    customerName = customerDisplay(linkedCustomers(linkedOrder.get()));
                 }
             }
 
@@ -505,6 +511,8 @@ public class ReportService {
         UUID invoiceId = invoice != null ? invoice.getId() : null;
         String id = orderId != null ? orderId.toString() : (invoiceId != null ? invoiceId.toString() : UUID.randomUUID().toString());
 
+        List<OrderCustomerDto> customers = linkedCustomers(order);
+
         return SalesInvoiceReportDto.builder()
                 .id(id)
                 .orderId(orderId)
@@ -518,8 +526,9 @@ public class ReportService {
                 .invoiceDocStatus(invoice != null ? invoice.getDocStatus() : null)
                 .fulfillmentType(order != null ? order.getFulfillmentType() : null)
                 .tableNumber(order != null ? order.getTableNumber() : null)
-                .customerName(order != null ? order.getCustomerName() : null)
-                .customerPhone(order != null ? order.getCustomerPhone() : null)
+                .customerName(customerDisplay(customers))
+                .customerPhone(customerPhoneDisplay(customers))
+                .customers(customers)
                 .paymentMethod(payment != null ? payment.getPaymentMethod() : null)
                 .totalAmount(order != null ? safe(order.getTotalAmount()) : (invoice != null ? safe(invoice.getTotalAmount()) : BigDecimal.ZERO))
                 .totalTaxAmount(order != null ? safe(order.getTotalTaxAmount()) : BigDecimal.ZERO)
@@ -553,6 +562,71 @@ public class ReportService {
                         .lineTotal(safe(line.getLineTotal()))
                         .build())
                 .collect(Collectors.toList());
+    }
+
+    private List<OrderCustomerDto> linkedCustomers(Order order) {
+        if (order == null || order.getId() == null || order.getClientId() == null) {
+            return List.of();
+        }
+        List<Customer> customers = new ArrayList<>(customerRepository.findByClientIdAndOrderLink(
+                order.getClientId(),
+                orderNeedle(order.getId(), false),
+                orderNeedle(order.getId(), true)
+        ));
+        if (customers.isEmpty() && order.getCustomerId() != null) {
+            customerRepository.findByIdAndClientId(order.getCustomerId(), order.getClientId()).ifPresent(customers::add);
+        }
+        List<OrderCustomerDto> result = new ArrayList<>();
+        for (int i = 0; i < customers.size(); i++) {
+            Customer customer = customers.get(i);
+            result.add(OrderCustomerDto.builder()
+                    .id(customer.getId())
+                    .name(customer.getName())
+                    .phone(customer.getPhone())
+                    .primary(isPrimaryForOrder(customer, order.getId()) || i == 0)
+                    .build());
+        }
+        result.sort((a, b) -> Boolean.compare(!a.isPrimary(), !b.isPrimary()));
+        return result;
+    }
+
+    private String customerDisplay(List<OrderCustomerDto> customers) {
+        if (customers == null || customers.isEmpty()) {
+            return null;
+        }
+        return customers.stream()
+                .map(customer -> {
+                    String name = customer.getName() != null && !customer.getName().isBlank() ? customer.getName() : "Guest";
+                    return customer.getPhone() != null && !customer.getPhone().isBlank()
+                            ? name + " (" + customer.getPhone() + ")"
+                            : name;
+                })
+                .collect(Collectors.joining(", "));
+    }
+
+    private String customerPhoneDisplay(List<OrderCustomerDto> customers) {
+        if (customers == null || customers.isEmpty()) {
+            return null;
+        }
+        return customers.stream()
+                .map(OrderCustomerDto::getPhone)
+                .filter(phone -> phone != null && !phone.isBlank())
+                .collect(Collectors.joining(", "));
+    }
+
+    private boolean isPrimaryForOrder(Customer customer, UUID orderId) {
+        if (customer.getOrderLinks() == null) {
+            return false;
+        }
+        return customer.getOrderLinks().stream()
+                .anyMatch(link -> orderId.equals(link.getOrderId()) && Boolean.TRUE.equals(link.getIsPrimary()));
+    }
+
+    private String orderNeedle(UUID orderId, boolean primary) {
+        if (primary) {
+            return "[{\"orderId\":\"" + orderId + "\",\"isPrimary\":true}]";
+        }
+        return "[{\"orderId\":\"" + orderId + "\"}]";
     }
 
     private Invoice selectDisplayInvoice(List<Invoice> invoices) {

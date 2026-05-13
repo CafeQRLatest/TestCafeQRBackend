@@ -2,6 +2,8 @@ package com.restaurant.pos.order.domain;
 
 import com.restaurant.pos.common.entity.BaseEntity;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.restaurant.pos.order.dto.OrderCustomerDto;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.Formula;
@@ -98,14 +100,18 @@ public class Order extends BaseEntity {
     @Column(name = "customer_id")
     private UUID customerId;
 
-    @Column(name = "customer_name", length = 200)
+    @Transient
     private String customerName;
 
-    @Column(name = "customer_phone", length = 50)
+    @Transient
     private String customerPhone;
 
-    @Column(name = "customer_ids", columnDefinition = "TEXT")
-    private String customerIds; // JSON array of linked customer objects
+    @Transient
+    private JsonNode customerIds;
+
+    @Transient
+    @Builder.Default
+    private List<OrderCustomerDto> customers = new ArrayList<>();
 
     @Column(name = "vendor_id")
     private UUID vendorId;

@@ -8,6 +8,8 @@ import com.restaurant.pos.order.repository.OrderRepository;
 import com.restaurant.pos.product.domain.Product;
 import com.restaurant.pos.product.repository.ProductRepository;
 import com.restaurant.pos.common.service.SystemConfigurationService;
+import com.restaurant.pos.purchasing.domain.Customer;
+import com.restaurant.pos.purchasing.repository.CustomerRepository;
 import com.restaurant.pos.table.domain.RestaurantTable;
 import com.restaurant.pos.table.repository.RestaurantTableRepository;
 import lombok.RequiredArgsConstructor;
@@ -36,6 +38,7 @@ public class PublicMenuController {
     private final com.restaurant.pos.client.repository.ClientRepository clientRepository;
     private final com.restaurant.pos.client.repository.OrganizationRepository organizationRepository;
     private final SystemConfigurationService systemConfigurationService;
+    private final CustomerRepository customerRepository;
 
     /**
      * GET /api/v1/public/menu/{clientId}/{orgId}
@@ -231,6 +234,7 @@ public class PublicMenuController {
         order.setGrandTotal(grandTotal);
 
         Order saved = orderRepository.save(order);
+        linkCustomerToOrder(saved);
 
         // Update table status to OCCUPIED
         if (tableIdStr != null && !tableIdStr.isBlank()) {
@@ -269,5 +273,23 @@ public class PublicMenuController {
             }
         }
         return method;
+    }
+
+    private void linkCustomerToOrder(Order order) {
+        if (order.getCustomerId() == null || order.getClientId() == null || order.getId() == null) {
+            return;
+        }
+        customerRepository.findByIdAndClientId(order.getCustomerId(), order.getClientId()).ifPresent(customer -> {
+            if (customer.getOrderLinks() == null) {
+                customer.setOrderLinks(new ArrayList<>());
+            }
+            customer.getOrderLinks().removeIf(link -> order.getId().equals(link.getOrderId()));
+            customer.getOrderLinks().add(Customer.OrderLink.builder()
+                    .orderId(order.getId())
+                    .isPrimary(true)
+                    .attachedAt(Instant.now().toString())
+                    .build());
+            customerRepository.save(customer);
+        });
     }
 }

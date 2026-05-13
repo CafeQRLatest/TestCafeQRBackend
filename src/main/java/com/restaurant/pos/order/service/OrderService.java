@@ -1,5 +1,7 @@
 package com.restaurant.pos.order.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.restaurant.pos.common.exception.ResourceNotFoundException;
 import com.restaurant.pos.common.exception.BusinessException;
 import com.restaurant.pos.common.tenant.TenantContext;
@@ -13,6 +15,7 @@ import com.restaurant.pos.order.domain.OrderType;
 import com.restaurant.pos.order.domain.Payment;
 import com.restaurant.pos.order.domain.PaymentType;
 import com.restaurant.pos.order.dto.OrderCancelRequest;
+import com.restaurant.pos.order.dto.OrderCustomerDto;
 import com.restaurant.pos.order.dto.OrderMoveTableRequest;
 import com.restaurant.pos.order.dto.OrderSettleRequest;
 import com.restaurant.pos.invoice.repository.InvoiceRepository;
@@ -29,7 +32,6 @@ import com.restaurant.pos.table.domain.RestaurantTable;
 import com.restaurant.pos.table.repository.RestaurantTableRepository;
 import com.restaurant.pos.purchasing.domain.Customer;
 import com.restaurant.pos.purchasing.repository.CustomerRepository;
-import com.restaurant.pos.table.repository.RestaurantTableRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -37,8 +39,11 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -61,6 +66,7 @@ public class OrderService {
     private final PrintJobService printJobService;
     private final ProductRepository productRepository;
     private final CustomerRepository customerRepository;
+    private final ObjectMapper objectMapper;
 
     private void prepareSourceFields(Order order) {
         UUID terminalId = TenantContext.getCurrentTerminal();
@@ -212,70 +218,245 @@ public class OrderService {
         return orders;
     }
 
-    /**
-     * Ensures a customer record exists for the order.
-     * If customerName/customerPhone are provided but customerId is null,
-     * searches for an existing customer by phone (or name). If found, links it.
-     * If not found, auto-creates a new customer record.
-     */
     private void hydrateCustomer(Order order) {
         if (order == null) return;
         if (order.getOrderType() != null && order.getOrderType() != OrderType.SALE) return;
 
         UUID clientId = order.getClientId();
         UUID orgId = order.getOrgId();
+        List<CustomerSelection> selections = customerSelections(order);
 
-        String custName = order.getCustomerName() != null ? order.getCustomerName().trim() : null;
-        String custPhone = order.getCustomerPhone() != null ? order.getCustomerPhone().trim() : null;
-
-        if ((custName == null || custName.isEmpty()) && (custPhone == null || custPhone.isEmpty())) {
-            return; // No customer info provided
-        }
-
-        // If customerId is already set, populate name/phone from the record if missing
-        if (order.getCustomerId() != null) {
-            if ((custName == null || custName.isEmpty()) || (custPhone == null || custPhone.isEmpty())) {
-                customerRepository.findByIdAndClientId(order.getCustomerId(), clientId)
-                    .ifPresent(c -> {
-                        if (order.getCustomerName() == null || order.getCustomerName().isBlank()) {
-                            order.setCustomerName(c.getName());
-                        }
-                        if (order.getCustomerPhone() == null || order.getCustomerPhone().isBlank()) {
-                            order.setCustomerPhone(c.getPhone());
-                        }
-                    });
-            }
+        if (selections.isEmpty()) {
+            hydrateOrderCustomers(order);
             return;
         }
 
-        // Try to find existing customer by phone (strong match)
-        Optional<Customer> existing = Optional.empty();
-        if (custPhone != null && !custPhone.isEmpty()) {
-            existing = customerRepository.findByPhoneAndClientId(custPhone, clientId);
-        }
-
-        if (existing.isPresent()) {
-            Customer c = existing.get();
-            order.setCustomerId(c.getId());
-            if (order.getCustomerName() == null || order.getCustomerName().isBlank()) {
-                order.setCustomerName(c.getName());
+        List<OrderCustomerDto> linkedCustomers = new ArrayList<>();
+        Instant attachedAt = Instant.now();
+        for (int i = 0; i < selections.size(); i++) {
+            CustomerSelection selection = selections.get(i);
+            Customer customer = resolveCustomer(clientId, orgId, selection);
+            boolean primary = i == 0;
+            linkCustomerToOrder(customer, order.getId(), primary, attachedAt);
+            Customer saved = customerRepository.save(customer);
+            linkedCustomers.add(toOrderCustomerDto(saved, primary));
+            if (primary) {
+                order.setCustomerId(saved.getId());
+                order.setCustomerName(saved.getName());
+                order.setCustomerPhone(saved.getPhone());
             }
-            return;
+        }
+        order.setCustomers(linkedCustomers);
+    }
+
+    private Customer resolveCustomer(UUID clientId, UUID orgId, CustomerSelection selection) {
+        if (selection.id() != null) {
+            return customerRepository.findByIdAndClientId(selection.id(), clientId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Customer not found"));
         }
 
-        // Auto-create a new customer
+        String phone = normalizePhone(selection.phone());
+        if (phone != null) {
+            Optional<Customer> existing = customerRepository.findFirstByPhoneAndClientIdOrderByCreatedAtAsc(phone, clientId);
+            if (existing.isPresent()) {
+                Customer customer = existing.get();
+                if ((customer.getName() == null || customer.getName().isBlank()) && selection.name() != null) {
+                    customer.setName(selection.name());
+                }
+                return customer;
+            }
+        }
+
         Customer newCustomer = Customer.builder()
-                .name(custName != null && !custName.isEmpty() ? custName : "Guest")
-                .phone(custPhone)
+                .name(selection.name() != null && !selection.name().isBlank() ? selection.name().trim() : "Guest")
+                .phone(phone)
                 .customerCategory("REGULAR")
                 .build();
         newCustomer.setClientId(clientId);
         newCustomer.setOrgId(orgId);
-
-        Customer saved = customerRepository.save(newCustomer);
-        order.setCustomerId(saved.getId());
-        log.info("Auto-created customer '{}' (phone: {}) for order {}", saved.getName(), saved.getPhone(), order.getOrderNo());
+        return newCustomer;
     }
+
+    private void linkCustomerToOrder(Customer customer, UUID orderId, boolean primary, Instant attachedAt) {
+        if (customer.getOrderLinks() == null) {
+            customer.setOrderLinks(new ArrayList<>());
+        }
+        customer.getOrderLinks().removeIf(link -> orderId.equals(link.getOrderId()));
+        customer.getOrderLinks().add(Customer.OrderLink.builder()
+                .orderId(orderId)
+                .isPrimary(primary)
+                .attachedAt(attachedAt.toString())
+                .build());
+    }
+
+    private List<CustomerSelection> customerSelections(Order order) {
+        Map<String, CustomerSelection> selections = new LinkedHashMap<>();
+        JsonNode raw = normalizeCustomerIdsNode(order.getCustomerIds());
+        if (raw != null && raw.isArray()) {
+            raw.forEach(node -> addCustomerSelection(selections, fromCustomerNode(node)));
+        } else if (raw != null) {
+            addCustomerSelection(selections, fromCustomerNode(raw));
+        }
+
+        if (order.getCustomerId() != null) {
+            addCustomerSelection(selections, new CustomerSelection(order.getCustomerId(), null, null));
+        }
+        if ((order.getCustomerName() != null && !order.getCustomerName().isBlank())
+                || (order.getCustomerPhone() != null && !order.getCustomerPhone().isBlank())) {
+            addCustomerSelection(selections, new CustomerSelection(null, order.getCustomerName(), order.getCustomerPhone()));
+        }
+        return selections.values().stream()
+                .filter(selection -> selection.id() != null
+                        || (selection.name() != null && !selection.name().isBlank())
+                        || (selection.phone() != null && !selection.phone().isBlank()))
+                .toList();
+    }
+
+    private JsonNode normalizeCustomerIdsNode(JsonNode raw) {
+        if (raw == null || raw.isNull()) {
+            return null;
+        }
+        if (raw.isTextual()) {
+            String text = raw.asText();
+            if (text == null || text.isBlank()) {
+                return null;
+            }
+            try {
+                return objectMapper.readTree(text);
+            } catch (Exception ignored) {
+                return null;
+            }
+        }
+        return raw;
+    }
+
+    private CustomerSelection fromCustomerNode(JsonNode node) {
+        if (node == null || node.isNull()) {
+            return null;
+        }
+        if (node.isTextual()) {
+            return new CustomerSelection(parseUuid(node.asText()), null, null);
+        }
+        UUID id = parseUuid(textValue(node, "id"));
+        String name = textValue(node, "name");
+        String phone = textValue(node, "phone");
+        return new CustomerSelection(id, name, phone);
+    }
+
+    private void addCustomerSelection(Map<String, CustomerSelection> selections, CustomerSelection selection) {
+        if (selection == null) {
+            return;
+        }
+        String phone = normalizePhone(selection.phone());
+        String key = selection.id() != null
+                ? "id:" + selection.id()
+                : phone != null ? "phone:" + phone : "name:" + String.valueOf(selection.name()).trim().toLowerCase();
+        selections.putIfAbsent(key, new CustomerSelection(selection.id(), trimToNull(selection.name()), phone));
+    }
+
+    private UUID parseUuid(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        try {
+            return UUID.fromString(value.trim());
+        } catch (IllegalArgumentException ignored) {
+            return null;
+        }
+    }
+
+    private String textValue(JsonNode node, String field) {
+        JsonNode value = node.get(field);
+        return value == null || value.isNull() ? null : value.asText();
+    }
+
+    private String trimToNull(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private String normalizePhone(String phone) {
+        if (phone == null) {
+            return null;
+        }
+        String normalized = phone.trim().replaceAll("[\\s()\\-]", "");
+        return normalized.isBlank() ? null : normalized;
+    }
+
+    private Order hydrateOrder(Order order) {
+        return hydrateOrderCustomers(hydrateOrderLines(order));
+    }
+
+    private List<Order> hydrateOrders(List<Order> orders) {
+        return hydrateOrderCustomers(hydrateOrderLines(orders));
+    }
+
+    private Order hydrateOrderCustomers(Order order) {
+        if (order == null || order.getClientId() == null || order.getId() == null) {
+            return order;
+        }
+        List<Customer> linked = new ArrayList<>(customerRepository.findByClientIdAndOrderLink(
+                order.getClientId(),
+                orderNeedle(order.getId(), false),
+                orderNeedle(order.getId(), true)
+        ));
+        if (linked.isEmpty() && order.getCustomerId() != null) {
+            customerRepository.findByIdAndClientId(order.getCustomerId(), order.getClientId()).ifPresent(linked::add);
+        }
+        List<OrderCustomerDto> customers = new ArrayList<>();
+        for (int i = 0; i < linked.size(); i++) {
+            Customer customer = linked.get(i);
+            boolean primary = isPrimaryForOrder(customer, order.getId()) || i == 0;
+            customers.add(toOrderCustomerDto(customer, primary));
+        }
+        customers.sort((a, b) -> Boolean.compare(!a.isPrimary(), !b.isPrimary()));
+        order.setCustomers(customers);
+        customers.stream().filter(OrderCustomerDto::isPrimary).findFirst().ifPresent(primary -> {
+            order.setCustomerId(primary.getId());
+            order.setCustomerName(primary.getName());
+            order.setCustomerPhone(primary.getPhone());
+        });
+        if (!customers.isEmpty() && (order.getCustomerName() == null || order.getCustomerName().isBlank())) {
+            OrderCustomerDto first = customers.get(0);
+            order.setCustomerName(first.getName());
+            order.setCustomerPhone(first.getPhone());
+        }
+        return order;
+    }
+
+    private List<Order> hydrateOrderCustomers(List<Order> orders) {
+        orders.forEach(this::hydrateOrderCustomers);
+        return orders;
+    }
+
+    private String orderNeedle(UUID orderId, boolean primary) {
+        if (primary) {
+            return "[{\"orderId\":\"" + orderId + "\",\"isPrimary\":true}]";
+        }
+        return "[{\"orderId\":\"" + orderId + "\"}]";
+    }
+
+    private boolean isPrimaryForOrder(Customer customer, UUID orderId) {
+        if (customer.getOrderLinks() == null) {
+            return false;
+        }
+        return customer.getOrderLinks().stream()
+                .anyMatch(link -> orderId.equals(link.getOrderId()) && Boolean.TRUE.equals(link.getIsPrimary()));
+    }
+
+    private OrderCustomerDto toOrderCustomerDto(Customer customer, boolean primary) {
+        return OrderCustomerDto.builder()
+                .id(customer.getId())
+                .name(customer.getName())
+                .phone(customer.getPhone())
+                .primary(primary)
+                .build();
+    }
+
+    private record CustomerSelection(UUID id, String name, String phone) {}
 
     public List<Order> getOrders(String status) {
         UUID tenantId = TenantContext.getCurrentTenant();
@@ -297,7 +478,7 @@ public class OrderService {
                 try { generateInvoice(o); } catch (Exception ignored) {}
             });
 
-        return hydrateOrderLines(orders);
+        return hydrateOrders(orders);
     }
     
     public List<Order> getOrders() {
@@ -308,9 +489,9 @@ public class OrderService {
     public List<Order> getOrdersByType(OrderType orderType) {
         UUID tenantId = TenantContext.getCurrentTenant();
         if (SecurityUtils.isSuperAdmin()) {
-            return hydrateOrderLines(orderRepository.findByClientIdAndOrderTypeOrderByCreatedAtDesc(tenantId, orderType));
+            return hydrateOrders(orderRepository.findByClientIdAndOrderTypeOrderByCreatedAtDesc(tenantId, orderType));
         }
-        return hydrateOrderLines(orderRepository.findByClientIdAndOrgIdAndOrderTypeOrderByCreatedAtDesc(
+        return hydrateOrders(orderRepository.findByClientIdAndOrgIdAndOrderTypeOrderByCreatedAtDesc(
                 tenantId, TenantContext.getCurrentOrg(), orderType));
     }
 
@@ -322,17 +503,17 @@ public class OrderService {
         org.springframework.data.jpa.domain.Specification<Order> spec = 
             com.restaurant.pos.order.spec.OrderSpecification.filterBy(criteria, clientId, orgId);
             
-        return hydrateOrderLines(orderRepository.findAll(spec, org.springframework.data.domain.Sort.by(org.springframework.data.domain.Sort.Direction.DESC, "createdAt")));
+        return hydrateOrders(orderRepository.findAll(spec, org.springframework.data.domain.Sort.by(org.springframework.data.domain.Sort.Direction.DESC, "createdAt")));
     }
 
     @Transactional(readOnly = true)
     public Order getOrder(UUID id) {
         UUID tenantId = TenantContext.getCurrentTenant();
         if (SecurityUtils.isSuperAdmin()) {
-            return hydrateOrderLines(orderRepository.findByIdAndClientId(id, tenantId)
+            return hydrateOrder(orderRepository.findByIdAndClientId(id, tenantId)
                     .orElseThrow(() -> new ResourceNotFoundException("Order not found or access denied")));
         }
-        return hydrateOrderLines(orderRepository.findByIdAndClientIdAndOrgId(id, tenantId, TenantContext.getCurrentOrg())
+        return hydrateOrder(orderRepository.findByIdAndClientIdAndOrgId(id, tenantId, TenantContext.getCurrentOrg())
                 .orElseThrow(() -> new ResourceNotFoundException("Order not found or access denied")));
     }
 
@@ -375,7 +556,7 @@ public class OrderService {
         }
 
         handleTableStatus(saved);
-        Order hydrated = hydrateOrderLines(saved);
+        Order hydrated = hydrateOrder(saved);
         enqueueCloudPrintJobs(hydrated);
         return hydrated;
     }
@@ -386,7 +567,7 @@ public class OrderService {
             return Optional.empty();
         }
         return orderRepository.findBySourceOperationIdAndClientId(sourceOperationId, TenantContext.getCurrentTenant())
-                .map(this::hydrateOrderLines);
+                .map(this::hydrateOrder);
     }
 
     @Transactional
@@ -448,6 +629,7 @@ public class OrderService {
             updates.getLines().forEach(newOrder::addLine);
         }
         hydrateOrderLines(newOrder);
+        hydrateCustomer(newOrder);
         
         Order saved = orderRepository.save(newOrder);
         
@@ -468,7 +650,7 @@ public class OrderService {
             processInventoryForOrder(saved);
         }
         
-        Order hydrated = hydrateOrderLines(saved);
+        Order hydrated = hydrateOrder(saved);
         enqueueCloudPrintJobs(hydrated);
         return hydrated;
     }
@@ -497,7 +679,7 @@ public class OrderService {
         if (result.getOrderType() == OrderType.PURCHASE && "COMPLETED".equalsIgnoreCase(result.getOrderStatus())) {
             processInventoryForOrder(result);
         }
-        Order hydrated = hydrateOrderLines(result);
+        Order hydrated = hydrateOrder(result);
         enqueueCloudPrintJobs(hydrated);
         return hydrated;
     }
@@ -520,7 +702,7 @@ public class OrderService {
         Order saved = orderRepository.save(order);
         generateInvoice(saved);
         handleTableStatus(saved);
-        return hydrateOrderLines(saved);
+        return hydrateOrder(saved);
     }
 
     @Transactional
@@ -571,7 +753,7 @@ public class OrderService {
             processInventoryForOrder(saved);
         }
 
-        return hydrateOrderLines(saved);
+        return hydrateOrder(saved);
     }
 
     @Transactional
@@ -598,7 +780,7 @@ public class OrderService {
             setTableStatus(oldTableId, "AVAILABLE");
         }
         handleTableStatus(saved);
-        return hydrateOrderLines(saved);
+        return hydrateOrder(saved);
     }
 
     @Transactional
@@ -623,7 +805,7 @@ public class OrderService {
         });
 
         handleTableStatus(saved);
-        return hydrateOrderLines(saved);
+        return hydrateOrder(saved);
     }
 
     @Transactional

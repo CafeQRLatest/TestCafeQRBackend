@@ -4,8 +4,12 @@ import com.restaurant.pos.common.entity.BaseEntity;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.persistence.*;
 import lombok.*;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 @Data
@@ -27,6 +31,11 @@ public class Customer extends BaseEntity {
 
     @Column(length = 50)
     private String phone;
+
+    @Builder.Default
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "order_links", columnDefinition = "jsonb", nullable = false)
+    private List<OrderLink> orderLinks = new ArrayList<>();
 
     @Column(length = 255)
     private String email;
@@ -60,4 +69,14 @@ public class Customer extends BaseEntity {
     @JsonProperty("isActive")
     @Column(name = "isactive", length = 1)
     private String isactive = "Y";
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class OrderLink {
+        private UUID orderId;
+        private Boolean isPrimary;
+        private String attachedAt;
+    }
 }
