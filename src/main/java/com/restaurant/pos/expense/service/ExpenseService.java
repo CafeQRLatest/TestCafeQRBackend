@@ -54,6 +54,8 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class ExpenseService {
 
+    private static final int EXPENSE_WRITE_TIMEOUT_SECONDS = 30;
+
     private final ExpenseCategoryRepository categoryRepository;
     private final ExpenseRepository expenseRepository;
     private final ExpenseMapper expenseMapper;
@@ -94,7 +96,7 @@ public class ExpenseService {
     /**
      * Records a new expense transaction with idempotency protection.
      */
-    @Transactional(timeout = 5)
+    @Transactional(timeout = EXPENSE_WRITE_TIMEOUT_SECONDS)
     public ExpenseResponse createExpense(String idempotencyKey, CreateExpenseRequest request) {
         boolean hasIdempotencyKey = idempotencyKey != null && !idempotencyKey.isBlank();
 
@@ -106,26 +108,28 @@ public class ExpenseService {
             return cached;
         }
 
-        ExpenseCategory category = categoryRepository.findById(request.getCategoryId())
-                .orElseThrow(() -> new BusinessException("Invalid expense category"));
+        long startedAtNanos = System.nanoTime();
 
-        if (!category.isActive()) {
-            throw new BusinessException("Cannot assign expense to an inactive category");
-        }
-
-        Expense expense = buildExpenseEntity(request, category);
-
-        log.info(
-                "Creating expense | categoryId={} | branchId={} | amount={} | paymentMethod={} | keyPresent={}",
-                request.getCategoryId(),
-                request.getBranchId(),
-                request.getAmount(),
-                request.getPaymentMethod(),
-                hasIdempotencyKey
-        );
-
-        Expense savedExpense;
         try {
+            ExpenseCategory category = categoryRepository.findById(request.getCategoryId())
+                    .orElseThrow(() -> new BusinessException("Invalid expense category"));
+
+            if (!category.isActive()) {
+                throw new BusinessException("Cannot assign expense to an inactive category");
+            }
+
+            Expense expense = buildExpenseEntity(request, category);
+
+            log.info(
+                    "Creating expense | categoryId={} | branchId={} | amount={} | paymentMethod={} | keyPresent={} | timeoutSeconds={}",
+                    request.getCategoryId(),
+                    request.getBranchId(),
+                    request.getAmount(),
+                    request.getPaymentMethod(),
+                    hasIdempotencyKey,
+                    EXPENSE_WRITE_TIMEOUT_SECONDS
+            );
+
             // OrderService handles Sequences, Invoices, and Payments for the unified 'orders' table.
             Order createdOrder = orderService.createOrder(expense);
 
@@ -142,33 +146,45 @@ public class ExpenseService {
             );
 
             // Refetch as Expense to avoid ClassCastException with JPA proxies/base Order returns.
-            savedExpense = expenseRepository.findById(createdOrder.getId())
+            Expense savedExpense = expenseRepository.findById(createdOrder.getId())
                     .orElseThrow(() -> new BusinessException("Failed to retrieve saved expense"));
+
+            ExpenseResponse response = expenseMapper.toExpenseResponse(savedExpense, category.getName());
+
+            idempotencyStore.put(cacheKey, response);
+
+            log.info(
+                    "Expense created | expenseId={} | referenceNumber={} | categoryId={} | branchId={} | amount={} | elapsedMs={} | keyPresent={}",
+                    savedExpense.getId(),
+                    response.getReferenceNumber(),
+                    category.getId(),
+                    savedExpense.getOrgId(),
+                    response.getAmount(),
+                    elapsedMillis(startedAtNanos),
+                    hasIdempotencyKey
+            );
+
+            return response;
         } catch (RuntimeException ex) {
             log.error(
-                    "Expense creation failed | categoryId={} | branchId={} | amount={} | paymentMethod={} | keyPresent={}",
+                    "Expense creation failed | categoryId={} | branchId={} | amount={} | paymentMethod={} | elapsedMs={} | keyPresent={}",
                     request.getCategoryId(),
                     request.getBranchId(),
                     request.getAmount(),
                     request.getPaymentMethod(),
+                    elapsedMillis(startedAtNanos),
                     hasIdempotencyKey,
                     ex
             );
             throw ex;
         }
-
-        ExpenseResponse response = expenseMapper.toExpenseResponse(savedExpense, category.getName());
-
-        idempotencyStore.put(cacheKey, response);
-
-        return response;
     }
 
     /**
      * Updates an existing expense using an immutability/voiding pattern.
      * Voids the old record and creates a new one to maintain audit integrity.
      */
-    @Transactional(timeout = 5)
+    @Transactional(timeout = EXPENSE_WRITE_TIMEOUT_SECONDS)
     public ExpenseResponse updateExpense(UUID id, UpdateExpenseRequest request) {
         Expense oldExpense = expenseRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Expense not found: " + id));
@@ -266,7 +282,7 @@ public class ExpenseService {
      * Voids an expense record, marking it inactive and preserving the audit trail.
      * Returns a confirmation receipt with voided IDs for audit compliance.
      */
-    @Transactional(timeout = 5)
+    @Transactional(timeout = EXPENSE_WRITE_TIMEOUT_SECONDS)
     public VoidExpenseResponse voidExpense(UUID id) {
         log.info("Voiding expense record | id={}", id);
 
@@ -402,5 +418,9 @@ public class ExpenseService {
                 .stream().findFirst().ifPresent(c -> expense.setCurrencyId(c.getId()));
 
         return expense;
+    }
+
+    private long elapsedMillis(long startedAtNanos) {
+        return (System.nanoTime() - startedAtNanos) / 1_000_000L;
     }
 }
