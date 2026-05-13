@@ -3,6 +3,7 @@ package com.restaurant.pos.expense.service;
 import com.restaurant.pos.common.exception.BusinessException;
 import com.restaurant.pos.common.exception.ResourceNotFoundException;
 import com.restaurant.pos.common.tenant.TenantContext;
+import com.restaurant.pos.common.util.SecurityUtils;
 import com.restaurant.pos.expense.domain.Expense;
 import com.restaurant.pos.category.domain.ExpenseCategory;
 import com.restaurant.pos.category.repository.ExpenseCategoryRepository;
@@ -111,8 +112,7 @@ public class ExpenseService {
         long startedAtNanos = System.nanoTime();
 
         try {
-            ExpenseCategory category = categoryRepository.findById(request.getCategoryId())
-                    .orElseThrow(() -> new BusinessException("Invalid expense category"));
+            ExpenseCategory category = getOwnedExpenseCategory(request.getCategoryId());
 
             if (!category.isActive()) {
                 throw new BusinessException("Cannot assign expense to an inactive category");
@@ -193,8 +193,7 @@ public class ExpenseService {
             throw new BusinessException("Cannot modify a voided or inactive expense record");
         }
 
-        ExpenseCategory category = categoryRepository.findById(request.getCategoryId())
-                .orElseThrow(() -> new BusinessException("Invalid expense category"));
+        ExpenseCategory category = getOwnedExpenseCategory(request.getCategoryId());
 
         String originalOrderNo = oldExpense.getOrderNo();
         int revision = oldExpense.getRevisionNumber() != null ? oldExpense.getRevisionNumber() : 0;
@@ -422,5 +421,24 @@ public class ExpenseService {
 
     private long elapsedMillis(long startedAtNanos) {
         return (System.nanoTime() - startedAtNanos) / 1_000_000L;
+    }
+
+    private ExpenseCategory getOwnedExpenseCategory(UUID categoryId) {
+        String profileOwner = currentProfileOwner();
+        return categoryRepository.findByIdAndClientIdAndOrgIdAndCreatedBy(
+                        categoryId,
+                        TenantContext.getCurrentTenant(),
+                        TenantContext.getCurrentOrg(),
+                        profileOwner
+                )
+                .orElseThrow(() -> new BusinessException("Invalid expense category"));
+    }
+
+    private String currentProfileOwner() {
+        String owner = SecurityUtils.getCurrentUserEmail();
+        if (owner == null || owner.isBlank()) {
+            throw new BusinessException("Authenticated profile is required for expense categories");
+        }
+        return owner.trim();
     }
 }

@@ -19,15 +19,10 @@ import java.util.UUID;
 @AllArgsConstructor
 @Table(
     name = "expense_categories",
-    uniqueConstraints = {
-        @UniqueConstraint(
-            name = "uk_expense_category_name", 
-            columnNames = {"client_id", "org_id", "name"}
-        )
-    },
     indexes = {
         @Index(name = "idx_expense_category_client", columnList = "client_id"),
         @Index(name = "idx_expense_category_org", columnList = "org_id"),
+        @Index(name = "idx_expense_category_owner", columnList = "client_id, org_id, created_by"),
         @Index(name = "idx_expense_category_active", columnList = "is_active"),
         @Index(name = "idx_expense_category_sort", columnList = "sort_order")
     }

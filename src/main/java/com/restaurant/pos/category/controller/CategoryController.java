@@ -35,7 +35,7 @@ public class CategoryController {
     @StaffAccess
     @Operation(
             summary = "Fetch expense categories",
-            description = "Returns all expense categories available for the current organization, including active/inactive records ordered by sort priority."
+            description = "Returns all expense categories available for the current authenticated profile, including active/inactive records ordered by sort priority."
     )
     public ResponseEntity<ApiResponse<List<CategoryResponse>>> getCategories() {
 
@@ -52,7 +52,7 @@ public class CategoryController {
     @AdminAccess
     @Operation(
             summary = "Create expense category",
-            description = "Creates a new expense category for expense classification and reporting."
+            description = "Creates a new profile-specific expense category for expense classification and reporting."
     )
     public ResponseEntity<ApiResponse<CategoryResponse>> createCategory(
             @Valid @RequestBody CreateCategoryRequest request

@@ -2,6 +2,7 @@ package com.restaurant.pos.expense.service;
 
 import com.restaurant.pos.category.domain.ExpenseCategory;
 import com.restaurant.pos.category.repository.ExpenseCategoryRepository;
+import com.restaurant.pos.common.exception.BusinessException;
 import com.restaurant.pos.common.tenant.TenantContext;
 import com.restaurant.pos.expense.domain.Expense;
 import com.restaurant.pos.expense.dto.CreateExpenseRequest;
@@ -18,6 +19,9 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -26,6 +30,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -44,6 +49,7 @@ class ExpenseServiceTest {
 
     private UUID clientId;
     private UUID orgId;
+    private String profileOwner;
 
     @BeforeEach
     void setUp() {
@@ -68,14 +74,21 @@ class ExpenseServiceTest {
 
         clientId = UUID.randomUUID();
         orgId = UUID.randomUUID();
+        profileOwner = "profile-a@example.com";
         TenantContext.setCurrentTenant(clientId);
         TenantContext.setCurrentOrg(orgId);
         TenantContext.setCurrentTerminal(UUID.randomUUID());
+        SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(
+                profileOwner,
+                null,
+                List.of(new SimpleGrantedAuthority("ROLE_ADMIN"))
+        ));
     }
 
     @AfterEach
     void tearDown() {
         TenantContext.clear();
+        SecurityContextHolder.clearContext();
     }
 
     @Test
@@ -115,7 +128,8 @@ class ExpenseServiceTest {
         persistedExpense.setOrgId(branchId);
 
         when(idempotencyStore.get(cacheKey)).thenReturn(null);
-        when(categoryRepository.findById(categoryId)).thenReturn(Optional.of(category));
+        when(categoryRepository.findByIdAndClientIdAndOrgIdAndCreatedBy(categoryId, clientId, orgId, profileOwner))
+                .thenReturn(Optional.of(category));
         when(currencyRepository.findByClientIdAndIsDefaultTrue(clientId)).thenReturn(List.of());
         when(orderService.createOrder(any(Expense.class))).thenReturn(createdOrder);
         when(expenseRepository.findById(createdOrderId)).thenReturn(Optional.of(persistedExpense));
@@ -139,5 +153,27 @@ class ExpenseServiceTest {
 
         verify(expenseRepository).findById(createdOrderId);
         verify(idempotencyStore).put(cacheKey, response);
+    }
+
+    @Test
+    void createExpenseRejectsCategoryOwnedByAnotherProfile() {
+        UUID categoryId = UUID.randomUUID();
+        String idempotencyKey = "wrong-profile-category-key";
+        String cacheKey = orgId + ":" + idempotencyKey;
+
+        CreateExpenseRequest request = CreateExpenseRequest.builder()
+                .categoryId(categoryId)
+                .expenseDate(Instant.parse("2026-05-13T18:29:00Z"))
+                .amount(new BigDecimal("1000.00"))
+                .paymentMethod("CASH")
+                .build();
+
+        when(idempotencyStore.get(cacheKey)).thenReturn(null);
+        when(categoryRepository.findByIdAndClientIdAndOrgIdAndCreatedBy(categoryId, clientId, orgId, profileOwner))
+                .thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> expenseService.createExpense(idempotencyKey, request))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("Invalid expense category");
     }
 }
