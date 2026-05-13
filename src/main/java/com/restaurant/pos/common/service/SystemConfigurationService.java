@@ -2,19 +2,20 @@ package com.restaurant.pos.common.service;
 
 import com.restaurant.pos.common.dto.ConfigurationDto;
 import com.restaurant.pos.common.entity.SystemConfiguration;
+import com.restaurant.pos.common.exception.BusinessException;
 import com.restaurant.pos.common.repository.SystemConfigurationRepository;
+import com.restaurant.pos.common.tenant.TenantContext;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.core.type.TypeReference;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Collections;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -24,28 +25,52 @@ public class SystemConfigurationService {
     private final SystemConfigurationRepository repository;
     private final ObjectMapper objectMapper;
 
-    @Transactional(readOnly = true)
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public ConfigurationDto getConfiguration() {
-        SystemConfiguration config = repository.findAll().stream()
-                .findFirst()
-                .orElseGet(this::createDefaultConfig);
+        UUID clientId = TenantContext.getCurrentTenant();
+        SystemConfiguration config = clientId == null
+                ? getGlobalConfiguration()
+                : getOrCreateTenantConfiguration(clientId);
         return mapToDto(config);
     }
 
     @Transactional
     public ConfigurationDto updateConfiguration(ConfigurationDto dto) {
-        SystemConfiguration config = repository.findAll().stream()
-                .findFirst()
-                .orElseGet(this::createDefaultConfig);
+        UUID clientId = TenantContext.getCurrentTenant();
+        if (clientId == null) {
+            throw new BusinessException("Client context is required to update system configuration");
+        }
+
+        SystemConfiguration config = getOrCreateTenantConfiguration(clientId);
 
         updateEntityFromDto(config, dto);
         SystemConfiguration saved = repository.save(config);
-        log.info("System configuration updated successfully.");
+        log.info("System configuration updated successfully. clientId={}", clientId);
         return mapToDto(saved);
     }
 
-    private SystemConfiguration createDefaultConfig() {
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public ConfigurationDto getConfigurationForClient(UUID clientId) {
+        SystemConfiguration config = clientId == null
+                ? getGlobalConfiguration()
+                : getOrCreateTenantConfiguration(clientId);
+        return mapToDto(config);
+    }
+
+    private SystemConfiguration getOrCreateTenantConfiguration(UUID clientId) {
+        return repository.findFirstByClientIdAndOrgIdIsNull(clientId)
+                .orElseGet(() -> createDefaultConfig(clientId));
+    }
+
+    private SystemConfiguration getGlobalConfiguration() {
+        return repository.findFirstByClientIdIsNullAndOrgIdIsNullOrderByCreatedAtAsc()
+                .orElseGet(() -> createDefaultConfig(null));
+    }
+
+    private SystemConfiguration createDefaultConfig(UUID clientId) {
         SystemConfiguration config = SystemConfiguration.builder()
+                .clientId(clientId)
+                .orgId(null)
                 .qrOrderingEnabled(true)
                 .sendToKitchenEnabled(true)
                 .posProductListingEnabled(true)

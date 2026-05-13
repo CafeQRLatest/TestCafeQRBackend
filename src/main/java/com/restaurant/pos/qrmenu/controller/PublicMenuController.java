@@ -101,11 +101,11 @@ public class PublicMenuController {
         info.put("seatingCapacity", table.getSeatingCapacity());
         info.put("floor", table.getFloor());
         info.put("section", table.getSection());
-        info.put("onlinePaymentEnabled", systemConfigurationService.getConfiguration().isOnlinePaymentEnabled());
 
         // Attach brand color, name, and logo (Prefer Organization-specific, fallback to Client-global)
         UUID effectiveClientId = table.getClientId() != null ? table.getClientId() : clientId;
         UUID effectiveOrgId = table.getOrgId() != null ? table.getOrgId() : orgUuid;
+        info.put("onlinePaymentEnabled", systemConfigurationService.getConfigurationForClient(effectiveClientId).isOnlinePaymentEnabled());
 
         clientRepository.findById(effectiveClientId).ifPresent(client -> {
             info.put("brandColor", client.getBrandColor() != null ? client.getBrandColor() : "#f97316");

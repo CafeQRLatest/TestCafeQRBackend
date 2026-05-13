@@ -24,6 +24,12 @@ public class SystemConfiguration {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
+    @Column(name = "client_id")
+    private UUID clientId;
+
+    @Column(name = "org_id")
+    private UUID orgId;
+
     // Power Modules (Feature Toggles)
     private boolean onlinePaymentEnabled;
     private boolean menuImagesEnabled;
