@@ -179,6 +179,12 @@ public class ProductService {
 
         validateOwnership(existing.getClientId(), existing.getOrgId(), "Variant Group");
 
+        if (existing.isActive() && !group.isActive()) {
+            if (productRepository.existsByVariantMappings_VariantGroup_IdAndIsActiveTrue(id)) {
+                throw new BusinessException("Cannot deactivate variant group because it is currently used by active products");
+            }
+        }
+
         existing.setName(group.getName());
         existing.setActive(group.isActive());
 
@@ -240,6 +246,12 @@ public class ProductService {
                 .orElseThrow(() -> new ResourceNotFoundException("Variant Option not found"));
 
         validateOwnership(existing.getClientId(), existing.getOrgId(), "Variant Option");
+
+        if (existing.isActive() && !option.isActive()) {
+            if (productRepository.existsByVariantPricings_VariantOption_IdAndIsActiveTrue(id)) {
+                throw new BusinessException("Cannot deactivate variant option because it is currently used by active products");
+            }
+        }
 
         existing.setName(option.getName());
         existing.setAdditionalPrice(option.getAdditionalPrice());
@@ -451,12 +463,19 @@ public class ProductService {
     }
 
     @Transactional
+
+    @Transactional
     @CacheEvict(value = "products_list_v2", key = "T(com.restaurant.pos.common.tenant.TenantContext).getCurrentTenant() + ':' + T(com.restaurant.pos.common.tenant.TenantContext).getCurrentOrg()")
     public Product createProduct(Product product) {
         UUID clientId = TenantContext.getCurrentTenant();
         UUID orgId = TenantContext.getCurrentOrg();
 
-        // Deep Validatio
+        // Nullify empty codes
+        if (product.getProductCode() != null && product.getProductCode().trim().isEmpty()) {
+            product.setProductCode(null);
+        }
+
+        // Deep Validation
         validateProductIntegrity(product, clientId, orgId);
 
         // Duplicate Code Check
@@ -597,7 +616,14 @@ public class ProductService {
         existing.setVariant(product.isVariant());
         existing.setPackagedGood(product.isPackagedGood());
         existing.setIngredient(product.isIngredient());
-        existing.setProductCode(product.getProductCode());
+
+        String newCode = product.getProductCode() != null && product.getProductCode().trim().isEmpty() ? null : product.getProductCode();
+        if (newCode != null && !newCode.equals(existing.getProductCode()) &&
+                productRepository.existsByProductCodeAndClientIdAndOrgIdOrGlobal(newCode, clientId, orgId)) {
+            throw new BusinessException("Product with this code already exists");
+        }
+        existing.setProductCode(newCode);
+
         existing.setTaxRate(product.getTaxRate());
         existing.setTaxCode(product.getTaxCode());
         existing.setMrp(product.getMrp());

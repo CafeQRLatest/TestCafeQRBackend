@@ -26,4 +26,8 @@ public interface ProductRepository extends JpaRepository<Product, UUID> {
 
     @Query("SELECT COUNT(p) > 0 FROM Product p WHERE p.productCode = :code AND p.clientId = :clientId AND (:orgId IS NULL OR p.orgId IS NULL OR p.orgId = :orgId) AND p.isActive = true")
     boolean existsByProductCodeAndClientIdAndOrgIdOrGlobal(String code, UUID clientId, UUID orgId);
+
+    boolean existsByVariantMappings_VariantGroup_IdAndIsActiveTrue(UUID variantGroupId);
+
+    boolean existsByVariantPricings_VariantOption_IdAndIsActiveTrue(UUID variantOptionId);
 }
