@@ -37,4 +37,6 @@ public class ProductListDto {
     private boolean isIngredient;
     private boolean hasVariants;
     private int variantCount;
+    private boolean hasUpsells;
+    private int upsellCount;
 }

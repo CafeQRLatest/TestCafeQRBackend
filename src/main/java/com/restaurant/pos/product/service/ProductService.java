@@ -333,6 +333,8 @@ public class ProductService {
                 .productType(product.getProductType())
                 .hasVariants(product.getVariantMappings() != null && !product.getVariantMappings().isEmpty())
                 .variantCount(product.getVariantMappings() != null ? product.getVariantMappings().size() : 0)
+                .hasUpsells(product.getUpsells() != null && !product.getUpsells().isEmpty())
+                .upsellCount(product.getUpsells() != null ? product.getUpsells().size() : 0)
                 .build();
     }
 
