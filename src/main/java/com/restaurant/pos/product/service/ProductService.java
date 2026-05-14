@@ -462,7 +462,7 @@ public class ProductService {
                 .build();
     }
 
-    @Transactional
+
 
     @Transactional
     @CacheEvict(value = "products_list_v2", key = "T(com.restaurant.pos.common.tenant.TenantContext).getCurrentTenant() + ':' + T(com.restaurant.pos.common.tenant.TenantContext).getCurrentOrg()")
