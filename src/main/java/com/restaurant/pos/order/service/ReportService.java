@@ -449,7 +449,8 @@ public class ReportService {
             creditOutstanding = creditOutstanding.add(safe(ci.getAmountDue()));
         }
 
-        BigDecimal netProfit = sales.getGrandTotal().subtract(totalExpenses);
+        BigDecimal netRevenue = sales.getGrandTotal().subtract(sales.getTotalTax());
+        BigDecimal netProfit = netRevenue.subtract(totalExpenses);
         BigDecimal netCashProfit = netProfit.subtract(creditOutstanding);
 
         return ProfitLossDto.builder()
@@ -738,7 +739,7 @@ public class ReportService {
                 predicates.add(cb.equal(root.get("orgId"), orgId));
             }
             predicates.add(cb.equal(root.get("orderType"), OrderType.SALE));
-            predicates.add(cb.notEqual(root.get("orderStatus"), "CANCELLED"));
+            predicates.add(cb.equal(root.get("orderStatus"), "COMPLETED"));
             predicates.add(cb.equal(root.get("isactive"), "Y"));
             // orderDate is Instant — compare directly with Instant params
             if (from != null) {

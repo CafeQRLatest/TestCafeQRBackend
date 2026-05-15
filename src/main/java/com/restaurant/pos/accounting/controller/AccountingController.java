@@ -141,4 +141,10 @@ public class AccountingController {
     public ResponseEntity<ApiResponse<AccountingBackfillResponse>> backfill(@RequestBody AccountingBackfillRequest request) {
         return ResponseEntity.ok(ApiResponse.success("Accounting backfill completed", postingService.backfill(request)));
     }
+
+    @PostMapping("/resync-all")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN')")
+    public ResponseEntity<ApiResponse<AccountingBackfillResponse>> resyncAll() {
+        return ResponseEntity.ok(ApiResponse.success("Accounting data rebuilt from scratch", postingService.resyncAll()));
+    }
 }

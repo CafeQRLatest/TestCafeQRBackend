@@ -179,6 +179,65 @@ public class AccountingPostingService {
         return response;
     }
 
+    // One-time cleanup: wipe all auto-posted entries and re-sync from scratch
+    // NOT @Transactional — each step is independent to avoid statement timeout
+    public AccountingBackfillResponse resyncAll() {
+        UUID clientId = requireClient();
+        UUID orgId = TenantContext.getCurrentOrg();
+        log.info("resyncAll started | clientId={} | orgId={}", clientId, orgId);
+
+        // 1. Delete all journal entries for this tenant (auto-posted and reversals)
+        List<JournalEntry> allJournals = journalEntryRepository.findAll((root, query, cb) -> {
+            var predicates = new java.util.ArrayList<jakarta.persistence.criteria.Predicate>();
+            predicates.add(cb.equal(root.get("clientId"), clientId));
+            if (orgId != null) predicates.add(cb.equal(root.get("orgId"), orgId));
+            return cb.and(predicates.toArray(new jakarta.persistence.criteria.Predicate[0]));
+        });
+        int journalsDeleted = allJournals.size();
+        for (JournalEntry je : allJournals) {
+            try {
+                journalEntryRepository.delete(je);
+                journalEntryRepository.flush();
+            } catch (Exception ex) {
+                log.warn("Failed to delete journal {} | {}", je.getId(), ex.getMessage());
+            }
+        }
+
+        // 2. Delete all posting jobs so backfill sees everything as "not yet posted"
+        List<AccountingPostingJob> allJobs = postingJobRepository.findByClientIdAndOrgId(clientId, orgId);
+        for (AccountingPostingJob job : allJobs) {
+            try {
+                postingJobRepository.delete(job);
+            } catch (Exception ex) {
+                log.warn("Failed to delete posting job {} | {}", job.getId(), ex.getMessage());
+            }
+        }
+        postingJobRepository.flush();
+
+        // 3. Reset all account balances to opening balance
+        List<AccountingAccount> accounts = accountRepository.findByClientIdAndOrgIdOrderByCodeAsc(clientId, orgId);
+        for (AccountingAccount account : accounts) {
+            account.setCurrentBalance(account.getOpeningBalance() != null ? account.getOpeningBalance() : BigDecimal.ZERO);
+            accountRepository.save(account);
+        }
+
+        log.info("resyncAll cleanup done | journals={} | jobs={} | now re-running backfill", journalsDeleted, allJobs.size());
+
+        // 4. Re-run full backfill from Jan 1 of this year
+        AccountingBackfillRequest rebuildRequest = new AccountingBackfillRequest();
+        LocalDateTime yearStart = LocalDateTime.of(java.time.LocalDate.now().getYear(), 1, 1, 0, 0);
+        LocalDateTime now = LocalDateTime.now();
+        rebuildRequest.setFrom(yearStart);
+        rebuildRequest.setTo(now);
+        rebuildRequest.setSourceTypes(List.of("INVOICE", "PAYMENT", "COGS", "STOCK"));
+        rebuildRequest.setDryRun(false);
+
+        AccountingBackfillResponse response = backfill(rebuildRequest);
+        response.setReversed(journalsDeleted); // reuse 'reversed' field to report cleanup count
+        log.info("resyncAll complete | posted={} | skipped={} | failed={}", response.getPosted(), response.getSkipped(), response.getFailed());
+        return response;
+    }
+
     private void retrySource(String sourceType, UUID sourceId) {
         if (sourceType == null || sourceId == null) {
             return;
