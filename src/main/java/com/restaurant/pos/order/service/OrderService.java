@@ -1044,6 +1044,23 @@ public class OrderService {
         }
 
         Order saved = orderRepository.save(order);
+
+        // Fix: update existing invoice if discount/roundoff changed the total
+        if (discountAmount.compareTo(BigDecimal.ZERO) > 0 || roundOffAmount.compareTo(BigDecimal.ZERO) != 0) {
+            List<Invoice> existingInvoices = invoiceRepository.findByOrderId(saved.getId());
+            for (Invoice existingInv : existingInvoices) {
+                if (!"VOID".equalsIgnoreCase(existingInv.getStatus())) {
+                    // Reverse old accounting entry for this invoice
+                    accountingPostingService.reverseInvoice(existingInv, "Invoice amount corrected after discount/roundoff");
+                    // Update invoice amount to match discounted order total
+                    existingInv.setTotalAmount(saved.getGrandTotal());
+                    existingInv.setAmountDue(saved.getGrandTotal());
+                    invoiceRepository.save(existingInv);
+                    // Re-post with corrected amount
+                    accountingPostingService.postInvoice(saved, existingInv);
+                }
+            }
+        }
         generateInvoice(saved);
 
         BigDecimal amountPaid = safeRequest.getAmountPaid() != null
