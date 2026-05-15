@@ -229,7 +229,7 @@ public class AccountingPostingService {
         LocalDateTime now = LocalDateTime.now();
         rebuildRequest.setFrom(yearStart);
         rebuildRequest.setTo(now);
-        rebuildRequest.setSourceTypes(List.of("INVOICE", "PAYMENT", "COGS", "STOCK"));
+        rebuildRequest.setSourceTypes(Set.of("INVOICE", "PAYMENT", "COGS", "STOCK"));
         rebuildRequest.setDryRun(false);
 
         AccountingBackfillResponse response = backfill(rebuildRequest);
