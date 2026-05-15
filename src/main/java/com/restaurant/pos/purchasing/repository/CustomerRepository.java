@@ -23,6 +23,41 @@ public interface CustomerRepository extends JpaRepository<Customer, UUID> {
     boolean existsByClientIdAndPhoneAndIdNot(UUID clientId, String phone, UUID id);
     Optional<Customer> findByEmailAndClientId(String email, UUID clientId);
 
+    @Query("""
+            SELECT c.id
+            FROM Customer c
+            WHERE c.clientId = :clientId
+              AND (:orgId IS NULL OR c.orgId = :orgId)
+              AND c.isactive = 'Y'
+              AND (
+                    LOWER(c.name) LIKE :pattern
+                 OR LOWER(COALESCE(c.phone, '')) LIKE :pattern
+              )
+            """)
+    List<UUID> findIdsByClientAndOrgAndSearch(
+            @Param("clientId") UUID clientId,
+            @Param("orgId") UUID orgId,
+            @Param("pattern") String pattern);
+
+    @Query(value = """
+            SELECT DISTINCT CAST(link ->> 'orderId' AS uuid)
+            FROM customers c
+            CROSS JOIN LATERAL jsonb_array_elements(c.order_links) link
+            WHERE c.client_id = :clientId
+              AND (:orgId IS NULL OR c.org_id = :orgId)
+              AND c.isactive = 'Y'
+              AND link ->> 'orderId' IS NOT NULL
+              AND (
+                    LOWER(c.name) LIKE :pattern
+                 OR LOWER(COALESCE(c.phone, '')) LIKE :pattern
+              )
+            LIMIT 500
+            """, nativeQuery = true)
+    List<UUID> findLinkedOrderIdsByClientAndOrgAndCustomerSearch(
+            @Param("clientId") UUID clientId,
+            @Param("orgId") UUID orgId,
+            @Param("pattern") String pattern);
+
     @Query(value = """
             SELECT *
             FROM customers c

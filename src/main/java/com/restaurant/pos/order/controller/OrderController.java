@@ -54,6 +54,7 @@ public class OrderController {
             @RequestParam(required = false) OrderType type,
             @RequestParam(required = false) Instant fromDate,
             @RequestParam(required = false) Instant toDate,
+            @RequestParam(required = false) String q,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size
     ) {
@@ -61,7 +62,7 @@ public class OrderController {
         if (requestedType != OrderType.SALE) {
             return ResponseEntity.badRequest().body(ApiResponse.error("Only SALE order history is available here"));
         }
-        return ResponseEntity.ok(ApiResponse.success(orderService.getSalesOrderHistory(fromDate, toDate, page, size)));
+        return ResponseEntity.ok(ApiResponse.success(orderService.getSalesOrderHistory(fromDate, toDate, page, size, q)));
     }
 
     @GetMapping("/search")

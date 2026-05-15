@@ -36,6 +36,8 @@ import com.restaurant.pos.purchasing.domain.Customer;
 import com.restaurant.pos.purchasing.repository.CustomerRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import jakarta.persistence.criteria.Predicate;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.data.domain.Page;
@@ -52,10 +54,12 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -476,6 +480,7 @@ public class OrderService {
                 .updatedAt(hydrated.getUpdatedAt())
                 .invoiceNo(hydrated.getInvoiceNo())
                 .paymentNo(hydrated.getPaymentNo())
+                .paymentMethod(firstNonBlank(hydrated.getPaymentMethod(), hydrated.getReference()))
                 .description(hydrated.getDescription())
                 .lines(toOrderLineSummaries(hydrated.getLines()))
                 .build();
@@ -531,6 +536,107 @@ public class OrderService {
         if (Duration.between(fromDate, toDate).compareTo(MAX_HISTORY_WINDOW) > 0) {
             throw new IllegalArgumentException("Order history range cannot exceed 31 days");
         }
+    }
+
+    private String normalizeHistorySearch(String searchTerm) {
+        if (searchTerm == null) {
+            return null;
+        }
+        String trimmed = searchTerm.trim();
+        return trimmed.isBlank() ? null : trimmed;
+    }
+
+    private String likePattern(String searchTerm) {
+        return "%" + searchTerm.toLowerCase()
+                .replace("\\", "\\\\")
+                .replace("%", "\\%")
+                .replace("_", "\\_") + "%";
+    }
+
+    private String firstNonBlank(String... values) {
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    private Set<UUID> findCustomerSearchCustomerIds(UUID tenantId, UUID orgId, String searchTerm) {
+        if (searchTerm == null) {
+            return Set.of();
+        }
+        return new LinkedHashSet<>(customerRepository.findIdsByClientAndOrgAndSearch(
+                tenantId,
+                orgId,
+                likePattern(searchTerm)
+        ));
+    }
+
+    private Set<UUID> findCustomerSearchOrderIds(UUID tenantId, UUID orgId, String searchTerm) {
+        if (searchTerm == null) {
+            return Set.of();
+        }
+        return new LinkedHashSet<>(customerRepository.findLinkedOrderIdsByClientAndOrgAndCustomerSearch(
+                tenantId,
+                orgId,
+                likePattern(searchTerm)
+        ));
+    }
+
+    private Specification<Order> salesHistorySpec(
+            Instant fromDate,
+            Instant toDate,
+            String searchTerm,
+            boolean exactDocumentSearch,
+            Set<UUID> customerIds,
+            Set<UUID> customerOrderIds
+    ) {
+        return (root, query, cb) -> {
+            List<Predicate> predicates = new ArrayList<>();
+            UUID tenantId = TenantContext.getCurrentTenant();
+            UUID orgId = SecurityUtils.isSuperAdmin() ? null : TenantContext.getCurrentOrg();
+
+            predicates.add(cb.equal(root.get("clientId"), tenantId));
+            if (orgId != null) {
+                predicates.add(cb.equal(root.get("orgId"), orgId));
+            }
+            predicates.add(cb.equal(root.get("orderType"), OrderType.SALE));
+            predicates.add(cb.equal(root.get("isactive"), "Y"));
+            predicates.add(cb.notEqual(root.get("orderStatus"), "VOID"));
+
+            if (!exactDocumentSearch) {
+                predicates.add(cb.greaterThanOrEqualTo(root.get("orderDate"), fromDate));
+                predicates.add(cb.lessThanOrEqualTo(root.get("orderDate"), toDate));
+            }
+
+            if (searchTerm != null) {
+                String lowered = searchTerm.toLowerCase();
+                if (exactDocumentSearch) {
+                    predicates.add(cb.or(
+                            cb.equal(cb.lower(root.get("orderNo")), lowered),
+                            cb.equal(cb.lower(root.get("invoiceNo")), lowered),
+                            cb.equal(cb.lower(root.get("paymentNo")), lowered)
+                    ));
+                } else {
+                    String pattern = likePattern(searchTerm);
+                    List<Predicate> searchPredicates = new ArrayList<>();
+                    searchPredicates.add(cb.like(cb.lower(root.get("orderNo")), pattern, '\\'));
+                    searchPredicates.add(cb.like(cb.lower(root.get("invoiceNo")), pattern, '\\'));
+                    searchPredicates.add(cb.like(cb.lower(root.get("paymentNo")), pattern, '\\'));
+                    searchPredicates.add(cb.like(cb.lower(root.get("tableNumber")), pattern, '\\'));
+                    if (customerIds != null && !customerIds.isEmpty()) {
+                        searchPredicates.add(root.get("customerId").in(customerIds));
+                    }
+                    if (customerOrderIds != null && !customerOrderIds.isEmpty()) {
+                        searchPredicates.add(root.get("id").in(customerOrderIds));
+                    }
+                    predicates.add(cb.or(searchPredicates.toArray(new Predicate[0])));
+                }
+            }
+
+            return cb.and(predicates.toArray(new Predicate[0]));
+        };
     }
 
     private String orderNeedle(UUID orderId, boolean primary) {
@@ -607,23 +713,11 @@ public class OrderService {
     }
 
     @Transactional(readOnly = true)
-    public Page<OrderSummaryDto> getSalesOrderHistory(Instant fromDate, Instant toDate, int page, int size) {
+    public Page<OrderSummaryDto> getSalesOrderHistory(Instant fromDate, Instant toDate, int page, int size, String searchTerm) {
         Instant effectiveTo = toDate != null ? toDate : Instant.now();
         Instant effectiveFrom = fromDate != null ? fromDate : effectiveTo.minus(DEFAULT_HISTORY_WINDOW);
         validateHistoryWindow(effectiveFrom, effectiveTo);
-
-        com.restaurant.pos.order.dto.OrderSearchCriteria criteria = com.restaurant.pos.order.dto.OrderSearchCriteria.builder()
-                .orderType(OrderType.SALE)
-                .fromDate(effectiveFrom)
-                .toDate(effectiveTo)
-                .build();
-
-        org.springframework.data.jpa.domain.Specification<Order> spec =
-                com.restaurant.pos.order.spec.OrderSpecification.filterBy(
-                        criteria,
-                        TenantContext.getCurrentTenant(),
-                        TenantContext.getCurrentOrg()
-                );
+        String normalizedSearch = normalizeHistorySearch(searchTerm);
 
         Pageable pageable = PageRequest.of(
                 Math.max(page, 0),
@@ -631,7 +725,28 @@ public class OrderService {
                 Sort.by(Sort.Order.desc("orderDate"), Sort.Order.desc("createdAt"))
         );
 
-        return orderRepository.findAll(spec, pageable).map(this::toOrderSummary);
+        if (normalizedSearch != null) {
+            Page<Order> exactDocumentMatches = orderRepository.findAll(
+                    salesHistorySpec(null, null, normalizedSearch, true, Set.of(), Set.of()),
+                    pageable
+            );
+            if (exactDocumentMatches.hasContent()) {
+                return exactDocumentMatches.map(this::toOrderSummary);
+            }
+        }
+
+        UUID orgId = SecurityUtils.isSuperAdmin() ? null : TenantContext.getCurrentOrg();
+        Set<UUID> customerIds = normalizedSearch == null
+                ? Set.of()
+                : findCustomerSearchCustomerIds(TenantContext.getCurrentTenant(), orgId, normalizedSearch);
+        Set<UUID> customerOrderIds = normalizedSearch == null
+                ? Set.of()
+                : findCustomerSearchOrderIds(TenantContext.getCurrentTenant(), orgId, normalizedSearch);
+
+        return orderRepository.findAll(
+                salesHistorySpec(effectiveFrom, effectiveTo, normalizedSearch, false, customerIds, customerOrderIds),
+                pageable
+        ).map(this::toOrderSummary);
     }
 
     @Transactional(readOnly = true)
@@ -641,7 +756,8 @@ public class OrderService {
                 Instant.now().minus(DEFAULT_HISTORY_WINDOW),
                 Instant.now(),
                 0,
-                MAX_HISTORY_PAGE_SIZE
+                MAX_HISTORY_PAGE_SIZE,
+                null
         );
         return mergeOrderSummaries(live, recent.getContent());
     }

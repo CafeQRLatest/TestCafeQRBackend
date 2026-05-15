@@ -181,6 +181,9 @@ public class Order extends BaseEntity {
     @Formula("(SELECT p.reference_no FROM payments p WHERE p.order_id = id ORDER BY p.created_at DESC LIMIT 1)")
     private String paymentNo;
 
+    @Formula("(SELECT p.payment_method FROM payments p WHERE p.order_id = id ORDER BY p.created_at DESC LIMIT 1)")
+    private String paymentMethod;
+
     @Builder.Default
     @JsonProperty("isActive")
     @Column(name = "isactive", length = 1)

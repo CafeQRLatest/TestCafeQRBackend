@@ -40,6 +40,7 @@ public class OrderSummaryDto {
     private LocalDateTime updatedAt;
     private String invoiceNo;
     private String paymentNo;
+    private String paymentMethod;
     private String description;
     @Builder.Default
     private List<OrderLineSummaryDto> lines = new ArrayList<>();
