@@ -6,12 +6,15 @@ import com.restaurant.pos.order.domain.OrderType;
 import com.restaurant.pos.order.dto.OrderCancelRequest;
 import com.restaurant.pos.order.dto.OrderMoveTableRequest;
 import com.restaurant.pos.order.dto.OrderSettleRequest;
+import com.restaurant.pos.order.dto.OrderSummaryDto;
 import com.restaurant.pos.order.service.OrderService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
@@ -37,6 +40,28 @@ public class OrderController {
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(ApiResponse.error("Invalid order type: " + type + ". Valid values: SALE, PURCHASE, EXPENSE"));
         }
+    }
+
+    @GetMapping("/sales/live")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
+    public ResponseEntity<ApiResponse<List<OrderSummaryDto>>> getLiveSalesOrders() {
+        return ResponseEntity.ok(ApiResponse.success(orderService.getLiveSalesOrders()));
+    }
+
+    @GetMapping("/history")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
+    public ResponseEntity<ApiResponse<Page<OrderSummaryDto>>> getOrderHistory(
+            @RequestParam(required = false) OrderType type,
+            @RequestParam(required = false) Instant fromDate,
+            @RequestParam(required = false) Instant toDate,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size
+    ) {
+        OrderType requestedType = type == null ? OrderType.SALE : type;
+        if (requestedType != OrderType.SALE) {
+            return ResponseEntity.badRequest().body(ApiResponse.error("Only SALE order history is available here"));
+        }
+        return ResponseEntity.ok(ApiResponse.success(orderService.getSalesOrderHistory(fromDate, toDate, page, size)));
     }
 
     @GetMapping("/search")

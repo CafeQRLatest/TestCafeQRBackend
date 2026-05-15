@@ -9,6 +9,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -19,6 +20,8 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class ReportController {
 
+    private static final Duration MAX_REPORT_RANGE = Duration.ofDays(31);
+
     private final ReportService reportService;
 
     @GetMapping("/sales-summary")
@@ -26,6 +29,7 @@ public class ReportController {
     public ResponseEntity<ApiResponse<SalesSummaryDto>> getSalesSummary(
             @RequestParam(required = false) Instant from,
             @RequestParam(required = false) Instant to) {
+        validateReportRange(from, to);
         return ResponseEntity.ok(ApiResponse.success(reportService.getSalesSummary(from, to)));
     }
 
@@ -34,6 +38,7 @@ public class ReportController {
     public ResponseEntity<ApiResponse<List<OrderReportDto>>> getSalesOrders(
             @RequestParam(required = false) Instant from,
             @RequestParam(required = false) Instant to) {
+        validateReportRange(from, to);
         return ResponseEntity.ok(ApiResponse.success(reportService.getSalesOrders(from, to)));
     }
 
@@ -43,6 +48,7 @@ public class ReportController {
             @RequestParam(required = false) Instant from,
             @RequestParam(required = false) Instant to,
             @RequestParam(defaultValue = "ALL") String type) {
+        validateReportRange(from, to);
         return ResponseEntity.ok(ApiResponse.success(reportService.getSalesInvoices(from, to, type)));
     }
 
@@ -51,6 +57,7 @@ public class ReportController {
     public ResponseEntity<ApiResponse<List<ItemSalesDto>>> getItemWiseSales(
             @RequestParam(required = false) Instant from,
             @RequestParam(required = false) Instant to) {
+        validateReportRange(from, to);
         return ResponseEntity.ok(ApiResponse.success(reportService.getItemWiseSales(from, to)));
     }
 
@@ -59,6 +66,7 @@ public class ReportController {
     public ResponseEntity<ApiResponse<List<PaymentBreakdownDto>>> getPaymentBreakdown(
             @RequestParam(required = false) Instant from,
             @RequestParam(required = false) Instant to) {
+        validateReportRange(from, to);
         return ResponseEntity.ok(ApiResponse.success(reportService.getPaymentBreakdown(from, to)));
     }
 
@@ -67,6 +75,7 @@ public class ReportController {
     public ResponseEntity<ApiResponse<List<TaxSummaryDto>>> getTaxSummary(
             @RequestParam(required = false) Instant from,
             @RequestParam(required = false) Instant to) {
+        validateReportRange(from, to);
         return ResponseEntity.ok(ApiResponse.success(reportService.getTaxSummary(from, to)));
     }
 
@@ -75,6 +84,7 @@ public class ReportController {
     public ResponseEntity<ApiResponse<List<HourlySalesDto>>> getHourlySales(
             @RequestParam(required = false) Instant from,
             @RequestParam(required = false) Instant to) {
+        validateReportRange(from, to);
         return ResponseEntity.ok(ApiResponse.success(reportService.getHourlySales(from, to)));
     }
 
@@ -84,6 +94,7 @@ public class ReportController {
             @RequestParam(required = false) Instant from,
             @RequestParam(required = false) Instant to,
             @RequestParam(defaultValue = "ALL") String type) {
+        validateReportRange(from, to);
         return ResponseEntity.ok(ApiResponse.success(reportService.getInvoices(from, to, type)));
     }
 
@@ -92,6 +103,7 @@ public class ReportController {
     public ResponseEntity<ApiResponse<ProfitLossDto>> getProfitLoss(
             @RequestParam(required = false) Instant from,
             @RequestParam(required = false) Instant to) {
+        validateReportRange(from, to);
         return ResponseEntity.ok(ApiResponse.success(reportService.getProfitLoss(from, to)));
     }
 
@@ -102,5 +114,17 @@ public class ReportController {
             @RequestBody(required = false) Map<String, String> body) {
         String reason = body != null ? body.get("reason") : null;
         return ResponseEntity.ok(ApiResponse.success(reportService.voidInvoice(id, reason)));
+    }
+
+    private void validateReportRange(Instant from, Instant to) {
+        if (from == null || to == null) {
+            return;
+        }
+        if (from.isAfter(to)) {
+            throw new IllegalArgumentException("Report from date must be before to date");
+        }
+        if (Duration.between(from, to).compareTo(MAX_REPORT_RANGE) > 0) {
+            throw new IllegalArgumentException("Report date range cannot exceed 31 days");
+        }
     }
 }

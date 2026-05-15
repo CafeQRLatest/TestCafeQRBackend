@@ -4,6 +4,7 @@ import com.restaurant.pos.table.domain.RestaurantTable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -22,4 +23,8 @@ public interface RestaurantTableRepository extends JpaRepository<RestaurantTable
     List<RestaurantTable> findByClientIdAndIsactiveOrderByDisplayOrderAscTableNumberAsc(UUID clientId, String isactive);
 
     List<RestaurantTable> findByClientIdAndOrgIdAndIsactiveOrderByDisplayOrderAscTableNumberAsc(UUID clientId, UUID orgId, String isactive);
+
+    List<RestaurantTable> findByClientIdAndUpdatedAtAfterOrderByDisplayOrderAscTableNumberAsc(UUID clientId, LocalDateTime updatedAfter);
+
+    List<RestaurantTable> findByClientIdAndOrgIdAndUpdatedAtAfterOrderByDisplayOrderAscTableNumberAsc(UUID clientId, UUID orgId, LocalDateTime updatedAfter);
 }

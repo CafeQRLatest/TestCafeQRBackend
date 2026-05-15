@@ -5,8 +5,12 @@ import com.restaurant.pos.order.domain.OrderType;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Repository;
 
+import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -25,6 +29,30 @@ public interface OrderRepository extends JpaRepository<Order, UUID>, JpaSpecific
 
     @EntityGraph(attributePaths = "lines")
     List<Order> findByClientIdAndOrgIdAndOrderTypeOrderByCreatedAtDesc(UUID clientId, UUID orgId, OrderType orderType);
+
+    @EntityGraph(attributePaths = "lines")
+    @Query("""
+            SELECT o FROM Order o
+            WHERE o.clientId = :clientId
+              AND (:orgId IS NULL OR o.orgId = :orgId)
+              AND o.orderType = :orderType
+              AND o.isactive = 'Y'
+              AND (o.orderStatus IS NULL OR UPPER(o.orderStatus) NOT IN :closedStatuses)
+            ORDER BY o.orderDate DESC, o.createdAt DESC
+            """)
+    List<Order> findLiveOrders(UUID clientId, UUID orgId, OrderType orderType, Collection<String> closedStatuses);
+
+    @EntityGraph(attributePaths = "lines")
+    @Query("""
+            SELECT o FROM Order o
+            WHERE o.clientId = :clientId
+              AND (:orgId IS NULL OR o.orgId = :orgId)
+              AND o.orderType = :orderType
+              AND o.isactive = 'Y'
+              AND o.updatedAt >= :updatedAfter
+            ORDER BY o.updatedAt DESC, o.orderDate DESC
+            """)
+    List<Order> findChangedOrders(UUID clientId, UUID orgId, OrderType orderType, LocalDateTime updatedAfter, Pageable pageable);
 
     @EntityGraph(attributePaths = "lines")
     List<Order> findByClientIdAndOrderStatusInOrderByCreatedAtDesc(UUID clientId, List<String> statuses);

@@ -16,8 +16,10 @@ import com.restaurant.pos.order.domain.Payment;
 import com.restaurant.pos.order.domain.PaymentType;
 import com.restaurant.pos.order.dto.OrderCancelRequest;
 import com.restaurant.pos.order.dto.OrderCustomerDto;
+import com.restaurant.pos.order.dto.OrderLineSummaryDto;
 import com.restaurant.pos.order.dto.OrderMoveTableRequest;
 import com.restaurant.pos.order.dto.OrderSettleRequest;
+import com.restaurant.pos.order.dto.OrderSummaryDto;
 import com.restaurant.pos.invoice.repository.InvoiceRepository;
 import com.restaurant.pos.order.repository.OrderRepository;
 import com.restaurant.pos.order.repository.PaymentRepository;
@@ -36,11 +38,17 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
@@ -55,6 +63,12 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 public class OrderService {
+    private static final List<String> CLOSED_SALE_STATUSES = List.of("COMPLETED", "PAID", "CANCELLED", "VOID");
+    private static final int DEFAULT_HISTORY_PAGE_SIZE = 20;
+    private static final int MAX_HISTORY_PAGE_SIZE = 50;
+    private static final int MAX_SYNC_ORDER_CHANGES = 200;
+    private static final Duration DEFAULT_HISTORY_WINDOW = Duration.ofDays(1);
+    private static final Duration MAX_HISTORY_WINDOW = Duration.ofDays(31);
 
     private final OrderRepository orderRepository;
     private final InvoiceRepository invoiceRepository;
@@ -432,6 +446,93 @@ public class OrderService {
         return orders;
     }
 
+    private OrderSummaryDto toOrderSummary(Order order) {
+        Order hydrated = hydrateOrderCustomers(order);
+        List<OrderCustomerDto> customers = hydrated.getCustomers() == null ? List.of() : hydrated.getCustomers();
+        OrderCustomerDto primaryCustomer = customers.stream()
+                .filter(OrderCustomerDto::isPrimary)
+                .findFirst()
+                .orElse(customers.isEmpty() ? null : customers.get(0));
+
+        return OrderSummaryDto.builder()
+                .id(hydrated.getId())
+                .orderNo(hydrated.getOrderNo())
+                .orderType(hydrated.getOrderType())
+                .orderStatus(hydrated.getOrderStatus())
+                .paymentStatus(hydrated.getPaymentStatus())
+                .fulfillmentType(hydrated.getFulfillmentType())
+                .tableId(hydrated.getTableId())
+                .tableNumber(hydrated.getTableNumber())
+                .customerId(primaryCustomer != null ? primaryCustomer.getId() : hydrated.getCustomerId())
+                .customerName(primaryCustomer != null ? primaryCustomer.getName() : hydrated.getCustomerName())
+                .customerPhone(primaryCustomer != null ? primaryCustomer.getPhone() : hydrated.getCustomerPhone())
+                .customers(customers)
+                .totalAmount(hydrated.getTotalAmount())
+                .totalTaxAmount(hydrated.getTotalTaxAmount())
+                .totalDiscountAmount(hydrated.getTotalDiscountAmount())
+                .grandTotal(hydrated.getGrandTotal())
+                .orderDate(hydrated.getOrderDate())
+                .createdAt(hydrated.getCreatedAt())
+                .updatedAt(hydrated.getUpdatedAt())
+                .invoiceNo(hydrated.getInvoiceNo())
+                .paymentNo(hydrated.getPaymentNo())
+                .description(hydrated.getDescription())
+                .lines(toOrderLineSummaries(hydrated.getLines()))
+                .build();
+    }
+
+    private List<OrderLineSummaryDto> toOrderLineSummaries(List<OrderLine> lines) {
+        if (lines == null || lines.isEmpty()) {
+            return List.of();
+        }
+        return lines.stream()
+                .filter(OrderLine::isActive)
+                .map(line -> OrderLineSummaryDto.builder()
+                        .id(line.getId())
+                        .productId(line.getProductId())
+                        .variantId(line.getVariantId())
+                        .productName(line.getProductName())
+                        .categoryName(line.getCategoryName())
+                        .isPackagedGood(line.getIsPackagedGood())
+                        .quantity(line.getQuantity())
+                        .unitOfMeasure(line.getUnitOfMeasure())
+                        .unitPrice(line.getUnitPrice())
+                        .taxRate(line.getTaxRate())
+                        .taxAmount(line.getTaxAmount())
+                        .discountAmount(line.getDiscountAmount())
+                        .lineTotal(line.getLineTotal())
+                        .build())
+                .toList();
+    }
+
+    private List<OrderSummaryDto> mergeOrderSummaries(List<OrderSummaryDto> first, List<OrderSummaryDto> second) {
+        Map<UUID, OrderSummaryDto> merged = new LinkedHashMap<>();
+        first.forEach(order -> {
+            if (order.getId() != null) merged.put(order.getId(), order);
+        });
+        second.forEach(order -> {
+            if (order.getId() != null) merged.putIfAbsent(order.getId(), order);
+        });
+        return new ArrayList<>(merged.values());
+    }
+
+    private int clampPageSize(int requestedSize) {
+        int safe = requestedSize > 0 ? requestedSize : DEFAULT_HISTORY_PAGE_SIZE;
+        return Math.min(safe, MAX_HISTORY_PAGE_SIZE);
+    }
+
+    private void validateHistoryWindow(Instant fromDate, Instant toDate) {
+        if (fromDate == null || toDate == null) {
+            return;
+        }
+        if (fromDate.isAfter(toDate)) {
+            throw new IllegalArgumentException("fromDate must be before toDate");
+        }
+        if (Duration.between(fromDate, toDate).compareTo(MAX_HISTORY_WINDOW) > 0) {
+            throw new IllegalArgumentException("Order history range cannot exceed 31 days");
+        }
+    }
+
     private String orderNeedle(UUID orderId, boolean primary) {
         if (primary) {
             return "[{\"orderId\":\"" + orderId + "\",\"isPrimary\":true}]";
@@ -493,6 +594,74 @@ public class OrderService {
         }
         return hydrateOrders(orderRepository.findByClientIdAndOrgIdAndOrderTypeOrderByCreatedAtDesc(
                 tenantId, TenantContext.getCurrentOrg(), orderType));
+    }
+
+    @Transactional(readOnly = true)
+    public List<OrderSummaryDto> getLiveSalesOrders() {
+        UUID tenantId = TenantContext.getCurrentTenant();
+        UUID orgId = SecurityUtils.isSuperAdmin() ? null : TenantContext.getCurrentOrg();
+        return orderRepository.findLiveOrders(tenantId, orgId, OrderType.SALE, CLOSED_SALE_STATUSES)
+                .stream()
+                .map(this::toOrderSummary)
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public Page<OrderSummaryDto> getSalesOrderHistory(Instant fromDate, Instant toDate, int page, int size) {
+        Instant effectiveTo = toDate != null ? toDate : Instant.now();
+        Instant effectiveFrom = fromDate != null ? fromDate : effectiveTo.minus(DEFAULT_HISTORY_WINDOW);
+        validateHistoryWindow(effectiveFrom, effectiveTo);
+
+        com.restaurant.pos.order.dto.OrderSearchCriteria criteria = com.restaurant.pos.order.dto.OrderSearchCriteria.builder()
+                .orderType(OrderType.SALE)
+                .fromDate(effectiveFrom)
+                .toDate(effectiveTo)
+                .build();
+
+        org.springframework.data.jpa.domain.Specification<Order> spec =
+                com.restaurant.pos.order.spec.OrderSpecification.filterBy(
+                        criteria,
+                        TenantContext.getCurrentTenant(),
+                        TenantContext.getCurrentOrg()
+                );
+
+        Pageable pageable = PageRequest.of(
+                Math.max(page, 0),
+                clampPageSize(size),
+                Sort.by(Sort.Order.desc("orderDate"), Sort.Order.desc("createdAt"))
+        );
+
+        return orderRepository.findAll(spec, pageable).map(this::toOrderSummary);
+    }
+
+    @Transactional(readOnly = true)
+    public List<OrderSummaryDto> getSyncBootstrapOrders() {
+        List<OrderSummaryDto> live = getLiveSalesOrders();
+        Page<OrderSummaryDto> recent = getSalesOrderHistory(
+                Instant.now().minus(DEFAULT_HISTORY_WINDOW),
+                Instant.now(),
+                0,
+                MAX_HISTORY_PAGE_SIZE
+        );
+        return mergeOrderSummaries(live, recent.getContent());
+    }
+
+    @Transactional(readOnly = true)
+    public List<OrderSummaryDto> getChangedSalesOrders(Instant since) {
+        Instant safeSince = since != null ? since : Instant.now().minus(Duration.ofMinutes(15));
+        LocalDateTime updatedAfter = LocalDateTime.ofInstant(safeSince, ZoneOffset.UTC);
+        UUID tenantId = TenantContext.getCurrentTenant();
+        UUID orgId = SecurityUtils.isSuperAdmin() ? null : TenantContext.getCurrentOrg();
+        return orderRepository.findChangedOrders(
+                        tenantId,
+                        orgId,
+                        OrderType.SALE,
+                        updatedAfter,
+                        PageRequest.of(0, MAX_SYNC_ORDER_CHANGES)
+                )
+                .stream()
+                .map(this::toOrderSummary)
+                .toList();
     }
 
     @Transactional(readOnly = true)

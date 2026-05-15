@@ -1,7 +1,7 @@
 package com.restaurant.pos.sync.dto;
 
 import com.restaurant.pos.common.dto.ConfigurationDto;
-import com.restaurant.pos.order.domain.Order;
+import com.restaurant.pos.order.dto.OrderSummaryDto;
 import com.restaurant.pos.product.domain.Category;
 import com.restaurant.pos.product.domain.Uom;
 import com.restaurant.pos.product.dto.ProductListDto;
@@ -26,6 +26,6 @@ public class SyncBootstrapResponse {
     private List<Uom> uoms;
     private List<VariantGroupDto> variantGroups;
     private List<RestaurantTable> tables;
-    private List<Order> orders;
+    private List<OrderSummaryDto> orders;
     private ConfigurationDto configuration;
 }

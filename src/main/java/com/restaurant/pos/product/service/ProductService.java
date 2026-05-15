@@ -24,6 +24,9 @@ import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -155,6 +158,20 @@ public class ProductService {
         return groups;
     }
 
+    @Transactional(readOnly = true)
+    public List<VariantGroupDto> getVariantGroupsChangedSince(Instant since) {
+        if (since == null) {
+            return getVariantGroups();
+        }
+        UUID clientId = TenantContext.getCurrentTenant();
+        UUID orgId = TenantContext.getCurrentOrg();
+        LocalDateTime updatedAfter = LocalDateTime.ofInstant(since, ZoneOffset.UTC);
+        return variantGroupRepository.findChangedByClientIdAndOrgIdOrGlobal(clientId, orgId, updatedAfter)
+                .stream()
+                .map(this::mapVariantGroupToDto)
+                .collect(Collectors.toList());
+    }
+
     @Transactional
     @CacheEvict(value = { "products_variant_groups_v2", "variant_options" }, allEntries = true)
     public VariantGroupDto createVariantGroup(VariantGroup group) {
@@ -283,6 +300,42 @@ public class ProductService {
                 .stream()
                 .map(this::mapToDto)
                 .collect(Collectors.toList());
+    }
+
+    @Transactional(readOnly = true)
+    public List<ProductListDto> getProductsChangedSince(Instant since) {
+        if (since == null) {
+            return getProducts();
+        }
+        UUID clientId = TenantContext.getCurrentTenant();
+        UUID orgId = TenantContext.getCurrentOrg();
+        LocalDateTime updatedAfter = LocalDateTime.ofInstant(since, ZoneOffset.UTC);
+        return productRepository.findChangedByClientIdAndOrgIdOrGlobal(clientId, orgId, updatedAfter)
+                .stream()
+                .map(this::mapToDto)
+                .collect(Collectors.toList());
+    }
+
+    @Transactional(readOnly = true)
+    public List<Category> getCategoriesChangedSince(Instant since) {
+        if (since == null) {
+            return getCategories();
+        }
+        UUID clientId = TenantContext.getCurrentTenant();
+        UUID orgId = TenantContext.getCurrentOrg();
+        LocalDateTime updatedAfter = LocalDateTime.ofInstant(since, ZoneOffset.UTC);
+        return categoryRepository.findChangedByClientIdAndOrgIdOrGlobal(clientId, orgId, updatedAfter);
+    }
+
+    @Transactional(readOnly = true)
+    public List<Uom> getUomsChangedSince(Instant since) {
+        if (since == null) {
+            return getUoms();
+        }
+        UUID clientId = TenantContext.getCurrentTenant();
+        UUID orgId = TenantContext.getCurrentOrg();
+        LocalDateTime updatedAfter = LocalDateTime.ofInstant(since, ZoneOffset.UTC);
+        return uomRepository.findChangedByClientIdAndOrgIdOrGlobal(clientId, orgId, updatedAfter);
     }
 
     @Transactional(readOnly = true)

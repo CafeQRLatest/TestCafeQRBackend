@@ -56,19 +56,23 @@ public class SyncService {
                 .uoms(productService.getUoms())
                 .variantGroups(productService.getVariantGroups())
                 .tables(tableService.getAllTables())
-                .orders(orderService.getOrders())
+                .orders(orderService.getSyncBootstrapOrders())
                 .configuration(configurationService.getConfiguration())
                 .build();
     }
 
     @Transactional(readOnly = true)
     public SyncChangesResponse changes(Instant since) {
-        // First release: return a compact authoritative snapshot. Later this can be
-        // narrowed to true per-table deltas once every module has revision cursors.
         return SyncChangesResponse.builder()
                 .since(since)
                 .serverTime(Instant.now())
-                .snapshot(bootstrap())
+                .products(productService.getProductsChangedSince(since))
+                .categories(productService.getCategoriesChangedSince(since))
+                .uoms(productService.getUomsChangedSince(since))
+                .variantGroups(productService.getVariantGroupsChangedSince(since))
+                .tables(tableService.getTablesChangedSince(since))
+                .orders(orderService.getChangedSalesOrders(since))
+                .configuration(configurationService.getConfiguration())
                 .build();
     }
 

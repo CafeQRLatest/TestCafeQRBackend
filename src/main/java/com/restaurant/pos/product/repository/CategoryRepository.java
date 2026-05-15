@@ -5,6 +5,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.stereotype.Repository;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -16,6 +17,9 @@ public interface CategoryRepository extends JpaRepository<Category, UUID> {
 
     @Query("SELECT c FROM Category c WHERE c.clientId = :clientId AND (:orgId IS NULL OR c.orgId IS NULL OR c.orgId = :orgId) AND c.isActive = true")
     List<Category> findByClientIdAndOrgIdOrGlobalAndIsActiveTrue(UUID clientId, UUID orgId);
+
+    @Query("SELECT c FROM Category c WHERE c.clientId = :clientId AND (:orgId IS NULL OR c.orgId IS NULL OR c.orgId = :orgId) AND c.updatedAt >= :updatedAfter")
+    List<Category> findChangedByClientIdAndOrgIdOrGlobal(UUID clientId, UUID orgId, LocalDateTime updatedAfter);
     
     @Query("SELECT c FROM Category c WHERE c.id = :id AND c.clientId = :clientId AND (:orgId IS NULL OR c.orgId IS NULL OR c.orgId = :orgId)")
     Optional<Category> findByIdAndClientIdAndOrgIdOrGlobal(UUID id, UUID clientId, UUID orgId);

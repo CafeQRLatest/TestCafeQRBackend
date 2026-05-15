@@ -7,12 +7,12 @@ import com.restaurant.pos.common.util.SecurityUtils;
 import com.restaurant.pos.table.domain.RestaurantTable;
 import com.restaurant.pos.table.repository.RestaurantTableRepository;
 import lombok.RequiredArgsConstructor;
-import org.springframework.cache.annotation.CacheEvict;
-import org.springframework.cache.annotation.Cacheable;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.UUID;
 
@@ -27,7 +27,6 @@ public class RestaurantTableService {
     private String frontendUrl;
 
     @Transactional(readOnly = true)
-    @Cacheable(value = "restaurant_tables", key = "T(com.restaurant.pos.common.tenant.TenantContext).getCurrentTenant() + ':' + T(com.restaurant.pos.common.tenant.TenantContext).getCurrentOrg()")
     public List<RestaurantTable> getAllTables() {
         UUID clientId = TenantContext.getCurrentTenant();
         if (SecurityUtils.isSuperAdmin()) {
@@ -37,7 +36,6 @@ public class RestaurantTableService {
     }
 
     @Transactional(readOnly = true)
-    @Cacheable(value = "active_restaurant_tables", key = "T(com.restaurant.pos.common.tenant.TenantContext).getCurrentTenant() + ':' + T(com.restaurant.pos.common.tenant.TenantContext).getCurrentOrg()")
     public List<RestaurantTable> getActiveTables() {
         UUID clientId = TenantContext.getCurrentTenant();
         if (SecurityUtils.isSuperAdmin()) {
@@ -47,7 +45,6 @@ public class RestaurantTableService {
     }
 
     @Transactional(readOnly = true)
-    @Cacheable(value = "restaurant_table_detail", key = "#id")
     public RestaurantTable getTable(UUID id) {
         UUID clientId = TenantContext.getCurrentTenant();
         if (SecurityUtils.isSuperAdmin()) {
@@ -58,8 +55,24 @@ public class RestaurantTableService {
                 .orElseThrow(() -> new ResourceNotFoundException("Table not found"));
     }
 
+    @Transactional(readOnly = true)
+    public List<RestaurantTable> getTablesChangedSince(Instant since) {
+        if (since == null) {
+            return getAllTables();
+        }
+        UUID clientId = TenantContext.getCurrentTenant();
+        LocalDateTime updatedAfter = LocalDateTime.ofInstant(since, ZoneOffset.UTC);
+        if (SecurityUtils.isSuperAdmin()) {
+            return tableRepository.findByClientIdAndUpdatedAtAfterOrderByDisplayOrderAscTableNumberAsc(clientId, updatedAfter);
+        }
+        return tableRepository.findByClientIdAndOrgIdAndUpdatedAtAfterOrderByDisplayOrderAscTableNumberAsc(
+                clientId,
+                TenantContext.getCurrentOrg(),
+                updatedAfter
+        );
+    }
+
     @Transactional
-    @CacheEvict(value = {"restaurant_tables", "active_restaurant_tables", "restaurant_table_detail"}, allEntries = true)
     public RestaurantTable saveTable(RestaurantTable table) {
         boolean isNew = table.getId() == null;
         if (table.getClientId() == null) {
@@ -80,7 +93,6 @@ public class RestaurantTableService {
     }
 
     @Transactional
-    @CacheEvict(value = {"restaurant_tables", "active_restaurant_tables", "restaurant_table_detail"}, allEntries = true)
     public RestaurantTable updateTableStatus(UUID id, String status) {
         RestaurantTable table = getTable(id);
         table.setStatus(status);
@@ -88,7 +100,6 @@ public class RestaurantTableService {
     }
 
     @Transactional
-    @CacheEvict(value = {"restaurant_tables", "active_restaurant_tables", "restaurant_table_detail"}, allEntries = true)
     public void deleteTable(UUID id) {
         RestaurantTable table = getTable(id);
         
