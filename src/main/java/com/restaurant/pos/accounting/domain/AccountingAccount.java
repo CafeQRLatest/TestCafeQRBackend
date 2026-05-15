@@ -37,6 +37,9 @@ public class AccountingAccount extends BaseEntity {
     @Column(name = "account_sub_type", length = 60)
     private String accountSubType;
 
+    @Column(name = "system_key", length = 80)
+    private String systemKey;
+
     @Column(name = "currency_id")
     private UUID currencyId;
 

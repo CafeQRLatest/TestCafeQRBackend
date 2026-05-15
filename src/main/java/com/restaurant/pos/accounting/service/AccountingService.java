@@ -125,6 +125,9 @@ public class AccountingService {
         entry.setEntryDate(entry.getEntryDate() != null ? entry.getEntryDate() : LocalDateTime.now());
         entry.setStatus(entry.getStatus() != null ? entry.getStatus() : JournalStatus.POSTED);
         entry.setSourceType(trimToNull(entry.getSourceType()));
+        entry.setSourceId(entry.getSourceId());
+        entry.setReversalOfJournalEntryId(entry.getReversalOfJournalEntryId());
+        entry.setAutoPosted(Boolean.TRUE.equals(entry.getAutoPosted()));
         entry.setDescription(trimToNull(entry.getDescription()));
         entry.setIsactive(isActiveFlag(entry.getIsactive()));
         if (entry.getLines() == null) {
@@ -342,6 +345,7 @@ public class AccountingService {
         account.setName(requireText(account.getName(), "Account name is required"));
         account.setAccountType(requireAccountType(account.getAccountType()));
         account.setAccountSubType(trimToNull(account.getAccountSubType()));
+        account.setSystemKey(trimToNull(account.getSystemKey()));
         account.setOpeningBalance(money(account.getOpeningBalance()));
         if (account.getCurrentBalance() == null) {
             account.setCurrentBalance(account.getOpeningBalance());

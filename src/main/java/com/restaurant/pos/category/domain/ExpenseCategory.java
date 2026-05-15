@@ -41,6 +41,9 @@ public class ExpenseCategory extends BaseEntity {
     @Builder.Default
     private Integer sortOrder = 0;
 
+    @Column(name = "account_id")
+    private UUID accountId;
+
     @Column(name = "is_active", nullable = false, length = 1)
     @Builder.Default
     private String isactive = "Y";

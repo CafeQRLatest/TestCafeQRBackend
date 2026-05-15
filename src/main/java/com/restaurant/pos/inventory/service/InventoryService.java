@@ -3,6 +3,7 @@ package com.restaurant.pos.inventory.service;
 import com.restaurant.pos.common.exception.ResourceNotFoundException;
 import com.restaurant.pos.common.tenant.TenantContext;
 import com.restaurant.pos.common.util.SecurityUtils;
+import com.restaurant.pos.accounting.service.AccountingPostingService;
 import com.restaurant.pos.inventory.domain.*;
 import com.restaurant.pos.inventory.repository.*;
 import lombok.RequiredArgsConstructor;
@@ -23,6 +24,7 @@ public class InventoryService {
     private final StockSnapshotRepository stockSnapshotRepository;
     private final StockAdjustmentRepository stockAdjustmentRepository;
     private final StockTransferRepository stockTransferRepository;
+    private final AccountingPostingService accountingPostingService;
 
     // --- Warehouse Management ---
 
@@ -132,7 +134,9 @@ public class InventoryService {
             }
         }
         
-        return stockAdjustmentRepository.save(adjustment);
+        StockAdjustment saved = stockAdjustmentRepository.save(adjustment);
+        accountingPostingService.postStockAdjustment(saved);
+        return saved;
     }
 
     // --- Stock Transfers ---

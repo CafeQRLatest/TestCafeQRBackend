@@ -1,12 +1,14 @@
 package com.restaurant.pos.order.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.restaurant.pos.accounting.service.AccountingPostingService;
 import com.restaurant.pos.common.tenant.TenantContext;
 import com.restaurant.pos.inventory.service.InventoryService;
 import com.restaurant.pos.invoice.repository.InvoiceRepository;
 import com.restaurant.pos.order.domain.Order;
 import com.restaurant.pos.order.repository.OrderRepository;
 import com.restaurant.pos.order.repository.PaymentRepository;
+import com.restaurant.pos.order.repository.PaymentSplitRepository;
 import com.restaurant.pos.print.service.PrintJobService;
 import com.restaurant.pos.product.repository.ProductRepository;
 import com.restaurant.pos.purchasing.domain.Customer;
@@ -56,6 +58,8 @@ class OrderServiceTest {
                 orderRepository,
                 invoiceRepository,
                 paymentRepository,
+                mock(PaymentSplitRepository.class),
+                mock(AccountingPostingService.class),
                 mock(InventoryService.class),
                 mock(RestaurantTableRepository.class),
                 sequenceService,

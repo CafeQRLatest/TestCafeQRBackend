@@ -12,4 +12,8 @@ public interface JournalEntryRepository extends JpaRepository<JournalEntry, UUID
     Optional<JournalEntry> findByIdAndClientId(UUID id, UUID clientId);
 
     Optional<JournalEntry> findByIdAndClientIdAndOrgId(UUID id, UUID clientId, UUID orgId);
+
+    Optional<JournalEntry> findByClientIdAndOrgIdAndSourceTypeAndSourceId(UUID clientId, UUID orgId, String sourceType, UUID sourceId);
+
+    boolean existsByClientIdAndOrgIdAndSourceTypeAndSourceId(UUID clientId, UUID orgId, String sourceType, UUID sourceId);
 }

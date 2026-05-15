@@ -43,6 +43,13 @@ public class JournalEntry extends BaseEntity {
     @Column(name = "source_id")
     private UUID sourceId;
 
+    @Column(name = "reversal_of_journal_entry_id")
+    private UUID reversalOfJournalEntryId;
+
+    @Column(name = "auto_posted")
+    @Builder.Default
+    private Boolean autoPosted = false;
+
     @Column(name = "terminal_id")
     private UUID terminalId;
 

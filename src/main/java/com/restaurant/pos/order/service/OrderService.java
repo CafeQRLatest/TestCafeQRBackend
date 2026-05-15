@@ -2,6 +2,7 @@ package com.restaurant.pos.order.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.restaurant.pos.accounting.service.AccountingPostingService;
 import com.restaurant.pos.common.exception.ResourceNotFoundException;
 import com.restaurant.pos.common.exception.BusinessException;
 import com.restaurant.pos.common.tenant.TenantContext;
@@ -13,6 +14,7 @@ import com.restaurant.pos.order.domain.Order;
 import com.restaurant.pos.order.domain.OrderLine;
 import com.restaurant.pos.order.domain.OrderType;
 import com.restaurant.pos.order.domain.Payment;
+import com.restaurant.pos.order.domain.PaymentSplit;
 import com.restaurant.pos.order.domain.PaymentType;
 import com.restaurant.pos.order.dto.OrderCancelRequest;
 import com.restaurant.pos.order.dto.OrderCustomerDto;
@@ -23,6 +25,7 @@ import com.restaurant.pos.order.dto.OrderSummaryDto;
 import com.restaurant.pos.invoice.repository.InvoiceRepository;
 import com.restaurant.pos.order.repository.OrderRepository;
 import com.restaurant.pos.order.repository.PaymentRepository;
+import com.restaurant.pos.order.repository.PaymentSplitRepository;
 import com.restaurant.pos.print.domain.PrintJobKind;
 import com.restaurant.pos.print.service.PrintJobService;
 import com.restaurant.pos.product.domain.Product;
@@ -77,6 +80,8 @@ public class OrderService {
     private final OrderRepository orderRepository;
     private final InvoiceRepository invoiceRepository;
     private final PaymentRepository paymentRepository;
+    private final PaymentSplitRepository paymentSplitRepository;
+    private final AccountingPostingService accountingPostingService;
     private final InventoryService inventoryService;
     private final RestaurantTableRepository tableRepository;
     private final DocumentSequenceService sequenceService;
@@ -838,6 +843,7 @@ public class OrderService {
         if ("COMPLETED".equalsIgnoreCase(saved.getOrderStatus()) && "PAID".equalsIgnoreCase(saved.getPaymentStatus())) {
             String paymentMethod = saved.getReference() != null ? saved.getReference() : "CASH";
             generatePayment(saved, paymentMethod, requestedPaymentNo);
+            accountingPostingService.postSaleCogs(saved);
         }
 
         handleTableStatus(saved);
@@ -870,9 +876,20 @@ public class OrderService {
         List<UUID> oldInvoiceIdList = new java.util.ArrayList<>();
         invoiceRepository.findByOrderId(id).forEach(inv -> {
             oldInvoiceIdList.add(inv.getId());
+            accountingPostingService.reverseInvoice(inv, "Order revised");
             inv.setInvoiceNo(inv.getInvoiceNo() + "_VOID_" + (oldOrder.getRevisionNumber() != null ? oldOrder.getRevisionNumber() : 0));
             inv.setStatus("VOID");
             invoiceRepository.save(inv);
+        });
+
+        paymentRepository.findByOrderId(id).forEach(payment -> {
+            accountingPostingService.reversePayment(payment, "Order revised");
+            payment.setReferenceNo((payment.getReferenceNo() != null ? payment.getReferenceNo() : "PAYMENT")
+                    + "_VOID_" + (oldOrder.getRevisionNumber() != null ? oldOrder.getRevisionNumber() : 0));
+            payment.setStatus("VOID");
+            payment.setDocStatus("VOID");
+            payment.setIsactive("N");
+            paymentRepository.save(payment);
         });
 
         // 3. Create NEW order record with the original Order No
@@ -926,6 +943,7 @@ public class OrderService {
         if ("PAID".equalsIgnoreCase(saved.getPaymentStatus())) {
             String paymentMethod = saved.getReference() != null ? saved.getReference() : "CASH";
             generatePayment(saved, paymentMethod);
+            accountingPostingService.postSaleCogs(saved);
         }
         
         handleTableStatus(saved);
@@ -957,6 +975,7 @@ public class OrderService {
         if ("COMPLETED".equalsIgnoreCase(result.getOrderStatus()) && "PAID".equalsIgnoreCase(result.getPaymentStatus())) {
             String paymentMethod = result.getReference() != null ? result.getReference() : "CASH";
             generatePayment(result, paymentMethod);
+            accountingPostingService.postSaleCogs(result);
         }
         
         handleTableStatus(result);
@@ -1030,7 +1049,9 @@ public class OrderService {
         BigDecimal amountPaid = safeRequest.getAmountPaid() != null
                 ? moneyValue(safeRequest.getAmountPaid())
                 : payable;
-        generatePayment(saved, paymentMethod, null, amountPaid, settlementDescription);
+        generatePayment(saved, paymentMethod, null, amountPaid, settlementDescription,
+                safeRequest.getCashAmount(), safeRequest.getOnlineAmount());
+        accountingPostingService.postSaleCogs(saved);
 
         handleTableStatus(saved);
 
@@ -1082,6 +1103,7 @@ public class OrderService {
         Order saved = orderRepository.save(order);
         invoiceRepository.findByOrderId(saved.getId()).forEach(invoice -> {
             if (!Boolean.TRUE.equals(invoice.getIsPaid())) {
+                accountingPostingService.reverseInvoice(invoice, "Order cancelled");
                 invoice.setStatus("VOID");
                 invoice.setDocStatus("VOID");
                 invoice.setAmountDue(BigDecimal.ZERO);
@@ -1129,6 +1151,7 @@ public class OrderService {
 
         Invoice invoice = Invoice.builder()
             .invoiceType(invoiceType)
+            .documentKind(invoiceDocType.name())
             .terminalId(order.getTerminalId())
             .sourceDeviceId(order.getSourceDeviceId())
             .sourceTerminalId(order.getSourceTerminalId())
@@ -1151,8 +1174,10 @@ public class OrderService {
             
         invoice.setClientId(clientId);
         invoice.setOrgId(orgId);
-            
-        return invoiceRepository.save(invoice);
+
+        Invoice savedInvoice = invoiceRepository.save(invoice);
+        accountingPostingService.postInvoice(order, savedInvoice);
+        return savedInvoice;
     }
 
     @Transactional
@@ -1172,11 +1197,20 @@ public class OrderService {
 
     @Transactional
     public void generatePayment(Order order, String paymentMethod, String requestedPaymentNo, BigDecimal amountPaid, String description) {
+        generatePayment(order, paymentMethod, requestedPaymentNo, amountPaid, description, null, null);
+    }
+
+    @Transactional
+    public void generatePayment(Order order, String paymentMethod, String requestedPaymentNo, BigDecimal amountPaid, String description,
+                                BigDecimal cashAmount, BigDecimal onlineAmount) {
         if (order.getPaymentNo() != null && !order.getPaymentNo().isEmpty()) return;
 
         // Try to find the invoice
         List<Invoice> invoices = invoiceRepository.findByOrderId(order.getId());
         Invoice invoice = invoices.isEmpty() ? generateInvoice(order) : invoices.get(0);
+        if (invoice != null) {
+            accountingPostingService.postInvoice(order, invoice);
+        }
 
         UUID clientId = order.getClientId();
         UUID orgId = order.getOrgId();
@@ -1194,6 +1228,7 @@ public class OrderService {
         
         Payment payment = Payment.builder()
             .paymentType(paymentType)
+            .documentKind(paymentDocType.name())
             .terminalId(order.getTerminalId())
             .sourceDeviceId(order.getSourceDeviceId())
             .sourceTerminalId(order.getSourceTerminalId())
@@ -1213,16 +1248,62 @@ public class OrderService {
             
         payment.setClientId(clientId);
         payment.setOrgId(orgId);
-            
-        paymentRepository.save(payment);
+
+        Payment savedPayment = paymentRepository.save(payment);
+        savePaymentSplits(savedPayment, paymentMethod, amountPaid, cashAmount, onlineAmount);
         
         // Update Invoice status if it exists
         if (invoice != null) {
-            invoice.setStatus("PAID");
-            invoice.setIsPaid(true);
-            invoice.setAmountDue(BigDecimal.ZERO);
+            BigDecimal due = moneyValue(invoice.getTotalAmount()).subtract(moneyValue(amountPaid));
+            if (due.compareTo(BigDecimal.ZERO) <= 0) {
+                invoice.setStatus("PAID");
+                invoice.setIsPaid(true);
+                invoice.setAmountDue(BigDecimal.ZERO);
+            } else {
+                invoice.setStatus("PARTIAL");
+                invoice.setIsPaid(false);
+                invoice.setAmountDue(due);
+            }
             invoiceRepository.save(invoice);
         }
+        accountingPostingService.postPayment(order, savedPayment);
+    }
+
+    private void savePaymentSplits(Payment payment, String paymentMethod, BigDecimal amountPaid, BigDecimal cashAmount, BigDecimal onlineAmount) {
+        BigDecimal totalPaid = moneyValue(amountPaid);
+        if (totalPaid.compareTo(BigDecimal.ZERO) <= 0) {
+            return;
+        }
+        String normalizedMethod = paymentMethod == null || paymentMethod.isBlank()
+                ? "CASH"
+                : paymentMethod.trim().toUpperCase();
+        List<PaymentSplit> splits = new ArrayList<>();
+        if ("MIXED".equalsIgnoreCase(normalizedMethod)) {
+            BigDecimal cash = moneyValue(cashAmount);
+            BigDecimal online = moneyValue(onlineAmount);
+            if (cash.compareTo(BigDecimal.ZERO) > 0) {
+                splits.add(buildPaymentSplit(payment, "CASH", cash));
+            }
+            if (online.compareTo(BigDecimal.ZERO) > 0) {
+                splits.add(buildPaymentSplit(payment, "ONLINE", online));
+            }
+        }
+        if (splits.isEmpty()) {
+            splits.add(buildPaymentSplit(payment, normalizedMethod, totalPaid));
+        }
+        paymentSplitRepository.saveAll(splits);
+    }
+
+    private PaymentSplit buildPaymentSplit(Payment payment, String method, BigDecimal amount) {
+        PaymentSplit split = PaymentSplit.builder()
+                .paymentId(payment.getId())
+                .paymentMethod(method)
+                .amount(moneyValue(amount))
+                .referenceNo(payment.getReferenceNo())
+                .build();
+        split.setClientId(payment.getClientId());
+        split.setOrgId(payment.getOrgId());
+        return split;
     }
 
     private void handleTableStatus(Order order) {
@@ -1277,7 +1358,7 @@ public class OrderService {
 
     private String normalizePaymentMethod(String paymentMethod) {
         String method = paymentMethod == null || paymentMethod.isBlank() ? "CASH" : paymentMethod.trim().toUpperCase();
-        if (!List.of("CASH", "ONLINE", "MIXED").contains(method)) {
+        if (!List.of("CASH", "ONLINE", "UPI", "CARD", "BANK", "CHEQUE", "MIXED").contains(method)) {
             return "CASH";
         }
         return method;

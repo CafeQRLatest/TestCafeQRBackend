@@ -8,6 +8,7 @@ import org.springframework.stereotype.Repository;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.List;
+import java.time.LocalDateTime;
 
 @Repository
 public interface InvoiceRepository extends JpaRepository<Invoice, UUID>, JpaSpecificationExecutor<Invoice> {
@@ -20,6 +21,8 @@ public interface InvoiceRepository extends JpaRepository<Invoice, UUID>, JpaSpec
     
     Optional<Invoice> findByInvoiceNoAndClientId(String invoiceNo, UUID clientId);
     Optional<Invoice> findByInvoiceNoAndClientIdAndOrgId(String invoiceNo, UUID clientId, UUID orgId);
+
+    List<Invoice> findByClientIdAndOrgIdAndInvoiceDateBetweenOrderByInvoiceDateAsc(UUID clientId, UUID orgId, LocalDateTime from, LocalDateTime to);
 
     boolean existsByClientIdAndOrgIdAndInvoiceNo(UUID clientId, UUID orgId, String invoiceNo);
     

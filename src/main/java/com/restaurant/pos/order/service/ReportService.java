@@ -2,6 +2,7 @@ package com.restaurant.pos.order.service;
 
 import com.restaurant.pos.common.tenant.TenantContext;
 import com.restaurant.pos.common.util.SecurityUtils;
+import com.restaurant.pos.accounting.service.AccountingPostingService;
 import com.restaurant.pos.invoice.domain.Invoice;
 import com.restaurant.pos.invoice.domain.InvoiceType;
 import com.restaurant.pos.invoice.repository.InvoiceRepository;
@@ -39,6 +40,7 @@ public class ReportService {
     private final InvoiceRepository invoiceRepository;
     private final PaymentRepository paymentRepository;
     private final CustomerRepository customerRepository;
+    private final AccountingPostingService accountingPostingService;
 
     private static final ZoneId IST = ZoneId.of("Asia/Kolkata");
 
@@ -478,6 +480,7 @@ public class ReportService {
             throw new IllegalStateException("Invoice is already voided");
         }
 
+        accountingPostingService.reverseInvoice(invoice, "Invoice voided");
         invoice.setStatus("VOID");
         invoice.setDocStatus("VOIDED");
         if (reason != null && !reason.isBlank()) {

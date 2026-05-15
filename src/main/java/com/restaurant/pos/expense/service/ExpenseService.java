@@ -4,6 +4,7 @@ import com.restaurant.pos.common.exception.BusinessException;
 import com.restaurant.pos.common.exception.ResourceNotFoundException;
 import com.restaurant.pos.common.tenant.TenantContext;
 import com.restaurant.pos.common.util.SecurityUtils;
+import com.restaurant.pos.accounting.service.AccountingPostingService;
 import com.restaurant.pos.expense.domain.Expense;
 import com.restaurant.pos.category.domain.ExpenseCategory;
 import com.restaurant.pos.category.repository.ExpenseCategoryRepository;
@@ -61,6 +62,7 @@ public class ExpenseService {
     private final ExpenseRepository expenseRepository;
     private final ExpenseMapper expenseMapper;
     private final OrderService orderService;
+    private final AccountingPostingService accountingPostingService;
     private final CurrencyRepository currencyRepository;
     private final InvoiceRepository invoiceRepository;
     private final PaymentRepository paymentRepository;
@@ -213,6 +215,7 @@ public class ExpenseService {
         // 2. VOID the linked invoices (batched)
         List<Invoice> invoicesToVoid = invoiceRepository.findByOrderId(id);
         invoicesToVoid.forEach(inv -> {
+            accountingPostingService.reverseInvoice(inv, "Expense revised");
             inv.setInvoiceNo(inv.getInvoiceNo() + "_VOID_" + revision);
             inv.setStatus(ExpenseStatus.VOID);
             inv.setDocStatus(ExpenseStatus.VOID);
@@ -263,6 +266,7 @@ public class ExpenseService {
             } else {
                 // VOID all old payments (batched)
                 oldPayments.forEach(pay -> {
+                    accountingPostingService.reversePayment(pay, "Expense revised");
                     pay.setStatus(ExpenseStatus.VOID);
                     pay.setDocStatus(ExpenseStatus.VOID);
                     pay.setIsactive("N");
@@ -306,6 +310,7 @@ public class ExpenseService {
         List<Invoice> invoicesToVoid = invoiceRepository.findByOrderId(id);
         List<UUID> invoiceIds = new ArrayList<>();
         invoicesToVoid.forEach(inv -> {
+            accountingPostingService.reverseInvoice(inv, "Expense voided");
             inv.setInvoiceNo(inv.getInvoiceNo() + "_VOID_" + revision);
             inv.setStatus(ExpenseStatus.VOID);
             inv.setDocStatus(ExpenseStatus.VOID);
@@ -318,6 +323,7 @@ public class ExpenseService {
         List<Payment> paymentsToVoid = paymentRepository.findByOrderId(id);
         List<UUID> paymentIds = new ArrayList<>();
         paymentsToVoid.forEach(pay -> {
+            accountingPostingService.reversePayment(pay, "Expense voided");
             pay.setReferenceNo(pay.getReferenceNo() + "_VOID_" + revision);
             pay.setStatus(ExpenseStatus.VOID);
             pay.setDocStatus(ExpenseStatus.VOID);

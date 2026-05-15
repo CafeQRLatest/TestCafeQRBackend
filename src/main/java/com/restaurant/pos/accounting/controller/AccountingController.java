@@ -1,7 +1,13 @@
 package com.restaurant.pos.accounting.controller;
 
 import com.restaurant.pos.accounting.domain.*;
+import com.restaurant.pos.accounting.dto.AccountingBackfillRequest;
+import com.restaurant.pos.accounting.dto.AccountingBackfillResponse;
+import com.restaurant.pos.accounting.dto.AccountingMappingsDto;
+import com.restaurant.pos.accounting.dto.AccountingPostingErrorDto;
 import com.restaurant.pos.accounting.dto.TrialBalanceRowDto;
+import com.restaurant.pos.accounting.service.AccountingDefaultsService;
+import com.restaurant.pos.accounting.service.AccountingPostingService;
 import com.restaurant.pos.accounting.service.AccountingService;
 import com.restaurant.pos.common.dto.ApiResponse;
 import lombok.RequiredArgsConstructor;
@@ -20,12 +26,15 @@ import java.util.UUID;
 public class AccountingController {
 
     private final AccountingService accountingService;
+    private final AccountingDefaultsService defaultsService;
+    private final AccountingPostingService postingService;
 
     @GetMapping("/accounts")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
     public ResponseEntity<ApiResponse<List<AccountingAccount>>> getAccounts(
             @RequestParam(defaultValue = "false") boolean includeInactive
     ) {
+        defaultsService.ensureDefaultAccounts();
         return ResponseEntity.ok(ApiResponse.success(accountingService.getAccounts(includeInactive)));
     }
 
@@ -94,5 +103,42 @@ public class AccountingController {
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
     public ResponseEntity<ApiResponse<PaymentAllocation>> allocatePayment(@RequestBody PaymentAllocation allocation) {
         return ResponseEntity.ok(ApiResponse.success("Payment allocated", accountingService.allocatePayment(allocation)));
+    }
+
+    @PostMapping("/defaults/ensure")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN')")
+    public ResponseEntity<ApiResponse<List<AccountingAccount>>> ensureDefaults() {
+        return ResponseEntity.ok(ApiResponse.success("Accounting defaults ensured", defaultsService.ensureDefaultAccounts()));
+    }
+
+    @GetMapping("/mappings")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
+    public ResponseEntity<ApiResponse<AccountingMappingsDto>> getMappings() {
+        defaultsService.ensureDefaultAccounts();
+        return ResponseEntity.ok(ApiResponse.success(defaultsService.getMappings()));
+    }
+
+    @PutMapping("/mappings")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN')")
+    public ResponseEntity<ApiResponse<AccountingMappingsDto>> updateMappings(@RequestBody AccountingMappingsDto mappings) {
+        return ResponseEntity.ok(ApiResponse.success("Accounting mappings updated", defaultsService.updateMappings(mappings)));
+    }
+
+    @GetMapping("/posting-errors")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN')")
+    public ResponseEntity<ApiResponse<List<AccountingPostingErrorDto>>> getPostingErrors() {
+        return ResponseEntity.ok(ApiResponse.success(postingService.getPostingErrors()));
+    }
+
+    @PostMapping("/posting-errors/{id}/retry")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN')")
+    public ResponseEntity<ApiResponse<AccountingPostingJob>> retryPosting(@PathVariable UUID id) {
+        return ResponseEntity.ok(ApiResponse.success("Accounting posting retry queued", postingService.retryPosting(id)));
+    }
+
+    @PostMapping("/backfill")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN')")
+    public ResponseEntity<ApiResponse<AccountingBackfillResponse>> backfill(@RequestBody AccountingBackfillRequest request) {
+        return ResponseEntity.ok(ApiResponse.success("Accounting backfill completed", postingService.backfill(request)));
     }
 }

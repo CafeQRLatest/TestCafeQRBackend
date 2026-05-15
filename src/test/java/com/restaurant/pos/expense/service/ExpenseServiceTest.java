@@ -1,5 +1,6 @@
 package com.restaurant.pos.expense.service;
 
+import com.restaurant.pos.accounting.service.AccountingPostingService;
 import com.restaurant.pos.category.domain.ExpenseCategory;
 import com.restaurant.pos.category.repository.ExpenseCategoryRepository;
 import com.restaurant.pos.common.exception.BusinessException;
@@ -66,6 +67,7 @@ class ExpenseServiceTest {
                 expenseRepository,
                 new ExpenseMapper(),
                 orderService,
+                mock(AccountingPostingService.class),
                 currencyRepository,
                 invoiceRepository,
                 paymentRepository,
