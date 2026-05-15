@@ -141,7 +141,8 @@ public class AccountingPostingService {
         return postingJobRepository.findById(jobId).orElse(job);
     }
 
-    @Transactional
+    // NOT @Transactional: each item posts in its own independent transaction
+    // to avoid statement timeout on free-tier databases during bulk backfill
     public AccountingBackfillResponse backfill(AccountingBackfillRequest request) {
         DateRange range = boundedRange(request != null ? request.getFrom() : null, request != null ? request.getTo() : null);
         Set<String> sources = normalizeSourceTypes(request != null ? request.getSourceTypes() : null);
