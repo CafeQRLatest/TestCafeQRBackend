@@ -55,6 +55,9 @@ public class Order extends BaseEntity {
     @Builder.Default
     private String orderStatus = "DRAFT"; // DRAFT, CONFIRMED, COMPLETED, CANCELLED
 
+    @Column(name = "document_kind", length = 50)
+    private String documentKind;
+
     @Column(name = "doc_status", length = 20)
     @Builder.Default
     private String docStatus = "COMPLETED";

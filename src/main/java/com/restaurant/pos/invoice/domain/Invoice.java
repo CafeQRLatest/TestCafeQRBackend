@@ -26,6 +26,9 @@ public class Invoice extends BaseEntity {
     @Column(name = "invoice_type", length = 30)
     private InvoiceType invoiceType; // CUSTOMER_INVOICE, VENDOR_BILL, EXPENSE_RECEIPT
 
+    @Column(name = "document_kind", length = 50)
+    private String documentKind;
+
     @Column(name = "terminal_id")
     private UUID terminalId;
 

@@ -135,25 +135,35 @@ public class DocumentSequenceService {
 
     private boolean documentNumberExists(DocumentType type, UUID clientId, UUID orgId, String documentNo) {
         return switch (type) {
-            case SALE_ORDER, PURCHASE_ORDER, EXPENSE ->
+            case SALE_ORDER, QUOTATION, PURCHASE_ORDER, DELIVERY_CHALLAN, EXPENSE ->
                     orderRepository.existsByClientIdAndOrgIdAndOrderNo(clientId, orgId, documentNo);
-            case CUSTOMER_INVOICE, VENDOR_BILL, EXPENSE_RECEIPT ->
+            case CUSTOMER_INVOICE, VENDOR_BILL, PURCHASE_BILL, EXPENSE_RECEIPT, CREDIT_NOTE, DEBIT_NOTE ->
                     invoiceRepository.existsByClientIdAndOrgIdAndInvoiceNo(clientId, orgId, documentNo);
-            case INBOUND_PAYMENT, OUTBOUND_PAYMENT ->
+            case INBOUND_PAYMENT, OUTBOUND_PAYMENT, PAYMENT_IN, PAYMENT_OUT ->
                     paymentRepository.existsByClientIdAndOrgIdAndReferenceNo(clientId, orgId, documentNo);
+            case STOCK_ADJUSTMENT, STOCK_TRANSFER, PRODUCTION_ORDER, JOURNAL_ENTRY -> false;
         };
     }
 
     private DocumentSequence createDefaultSequence(UUID clientId, UUID orgId, DocumentType type) {
         String defaultPrefix = switch (type) {
             case SALE_ORDER -> "SO-";
+            case QUOTATION -> "QT-";
+            case DELIVERY_CHALLAN -> "DC-";
+            case CREDIT_NOTE -> "CN-";
             case PURCHASE_ORDER -> "PO-";
+            case PURCHASE_BILL -> "PB-";
+            case DEBIT_NOTE -> "DN-";
             case EXPENSE -> "EX-";
             case CUSTOMER_INVOICE -> "INV-";
             case VENDOR_BILL -> "BILL-";
             case EXPENSE_RECEIPT -> "ER-";
-            case INBOUND_PAYMENT -> "REC-";
-            case OUTBOUND_PAYMENT -> "PAY-";
+            case INBOUND_PAYMENT, PAYMENT_IN -> "REC-";
+            case OUTBOUND_PAYMENT, PAYMENT_OUT -> "PAY-";
+            case STOCK_ADJUSTMENT -> "SA-";
+            case STOCK_TRANSFER -> "ST-";
+            case PRODUCTION_ORDER -> "PRD-";
+            case JOURNAL_ENTRY -> "JE-";
         };
 
         DocumentSequence seq = DocumentSequence.builder()

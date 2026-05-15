@@ -25,6 +25,9 @@ public class Payment extends BaseEntity {
     @Column(name = "payment_type", length = 20)
     private PaymentType paymentType; // INBOUND (Sales) or OUTBOUND (Purchase/Expense)
 
+    @Column(name = "document_kind", length = 50)
+    private String documentKind;
+
     @Column(name = "client_id")
     private UUID clientId;
 
