@@ -145,6 +145,6 @@ public class AccountingController {
     @PostMapping("/resync-all")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN')")
     public ResponseEntity<ApiResponse<AccountingBackfillResponse>> resyncAll() {
-        return ResponseEntity.ok(ApiResponse.success("Invoice discounts fixed", postingService.fixInvoiceDiscounts()));
+        return ResponseEntity.ok(ApiResponse.success("Accounting data rebuilt from scratch", postingService.resyncAll()));
     }
 }

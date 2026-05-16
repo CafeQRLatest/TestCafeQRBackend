@@ -10,10 +10,12 @@ import com.restaurant.pos.order.domain.Order;
 import com.restaurant.pos.order.domain.OrderLine;
 import com.restaurant.pos.order.domain.OrderType;
 import com.restaurant.pos.order.domain.Payment;
+import com.restaurant.pos.order.domain.PaymentSplit;
 import com.restaurant.pos.order.dto.OrderCustomerDto;
 import com.restaurant.pos.order.dto.report.*;
 import com.restaurant.pos.order.repository.OrderRepository;
 import com.restaurant.pos.order.repository.PaymentRepository;
+import com.restaurant.pos.order.repository.PaymentSplitRepository;
 import com.restaurant.pos.purchasing.domain.Customer;
 import com.restaurant.pos.purchasing.repository.CustomerRepository;
 import lombok.RequiredArgsConstructor;
@@ -39,6 +41,7 @@ public class ReportService {
     private final OrderRepository orderRepository;
     private final InvoiceRepository invoiceRepository;
     private final PaymentRepository paymentRepository;
+    private final PaymentSplitRepository paymentSplitRepository;
     private final CustomerRepository customerRepository;
     private final AccountingPostingService accountingPostingService;
 
@@ -217,21 +220,41 @@ public class ReportService {
 
         BigDecimal totalRevenue = BigDecimal.ZERO;
         Map<String, BigDecimal[]> payMethodMap = new LinkedHashMap<>();
+        Map<UUID, List<Payment>> paymentsByOrder = new LinkedHashMap<>();
+        List<Payment> activePayments = new ArrayList<>();
 
         for (Order o : orders) {
             totalRevenue = totalRevenue.add(safe(o.getGrandTotal()));
-            List<Payment> payments = paymentRepository.findByOrderId(o.getId());
+            List<Payment> payments = paymentRepository.findByOrderId(o.getId()).stream()
+                    .filter(this::isActivePayment)
+                    .collect(Collectors.toList());
+            paymentsByOrder.put(o.getId(), payments);
+            activePayments.addAll(payments);
+        }
+
+        Set<UUID> paymentIds = activePayments.stream()
+                .map(Payment::getId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        Map<UUID, List<PaymentSplit>> splitsByPaymentId = paymentIds.isEmpty()
+                ? Map.of()
+                : paymentSplitRepository.findByPaymentIdInOrderByCreatedAtAsc(paymentIds).stream()
+                        .collect(Collectors.groupingBy(PaymentSplit::getPaymentId, LinkedHashMap::new, Collectors.toList()));
+
+        for (Order o : orders) {
+            List<Payment> payments = paymentsByOrder.getOrDefault(o.getId(), List.of());
             if (payments.isEmpty()) {
-                String fallback = "UNASSIGNED";
-                payMethodMap.computeIfAbsent(fallback, k -> new BigDecimal[]{BigDecimal.ZERO, BigDecimal.ZERO});
-                payMethodMap.get(fallback)[0] = payMethodMap.get(fallback)[0].add(BigDecimal.ONE);
-                payMethodMap.get(fallback)[1] = payMethodMap.get(fallback)[1].add(safe(o.getGrandTotal()));
+                addPaymentBreakdownBucket(payMethodMap, "UNASSIGNED", safe(o.getGrandTotal()));
             } else {
                 for (Payment p : payments) {
-                    String pm = p.getPaymentMethod() != null ? p.getPaymentMethod().toUpperCase() : "UNKNOWN";
-                    payMethodMap.computeIfAbsent(pm, k -> new BigDecimal[]{BigDecimal.ZERO, BigDecimal.ZERO});
-                    payMethodMap.get(pm)[0] = payMethodMap.get(pm)[0].add(BigDecimal.ONE);
-                    payMethodMap.get(pm)[1] = payMethodMap.get(pm)[1].add(safe(p.getAmountPaid()));
+                    List<PaymentSplit> splits = splitsByPaymentId.getOrDefault(p.getId(), List.of());
+                    if (splits.isEmpty()) {
+                        addPaymentBreakdownBucket(payMethodMap, normalizeReportPaymentMethod(p.getPaymentMethod()), safe(p.getAmountPaid()));
+                    } else {
+                        for (PaymentSplit split : splits) {
+                            addPaymentBreakdownBucket(payMethodMap, normalizeReportPaymentMethod(split.getPaymentMethod()), safe(split.getAmount()));
+                        }
+                    }
                 }
             }
         }
@@ -751,6 +774,38 @@ public class ReportService {
             query.orderBy(cb.desc(root.get("orderDate")));
             return cb.and(predicates.toArray(new jakarta.persistence.criteria.Predicate[0]));
         });
+    }
+
+    private boolean isActivePayment(Payment payment) {
+        if (payment == null) {
+            return false;
+        }
+        if ("N".equalsIgnoreCase(payment.getIsactive())) {
+            return false;
+        }
+        return !isVoidStatus(payment.getStatus()) && !isVoidStatus(payment.getDocStatus());
+    }
+
+    private void addPaymentBreakdownBucket(Map<String, BigDecimal[]> payMethodMap, String paymentMethod, BigDecimal amount) {
+        BigDecimal value = safe(amount);
+        if (value.compareTo(BigDecimal.ZERO) <= 0) {
+            return;
+        }
+        String method = normalizeReportPaymentMethod(paymentMethod);
+        payMethodMap.computeIfAbsent(method, k -> new BigDecimal[]{BigDecimal.ZERO, BigDecimal.ZERO});
+        payMethodMap.get(method)[0] = payMethodMap.get(method)[0].add(BigDecimal.ONE);
+        payMethodMap.get(method)[1] = payMethodMap.get(method)[1].add(value);
+    }
+
+    private String normalizeReportPaymentMethod(String paymentMethod) {
+        if (paymentMethod == null || paymentMethod.isBlank()) {
+            return "UNASSIGNED";
+        }
+        String method = paymentMethod.trim().toUpperCase(Locale.ROOT);
+        if (Set.of("CASH", "ONLINE", "UPI", "CARD", "BANK", "CHEQUE").contains(method)) {
+            return method;
+        }
+        return "UNASSIGNED";
     }
 
     private BigDecimal safe(BigDecimal value) {

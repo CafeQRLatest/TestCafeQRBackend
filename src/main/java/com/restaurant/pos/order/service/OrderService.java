@@ -76,6 +76,8 @@ public class OrderService {
     private static final int MAX_SYNC_ORDER_CHANGES = 200;
     private static final Duration DEFAULT_HISTORY_WINDOW = Duration.ofDays(1);
     private static final Duration MAX_HISTORY_WINDOW = Duration.ofDays(31);
+    private static final List<String> PAYMENT_METHODS = List.of("CASH", "ONLINE", "UPI", "CARD", "BANK", "CHEQUE", "MIXED");
+    private static final List<String> PAYMENT_SPLIT_METHODS = List.of("CASH", "ONLINE", "UPI", "CARD", "BANK", "CHEQUE");
 
     private final OrderRepository orderRepository;
     private final InvoiceRepository invoiceRepository;
@@ -1016,6 +1018,9 @@ public class OrderService {
 
         OrderSettleRequest safeRequest = request == null ? new OrderSettleRequest() : request;
         String paymentMethod = normalizePaymentMethod(safeRequest.getPaymentMethod());
+        if (hasExplicitPaymentSplits(safeRequest)) {
+            paymentMethod = "MIXED";
+        }
         BigDecimal discountAmount = moneyValue(safeRequest.getDiscountAmount());
         BigDecimal roundOffAmount = moneyValue(safeRequest.getRoundOffAmount());
         BigDecimal currentTotal = moneyValue(order.getGrandTotal());
@@ -1067,7 +1072,7 @@ public class OrderService {
                 ? moneyValue(safeRequest.getAmountPaid())
                 : payable;
         generatePayment(saved, paymentMethod, null, amountPaid, settlementDescription,
-                safeRequest.getCashAmount(), safeRequest.getOnlineAmount());
+                safeRequest.getCashAmount(), safeRequest.getOnlineAmount(), safeRequest.getPaymentSplits());
         accountingPostingService.postSaleCogs(saved);
 
         handleTableStatus(saved);
@@ -1220,6 +1225,13 @@ public class OrderService {
     @Transactional
     public void generatePayment(Order order, String paymentMethod, String requestedPaymentNo, BigDecimal amountPaid, String description,
                                 BigDecimal cashAmount, BigDecimal onlineAmount) {
+        generatePayment(order, paymentMethod, requestedPaymentNo, amountPaid, description, cashAmount, onlineAmount, null);
+    }
+
+    @Transactional
+    public void generatePayment(Order order, String paymentMethod, String requestedPaymentNo, BigDecimal amountPaid, String description,
+                                BigDecimal cashAmount, BigDecimal onlineAmount,
+                                List<OrderSettleRequest.PaymentSplitRequest> paymentSplits) {
         if (order.getPaymentNo() != null && !order.getPaymentNo().isEmpty()) return;
 
         // Try to find the invoice
@@ -1242,6 +1254,10 @@ public class OrderService {
         PaymentType paymentType = (paymentDocType == DocumentType.INBOUND_PAYMENT)
                 ? PaymentType.INBOUND
                 : PaymentType.OUTBOUND;
+        String storedPaymentMethod = normalizePaymentMethod(paymentMethod);
+        if (paymentSplits != null && !paymentSplits.isEmpty()) {
+            storedPaymentMethod = "MIXED";
+        }
         
         Payment payment = Payment.builder()
             .paymentType(paymentType)
@@ -1256,7 +1272,7 @@ public class OrderService {
             .syncOrigin(order.getSyncOrigin())
             .orderId(order.getId())
             .invoiceId(invoice != null ? invoice.getId() : null)
-            .paymentMethod(paymentMethod)
+            .paymentMethod(storedPaymentMethod)
             .amountPaid(moneyValue(amountPaid))
             .referenceNo(payNo)
             .description(description)
@@ -1267,7 +1283,7 @@ public class OrderService {
         payment.setOrgId(orgId);
 
         Payment savedPayment = paymentRepository.save(payment);
-        savePaymentSplits(savedPayment, paymentMethod, amountPaid, cashAmount, onlineAmount);
+        savePaymentSplits(savedPayment, storedPaymentMethod, amountPaid, cashAmount, onlineAmount, paymentSplits);
         
         // Update Invoice status if it exists
         if (invoice != null) {
@@ -1286,41 +1302,72 @@ public class OrderService {
         accountingPostingService.postPayment(order, savedPayment);
     }
 
-    private void savePaymentSplits(Payment payment, String paymentMethod, BigDecimal amountPaid, BigDecimal cashAmount, BigDecimal onlineAmount) {
+    private void savePaymentSplits(Payment payment, String paymentMethod, BigDecimal amountPaid, BigDecimal cashAmount, BigDecimal onlineAmount,
+                                   List<OrderSettleRequest.PaymentSplitRequest> requestedSplits) {
         BigDecimal totalPaid = moneyValue(amountPaid);
         if (totalPaid.compareTo(BigDecimal.ZERO) <= 0) {
             return;
         }
-        String normalizedMethod = paymentMethod == null || paymentMethod.isBlank()
-                ? "CASH"
-                : paymentMethod.trim().toUpperCase();
+        String normalizedMethod = normalizePaymentMethod(paymentMethod);
         List<PaymentSplit> splits = new ArrayList<>();
-        if ("MIXED".equalsIgnoreCase(normalizedMethod)) {
+        if (requestedSplits != null && !requestedSplits.isEmpty()) {
+            BigDecimal splitTotal = BigDecimal.ZERO;
+            for (OrderSettleRequest.PaymentSplitRequest requestedSplit : requestedSplits) {
+                if (requestedSplit == null) {
+                    throw new BusinessException("Payment split row is invalid");
+                }
+                String splitMethod = normalizePaymentSplitMethod(requestedSplit.getPaymentMethod());
+                BigDecimal splitAmount = moneyValue(requestedSplit.getAmount());
+                if (splitAmount.compareTo(BigDecimal.ZERO) <= 0) {
+                    throw new BusinessException("Payment split amount must be greater than zero");
+                }
+                splitTotal = splitTotal.add(splitAmount);
+                splits.add(buildPaymentSplit(payment, splitMethod, splitAmount, requestedSplit.getReferenceNo()));
+            }
+            ensureSplitTotalMatches(totalPaid, splitTotal);
+        } else if ("MIXED".equalsIgnoreCase(normalizedMethod)) {
             BigDecimal cash = moneyValue(cashAmount);
             BigDecimal online = moneyValue(onlineAmount);
+            BigDecimal splitTotal = BigDecimal.ZERO;
             if (cash.compareTo(BigDecimal.ZERO) > 0) {
                 splits.add(buildPaymentSplit(payment, "CASH", cash));
+                splitTotal = splitTotal.add(cash);
             }
             if (online.compareTo(BigDecimal.ZERO) > 0) {
                 splits.add(buildPaymentSplit(payment, "ONLINE", online));
+                splitTotal = splitTotal.add(online);
             }
+            if (splits.isEmpty()) {
+                throw new BusinessException("Mixed payment requires split amounts");
+            }
+            ensureSplitTotalMatches(totalPaid, splitTotal);
         }
         if (splits.isEmpty()) {
-            splits.add(buildPaymentSplit(payment, normalizedMethod, totalPaid));
+            splits.add(buildPaymentSplit(payment, normalizePaymentSplitMethod(normalizedMethod), totalPaid));
         }
         paymentSplitRepository.saveAll(splits);
     }
 
     private PaymentSplit buildPaymentSplit(Payment payment, String method, BigDecimal amount) {
+        return buildPaymentSplit(payment, method, amount, payment.getReferenceNo());
+    }
+
+    private PaymentSplit buildPaymentSplit(Payment payment, String method, BigDecimal amount, String referenceNo) {
         PaymentSplit split = PaymentSplit.builder()
                 .paymentId(payment.getId())
                 .paymentMethod(method)
                 .amount(moneyValue(amount))
-                .referenceNo(payment.getReferenceNo())
+                .referenceNo(referenceNo == null || referenceNo.isBlank() ? payment.getReferenceNo() : referenceNo.trim())
                 .build();
         split.setClientId(payment.getClientId());
         split.setOrgId(payment.getOrgId());
         return split;
+    }
+
+    private void ensureSplitTotalMatches(BigDecimal totalPaid, BigDecimal splitTotal) {
+        if (moneyValue(splitTotal).compareTo(totalPaid) != 0) {
+            throw new BusinessException("Payment split total must equal amount paid");
+        }
     }
 
     private void handleTableStatus(Order order) {
@@ -1375,10 +1422,22 @@ public class OrderService {
 
     private String normalizePaymentMethod(String paymentMethod) {
         String method = paymentMethod == null || paymentMethod.isBlank() ? "CASH" : paymentMethod.trim().toUpperCase();
-        if (!List.of("CASH", "ONLINE", "UPI", "CARD", "BANK", "CHEQUE", "MIXED").contains(method)) {
+        if (!PAYMENT_METHODS.contains(method)) {
             return "CASH";
         }
         return method;
+    }
+
+    private String normalizePaymentSplitMethod(String paymentMethod) {
+        String method = paymentMethod == null || paymentMethod.isBlank() ? "" : paymentMethod.trim().toUpperCase();
+        if (!PAYMENT_SPLIT_METHODS.contains(method)) {
+            throw new BusinessException("Unsupported payment split method: " + String.valueOf(paymentMethod));
+        }
+        return method;
+    }
+
+    private boolean hasExplicitPaymentSplits(OrderSettleRequest request) {
+        return request != null && request.getPaymentSplits() != null && !request.getPaymentSplits().isEmpty();
     }
 
     private BigDecimal moneyValue(BigDecimal value) {
@@ -1388,8 +1447,16 @@ public class OrderService {
     private String buildSettlementDescription(OrderSettleRequest request, String paymentMethod) {
         List<String> parts = new java.util.ArrayList<>();
         if ("MIXED".equalsIgnoreCase(paymentMethod)) {
-            parts.add("Cash: " + moneyValue(request.getCashAmount()));
-            parts.add("Online: " + moneyValue(request.getOnlineAmount()));
+            if (hasExplicitPaymentSplits(request)) {
+                List<String> splitParts = request.getPaymentSplits().stream()
+                        .filter(Objects::nonNull)
+                        .map(split -> normalizePaymentSplitMethod(split.getPaymentMethod()) + ": " + moneyValue(split.getAmount()))
+                        .collect(Collectors.toList());
+                parts.add(String.join(", ", splitParts));
+            } else {
+                parts.add("Cash: " + moneyValue(request.getCashAmount()));
+                parts.add("Online: " + moneyValue(request.getOnlineAmount()));
+            }
         }
         if (request.getDiscountAmount() != null && moneyValue(request.getDiscountAmount()).compareTo(BigDecimal.ZERO) > 0) {
             parts.add("Discount: " + moneyValue(request.getDiscountAmount()));

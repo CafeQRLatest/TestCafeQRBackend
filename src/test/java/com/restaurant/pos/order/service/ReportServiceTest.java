@@ -8,6 +8,7 @@ import com.restaurant.pos.order.domain.OrderType;
 import com.restaurant.pos.order.dto.report.OrderReportDto;
 import com.restaurant.pos.order.repository.OrderRepository;
 import com.restaurant.pos.order.repository.PaymentRepository;
+import com.restaurant.pos.order.repository.PaymentSplitRepository;
 import com.restaurant.pos.purchasing.domain.Customer;
 import com.restaurant.pos.purchasing.repository.CustomerRepository;
 import org.junit.jupiter.api.AfterEach;
@@ -45,6 +46,7 @@ class ReportServiceTest {
                 orderRepository,
                 mock(InvoiceRepository.class),
                 mock(PaymentRepository.class),
+                mock(PaymentSplitRepository.class),
                 customerRepository,
                 mock(AccountingPostingService.class)
         );
