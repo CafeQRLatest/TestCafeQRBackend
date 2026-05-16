@@ -316,9 +316,9 @@ public class AccountingService {
                         (left, right) -> left
                 ));
 
-        BigDecimal netSales = movement(accountsBySystemKey, AccountingDefaultsService.SALES_REVENUE);
+        BigDecimal grossSales = movement(accountsBySystemKey, AccountingDefaultsService.SALES_REVENUE);
         BigDecimal discounts = movement(accountsBySystemKey, AccountingDefaultsService.DISCOUNT_ALLOWED).max(BigDecimal.ZERO);
-        BigDecimal grossSales = netSales.add(discounts);
+        BigDecimal netSales = grossSales.subtract(discounts);
         BigDecimal outputTax = movement(accountsBySystemKey, AccountingDefaultsService.OUTPUT_TAX);
         BigDecimal inputTax = movement(accountsBySystemKey, AccountingDefaultsService.INPUT_TAX);
         BigDecimal roundOff = movement(accountsBySystemKey, AccountingDefaultsService.ROUND_OFF);
@@ -326,8 +326,8 @@ public class AccountingService {
         BigDecimal operatingExpenses = movement(accountsBySystemKey, AccountingDefaultsService.OPERATING_EXPENSES);
         BigDecimal cogsPurchases = movement(accountsBySystemKey, AccountingDefaultsService.PURCHASE_COGS);
         BigDecimal stockAdjustment = movement(accountsBySystemKey, AccountingDefaultsService.STOCK_ADJUSTMENT_GAIN_LOSS);
-        BigDecimal expenses = operatingExpenses.add(discounts).add(roundOff.max(BigDecimal.ZERO));
-        BigDecimal profit = netSales.subtract(cogsPurchases).subtract(operatingExpenses).subtract(discounts).subtract(roundOff.max(BigDecimal.ZERO)).subtract(stockAdjustment.max(BigDecimal.ZERO));
+        BigDecimal expenses = operatingExpenses.add(roundOff.max(BigDecimal.ZERO));
+        BigDecimal profit = netSales.subtract(cogsPurchases).subtract(operatingExpenses).subtract(roundOff.max(BigDecimal.ZERO)).subtract(stockAdjustment.max(BigDecimal.ZERO));
         BigDecimal receivable = closing(accountsBySystemKey, AccountingDefaultsService.ACCOUNTS_RECEIVABLE);
         BigDecimal payable = closing(accountsBySystemKey, AccountingDefaultsService.ACCOUNTS_PAYABLE);
         BigDecimal inventoryValue = closing(accountsBySystemKey, AccountingDefaultsService.INVENTORY_ASSET);
@@ -369,36 +369,9 @@ public class AccountingService {
         DateRange range = boundedRange(from, to);
         UUID clientId = requireTenant();
         UUID orgId = TenantContext.getCurrentOrg();
-        Instant instantFrom = range.from.atZone(IST).toInstant();
-        Instant instantTo = range.to.atZone(IST).toInstant();
-
-        long salesOrders = orderRepository.findAll((root, query, cb) -> {
-            List<Predicate> predicates = new ArrayList<>();
-            predicates.add(cb.equal(root.get("clientId"), clientId));
-            if (!SecurityUtils.isSuperAdmin() && orgId != null) {
-                predicates.add(cb.equal(root.get("orgId"), orgId));
-            }
-            predicates.add(cb.equal(root.get("orderType"), OrderType.SALE));
-            predicates.add(cb.equal(root.get("orderStatus"), "COMPLETED"));
-            predicates.add(cb.equal(root.get("isactive"), "Y"));
-            predicates.add(cb.greaterThanOrEqualTo(root.get("orderDate"), instantFrom));
-            predicates.add(cb.lessThanOrEqualTo(root.get("orderDate"), instantTo));
-            return cb.and(predicates.toArray(new Predicate[0]));
-        }).size();
-
-        List<Invoice> invoices = invoiceRepository.findAll((root, query, cb) -> {
-            List<Predicate> predicates = new ArrayList<>();
-            predicates.add(cb.equal(root.get("clientId"), clientId));
-            if (!SecurityUtils.isSuperAdmin() && orgId != null) {
-                predicates.add(cb.equal(root.get("orgId"), orgId));
-            }
-            predicates.add(cb.greaterThanOrEqualTo(root.get("invoiceDate"), range.from));
-            predicates.add(cb.lessThanOrEqualTo(root.get("invoiceDate"), range.to));
-            predicates.add(cb.or(cb.isNull(root.get("status")), cb.notEqual(cb.upper(root.get("status").as(String.class)), "VOID")));
-            predicates.add(cb.or(cb.isNull(root.get("docStatus")), cb.notEqual(cb.upper(root.get("docStatus").as(String.class)), "VOIDED")));
-            return cb.and(predicates.toArray(new Predicate[0]));
-        });
-        List<Payment> payments = paymentRepository.findActivePaymentsInPeriod(clientId, SecurityUtils.isSuperAdmin() ? null : orgId, range.from, range.to);
+        List<Order> salesOrders = findCompletedSaleOrdersInPeriod(clientId, orgId, range);
+        List<Invoice> invoices = findInvoicesInPeriodIncludingOrderPeriod(clientId, orgId, range, salesOrders);
+        List<Payment> payments = findPaymentsInPeriodIncludingOrderPeriod(clientId, orgId, range, salesOrders);
         List<JournalEntry> entries = journalEntryRepository.findAll(journalSpec(clientId, orgId, range)).stream()
                 .filter(this::isPostedActiveJournal)
                 .toList();
@@ -427,7 +400,7 @@ public class AccountingService {
         return AccountingReconciliationDto.builder()
                 .from(range.from)
                 .to(range.to)
-                .salesOrders(salesOrders)
+                .salesOrders(salesOrders.size())
                 .invoices(invoices.size())
                 .payments(payments.size())
                 .postedInvoices(postedInvoiceIds.size())
@@ -457,6 +430,96 @@ public class AccountingService {
         allocation.setStatus(trimToNull(allocation.getStatus()) == null ? "POSTED" : allocation.getStatus().trim().toUpperCase(Locale.ROOT));
         allocation.setIsactive(isActiveFlag(allocation.getIsactive()));
         return paymentAllocationRepository.save(allocation);
+    }
+
+    private List<Order> findCompletedSaleOrdersInPeriod(UUID clientId, UUID orgId, DateRange range) {
+        Instant instantFrom = range.from.atZone(IST).toInstant();
+        Instant instantTo = range.to.atZone(IST).toInstant();
+        return orderRepository.findAll((root, query, cb) -> {
+            List<Predicate> predicates = new ArrayList<>();
+            predicates.add(cb.equal(root.get("clientId"), clientId));
+            if (!SecurityUtils.isSuperAdmin() && orgId != null) {
+                predicates.add(cb.equal(root.get("orgId"), orgId));
+            }
+            predicates.add(cb.equal(root.get("orderType"), OrderType.SALE));
+            predicates.add(cb.equal(root.get("orderStatus"), "COMPLETED"));
+            predicates.add(cb.equal(root.get("isactive"), "Y"));
+            predicates.add(cb.greaterThanOrEqualTo(root.get("orderDate"), instantFrom));
+            predicates.add(cb.lessThanOrEqualTo(root.get("orderDate"), instantTo));
+            return cb.and(predicates.toArray(new Predicate[0]));
+        });
+    }
+
+    private List<Invoice> findInvoicesInPeriodIncludingOrderPeriod(UUID clientId, UUID orgId, DateRange range, Collection<Order> orders) {
+        Map<UUID, Invoice> invoicesById = new LinkedHashMap<>();
+        invoiceRepository.findAll((root, query, cb) -> {
+            List<Predicate> predicates = new ArrayList<>();
+            predicates.add(cb.equal(root.get("clientId"), clientId));
+            if (!SecurityUtils.isSuperAdmin() && orgId != null) {
+                predicates.add(cb.equal(root.get("orgId"), orgId));
+            }
+            predicates.add(cb.greaterThanOrEqualTo(root.get("invoiceDate"), range.from));
+            predicates.add(cb.lessThanOrEqualTo(root.get("invoiceDate"), range.to));
+            predicates.add(cb.or(cb.isNull(root.get("status")), cb.notEqual(cb.upper(root.get("status").as(String.class)), "VOID")));
+            predicates.add(cb.or(cb.isNull(root.get("docStatus")), cb.notEqual(cb.upper(root.get("docStatus").as(String.class)), "VOIDED")));
+            return cb.and(predicates.toArray(new Predicate[0]));
+        }).stream()
+                .filter(invoice -> isScopedInvoice(invoice, clientId, orgId))
+                .filter(this::isActiveInvoice)
+                .forEach(invoice -> invoicesById.put(invoice.getId(), invoice));
+
+        for (Order order : orders) {
+            invoiceRepository.findByOrderId(order.getId()).stream()
+                    .filter(invoice -> isScopedInvoice(invoice, clientId, orgId))
+                    .filter(this::isActiveInvoice)
+                    .forEach(invoice -> invoicesById.put(invoice.getId(), invoice));
+        }
+        return new ArrayList<>(invoicesById.values());
+    }
+
+    private List<Payment> findPaymentsInPeriodIncludingOrderPeriod(UUID clientId, UUID orgId, DateRange range, Collection<Order> orders) {
+        Map<UUID, Payment> paymentsById = new LinkedHashMap<>();
+        paymentRepository.findActivePaymentsInPeriod(clientId, SecurityUtils.isSuperAdmin() ? null : orgId, range.from, range.to).stream()
+                .filter(payment -> isScopedPayment(payment, clientId, orgId))
+                .filter(this::isActivePayment)
+                .forEach(payment -> paymentsById.put(payment.getId(), payment));
+
+        for (Order order : orders) {
+            paymentRepository.findByOrderId(order.getId()).stream()
+                    .filter(payment -> isScopedPayment(payment, clientId, orgId))
+                    .filter(this::isActivePayment)
+                    .forEach(payment -> paymentsById.put(payment.getId(), payment));
+        }
+        return new ArrayList<>(paymentsById.values());
+    }
+
+    private boolean isScopedInvoice(Invoice invoice, UUID clientId, UUID orgId) {
+        return invoice != null
+                && clientId.equals(invoice.getClientId())
+                && (SecurityUtils.isSuperAdmin() || orgId == null || orgId.equals(invoice.getOrgId()));
+    }
+
+    private boolean isScopedPayment(Payment payment, UUID clientId, UUID orgId) {
+        return payment != null
+                && clientId.equals(payment.getClientId())
+                && (SecurityUtils.isSuperAdmin() || orgId == null || orgId.equals(payment.getOrgId()));
+    }
+
+    private boolean isActiveInvoice(Invoice invoice) {
+        return invoice != null
+                && !"N".equalsIgnoreCase(invoice.getIsactive())
+                && !"VOID".equalsIgnoreCase(invoice.getStatus())
+                && !"VOID".equalsIgnoreCase(invoice.getDocStatus())
+                && !"VOIDED".equalsIgnoreCase(invoice.getDocStatus());
+    }
+
+    private boolean isActivePayment(Payment payment) {
+        return payment != null
+                && !"N".equalsIgnoreCase(payment.getIsactive())
+                && !"VOID".equalsIgnoreCase(payment.getStatus())
+                && !"VOIDED".equalsIgnoreCase(payment.getStatus())
+                && !"VOID".equalsIgnoreCase(payment.getDocStatus())
+                && !"VOIDED".equalsIgnoreCase(payment.getDocStatus());
     }
 
     private Specification<JournalEntry> journalSpec(UUID clientId, UUID orgId, DateRange range) {
@@ -519,7 +582,8 @@ public class AccountingService {
     private Map<String, BigDecimal> paymentBreakdown(UUID clientId, UUID orgId, DateRange range) {
         Map<String, BigDecimal> totals = new LinkedHashMap<>();
         FINANCIAL_PAYMENT_METHODS.forEach(method -> totals.put(method, BigDecimal.ZERO));
-        List<Payment> payments = paymentRepository.findActivePaymentsInPeriod(clientId, SecurityUtils.isSuperAdmin() ? null : orgId, range.from, range.to);
+        List<Order> salesOrders = findCompletedSaleOrdersInPeriod(clientId, orgId, range);
+        List<Payment> payments = findPaymentsInPeriodIncludingOrderPeriod(clientId, orgId, range, salesOrders);
         Set<UUID> paymentIds = payments.stream()
                 .filter(payment -> payment.getPaymentType() == null || payment.getPaymentType() == PaymentType.INBOUND)
                 .map(Payment::getId)

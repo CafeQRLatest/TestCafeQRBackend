@@ -52,6 +52,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -78,6 +79,7 @@ public class OrderService {
     private static final Duration MAX_HISTORY_WINDOW = Duration.ofDays(31);
     private static final List<String> PAYMENT_METHODS = List.of("CASH", "ONLINE", "UPI", "CARD", "BANK", "CHEQUE", "MIXED");
     private static final List<String> PAYMENT_SPLIT_METHODS = List.of("CASH", "ONLINE", "UPI", "CARD", "BANK", "CHEQUE");
+    private static final ZoneId BUSINESS_ZONE = ZoneId.of("Asia/Kolkata");
 
     private final OrderRepository orderRepository;
     private final InvoiceRepository invoiceRepository;
@@ -130,6 +132,16 @@ public class OrderService {
 
     private boolean isMainOfflineSync(Order order) {
         return order != null && "MAIN_OFFLINE".equalsIgnoreCase(order.getSyncOrigin());
+    }
+
+    private LocalDateTime sourceBusinessDateTime(Order order) {
+        if (order != null && order.getOrderDate() != null) {
+            return LocalDateTime.ofInstant(order.getOrderDate(), BUSINESS_ZONE);
+        }
+        if (order != null && order.getOfflineCreatedAt() != null) {
+            return order.getOfflineCreatedAt();
+        }
+        return LocalDateTime.now();
     }
 
     private boolean shouldGenerateInvoice(Order order) {
@@ -1186,6 +1198,7 @@ public class OrderService {
             .customerId(order.getCustomerId())
             .vendorId(order.getVendorId())
             .invoiceNo(invNo)
+            .invoiceDate(sourceBusinessDateTime(order))
             .totalAmount(order.getGrandTotal())
             .amountDue(order.getGrandTotal())
             .status("UNPAID")
@@ -1273,6 +1286,7 @@ public class OrderService {
             .orderId(order.getId())
             .invoiceId(invoice != null ? invoice.getId() : null)
             .paymentMethod(storedPaymentMethod)
+            .paymentDate(sourceBusinessDateTime(order))
             .amountPaid(moneyValue(amountPaid))
             .referenceNo(payNo)
             .description(description)

@@ -13,13 +13,17 @@ import com.restaurant.pos.accounting.service.AccountingDefaultsService;
 import com.restaurant.pos.accounting.service.AccountingPostingService;
 import com.restaurant.pos.accounting.service.AccountingService;
 import com.restaurant.pos.common.dto.ApiResponse;
+import com.restaurant.pos.common.exception.BusinessException;
 import lombok.RequiredArgsConstructor;
-import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.UUID;
 
@@ -27,6 +31,7 @@ import java.util.UUID;
 @RequestMapping("/api/v1/accounting")
 @RequiredArgsConstructor
 public class AccountingController {
+    private static final ZoneId BUSINESS_ZONE = ZoneId.of("Asia/Kolkata");
 
     private final AccountingService accountingService;
     private final AccountingDefaultsService defaultsService;
@@ -36,11 +41,11 @@ public class AccountingController {
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
     public ResponseEntity<ApiResponse<List<AccountingAccountPeriodDto>>> getAccounts(
             @RequestParam(defaultValue = "false") boolean includeInactive,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime from,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime to
+            @RequestParam(required = false) String from,
+            @RequestParam(required = false) String to
     ) {
         defaultsService.ensureDefaultAccounts();
-        return ResponseEntity.ok(ApiResponse.success(accountingService.getPeriodAccounts(from, to, includeInactive)));
+        return ResponseEntity.ok(ApiResponse.success(accountingService.getPeriodAccounts(parseAccountingDateTime(from), parseAccountingDateTime(to), includeInactive)));
     }
 
     @GetMapping("/accounts/{id}")
@@ -74,12 +79,12 @@ public class AccountingController {
     @GetMapping("/journals")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
     public ResponseEntity<ApiResponse<List<JournalEntry>>> getJournalEntries(
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime from,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime to,
+            @RequestParam(required = false) String from,
+            @RequestParam(required = false) String to,
             @RequestParam(defaultValue = "entryDate") String sortBy,
             @RequestParam(defaultValue = "DESC") String sortDir
     ) {
-        return ResponseEntity.ok(ApiResponse.success(accountingService.getJournalEntries(from, to, sortBy, sortDir)));
+        return ResponseEntity.ok(ApiResponse.success(accountingService.getJournalEntries(parseAccountingDateTime(from), parseAccountingDateTime(to), sortBy, sortDir)));
     }
 
     @PostMapping("/journals")
@@ -100,29 +105,29 @@ public class AccountingController {
     @GetMapping("/trial-balance")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
     public ResponseEntity<ApiResponse<List<TrialBalanceRowDto>>> getTrialBalance(
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime from,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime to
+            @RequestParam(required = false) String from,
+            @RequestParam(required = false) String to
     ) {
-        return ResponseEntity.ok(ApiResponse.success(accountingService.getTrialBalance(from, to)));
+        return ResponseEntity.ok(ApiResponse.success(accountingService.getTrialBalance(parseAccountingDateTime(from), parseAccountingDateTime(to))));
     }
 
     @GetMapping("/summary")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
     public ResponseEntity<ApiResponse<AccountingSummaryDto>> getSummary(
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime from,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime to
+            @RequestParam(required = false) String from,
+            @RequestParam(required = false) String to
     ) {
         defaultsService.ensureDefaultAccounts();
-        return ResponseEntity.ok(ApiResponse.success(accountingService.getSummary(from, to)));
+        return ResponseEntity.ok(ApiResponse.success(accountingService.getSummary(parseAccountingDateTime(from), parseAccountingDateTime(to))));
     }
 
     @GetMapping("/reconciliation")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
     public ResponseEntity<ApiResponse<AccountingReconciliationDto>> getReconciliation(
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime from,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime to
+            @RequestParam(required = false) String from,
+            @RequestParam(required = false) String to
     ) {
-        return ResponseEntity.ok(ApiResponse.success(accountingService.getReconciliation(from, to)));
+        return ResponseEntity.ok(ApiResponse.success(accountingService.getReconciliation(parseAccountingDateTime(from), parseAccountingDateTime(to))));
     }
 
     @PostMapping("/payment-allocations")
@@ -172,5 +177,25 @@ public class AccountingController {
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN')")
     public ResponseEntity<ApiResponse<AccountingBackfillResponse>> resyncAll() {
         return ResponseEntity.ok(ApiResponse.success("Auto-posted accounting data safely rebuilt", postingService.resyncAll()));
+    }
+
+    private LocalDateTime parseAccountingDateTime(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        String trimmed = value.trim();
+        try {
+            return Instant.parse(trimmed).atZone(BUSINESS_ZONE).toLocalDateTime();
+        } catch (DateTimeParseException ignored) {
+        }
+        try {
+            return OffsetDateTime.parse(trimmed).atZoneSameInstant(BUSINESS_ZONE).toLocalDateTime();
+        } catch (DateTimeParseException ignored) {
+        }
+        try {
+            return LocalDateTime.parse(trimmed);
+        } catch (DateTimeParseException ex) {
+            throw new BusinessException("Invalid accounting date-time: " + value);
+        }
     }
 }

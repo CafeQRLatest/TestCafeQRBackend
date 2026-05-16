@@ -32,7 +32,9 @@ import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.time.ZoneId;
+import java.time.format.DateTimeParseException;
 import java.util.*;
 import java.util.function.Supplier;
 
@@ -163,27 +165,55 @@ public class AccountingPostingService {
     // NOT @Transactional: each item posts in its own independent transaction
     // to avoid statement timeout on free-tier databases during bulk backfill
     public AccountingBackfillResponse backfill(AccountingBackfillRequest request) {
-        DateRange range = boundedRange(request != null ? request.getFrom() : null, request != null ? request.getTo() : null);
+        DateRange range = boundedRange(
+                parseBackfillDateTime(request != null ? request.getFrom() : null),
+                parseBackfillDateTime(request != null ? request.getTo() : null)
+        );
         Set<String> sources = normalizeSourceTypes(request != null ? request.getSourceTypes() : null);
         boolean dryRun = request != null && request.isDryRun();
         UUID clientId = requireClient();
         UUID orgId = TenantContext.getCurrentOrg();
         AccountingBackfillResponse response = AccountingBackfillResponse.builder().dryRun(dryRun).build();
 
+        List<Order> ordersInBusinessPeriod = List.of();
+        if (sources.contains("INVOICE") || sources.contains("PAYMENT") || sources.contains("COGS")) {
+            Instant fromInstant = range.from.atZone(IST).toInstant();
+            Instant toInstant = range.to.atZone(IST).toInstant();
+            ordersInBusinessPeriod = orderRepository.findByClientIdAndOrgIdAndOrderDateBetweenOrderByOrderDateAsc(clientId, orgId, fromInstant, toInstant);
+        }
+
         if (sources.contains("INVOICE")) {
+            Set<UUID> scannedInvoiceIds = new HashSet<>();
             for (Invoice invoice : invoiceRepository.findByClientIdAndOrgIdAndInvoiceDateBetweenOrderByInvoiceDateAsc(clientId, orgId, range.from, range.to)) {
-                countInvoiceBackfill(response, dryRun, invoice);
+                if (invoice.getId() != null && scannedInvoiceIds.add(invoice.getId())) {
+                    countInvoiceBackfill(response, dryRun, invoice);
+                }
+            }
+            for (Order order : ordersInBusinessPeriod) {
+                invoiceRepository.findByOrderId(order.getId()).forEach(invoice -> {
+                    if (invoice.getId() != null && scannedInvoiceIds.add(invoice.getId())) {
+                        countInvoiceBackfill(response, dryRun, invoice);
+                    }
+                });
             }
         }
         if (sources.contains("PAYMENT")) {
+            Set<UUID> scannedPaymentIds = new HashSet<>();
             for (Payment payment : paymentRepository.findByClientIdAndOrgIdAndPaymentDateBetweenOrderByPaymentDateAsc(clientId, orgId, range.from, range.to)) {
-                countPaymentBackfill(response, dryRun, payment);
+                if (payment.getId() != null && scannedPaymentIds.add(payment.getId())) {
+                    countPaymentBackfill(response, dryRun, payment);
+                }
+            }
+            for (Order order : ordersInBusinessPeriod) {
+                paymentRepository.findByOrderId(order.getId()).forEach(payment -> {
+                    if (payment.getId() != null && scannedPaymentIds.add(payment.getId())) {
+                        countPaymentBackfill(response, dryRun, payment);
+                    }
+                });
             }
         }
         if (sources.contains("COGS")) {
-            Instant fromInstant = range.from.atZone(IST).toInstant();
-            Instant toInstant = range.to.atZone(IST).toInstant();
-            for (Order order : orderRepository.findByClientIdAndOrgIdAndOrderDateBetweenOrderByOrderDateAsc(clientId, orgId, fromInstant, toInstant)) {
+            for (Order order : ordersInBusinessPeriod) {
                 if (order.getOrderType() == OrderType.SALE) {
                     countOutcome(response, dryRun, "SALE_COGS", order.getId(), () -> postSaleCogs(order));
                 }
@@ -269,19 +299,32 @@ public class AccountingPostingService {
     }
 
     private void countInvoiceBackfill(AccountingBackfillResponse response, boolean dryRun, Invoice invoice) {
+        Optional<Order> order = resolveOrder(invoice.getOrderId());
         countOutcome(response, dryRun, invoiceSourceType(invoice), invoice.getId(),
-                () -> postInvoice(resolveOrder(invoice.getOrderId()).orElse(null), invoice));
+                sourceDocumentDate(order.orElse(null), invoice.getInvoiceDate()),
+                () -> postInvoice(order.orElse(null), invoice));
     }
 
     private void countPaymentBackfill(AccountingBackfillResponse response, boolean dryRun, Payment payment) {
+        Optional<Order> order = resolveOrder(payment.getOrderId());
         countOutcome(response, dryRun, paymentSourceType(payment), payment.getId(),
-                () -> postPayment(resolveOrder(payment.getOrderId()).orElse(null), payment));
+                sourceDocumentDate(order.orElse(null), payment.getPaymentDate()),
+                () -> postPayment(order.orElse(null), payment));
     }
 
     private void countOutcome(AccountingBackfillResponse response, boolean dryRun, String sourceType, UUID sourceId, Supplier<PostingOutcome> poster) {
+        countOutcome(response, dryRun, sourceType, sourceId, null, poster);
+    }
+
+    private void countOutcome(AccountingBackfillResponse response, boolean dryRun, String sourceType, UUID sourceId,
+                              LocalDateTime targetEntryDate, Supplier<PostingOutcome> poster) {
         response.setScanned(response.getScanned() + 1);
         if (alreadyPosted(sourceType, sourceId)) {
-            response.setSkipped(response.getSkipped() + 1);
+            if (!dryRun && realignAutoPostedJournalDate(sourceType, sourceId, targetEntryDate)) {
+                response.setPosted(response.getPosted() + 1);
+            } else {
+                response.setSkipped(response.getSkipped() + 1);
+            }
             return;
         }
         if (dryRun) {
@@ -387,10 +430,18 @@ public class AccountingPostingService {
 
         List<JournalLine> lines = new ArrayList<>();
         if (type == InvoiceType.CUSTOMER_INVOICE) {
+            BigDecimal discount = money(order != null ? order.getTotalDiscountAmount() : BigDecimal.ZERO).max(BigDecimal.ZERO);
+            BigDecimal grossBeforeDiscount = base.add(discount);
             addLine(lines, defaultsService.resolveAccount(AccountingDefaultsService.ACCOUNTS_RECEIVABLE), total, BigDecimal.ZERO,
                     PartyType.CUSTOMER, invoice.getCustomerId(), "Customer invoice receivable");
-            addLine(lines, defaultsService.resolveAccount(AccountingDefaultsService.SALES_REVENUE), BigDecimal.ZERO, base,
-                    null, null, "Sales revenue");
+            if (discount.compareTo(BigDecimal.ZERO) > 0) {
+                addLine(lines, defaultsService.resolveAccount(AccountingDefaultsService.DISCOUNT_ALLOWED), discount, BigDecimal.ZERO,
+                        null, null, "Sales discount allowed");
+            }
+            if (grossBeforeDiscount.compareTo(BigDecimal.ZERO) > 0) {
+                addLine(lines, defaultsService.resolveAccount(AccountingDefaultsService.SALES_REVENUE), BigDecimal.ZERO, grossBeforeDiscount,
+                        null, null, "Gross sales revenue");
+            }
             if (tax.compareTo(BigDecimal.ZERO) > 0) {
                 addLine(lines, defaultsService.resolveAccount(AccountingDefaultsService.OUTPUT_TAX), BigDecimal.ZERO, tax,
                         null, null, "Output tax");
@@ -415,7 +466,7 @@ public class AccountingPostingService {
                     null, null, "Expense payable");
         }
 
-        return journal(invoiceSourceType(invoice), invoice.getId(), invoice.getInvoiceDate(), invoice.getTerminalId(),
+        return journal(invoiceSourceType(invoice), invoice.getId(), sourceDocumentDate(order, invoice.getInvoiceDate()), invoice.getTerminalId(),
                 order != null ? order.getWarehouseId() : null, order != null ? order.getCurrencyId() : null,
                 "Auto posted invoice " + invoice.getInvoiceNo(), lines);
     }
@@ -457,7 +508,7 @@ public class AccountingPostingService {
                     PartyType.VENDOR, order != null ? order.getVendorId() : null, "Payable settled");
         }
 
-        return journal(paymentSourceType(payment), payment.getId(), payment.getPaymentDate(), payment.getTerminalId(),
+        return journal(paymentSourceType(payment), payment.getId(), sourceDocumentDate(order, payment.getPaymentDate()), payment.getTerminalId(),
                 order != null ? order.getWarehouseId() : null, order != null ? order.getCurrencyId() : null,
                 "Auto posted payment " + payment.getReferenceNo(), lines);
     }
@@ -617,6 +668,27 @@ public class AccountingPostingService {
         return journalEntryRepository.existsByClientIdAndOrgIdAndSourceTypeAndSourceId(clientId, orgId, sourceType, sourceId);
     }
 
+    private boolean realignAutoPostedJournalDate(String sourceType, UUID sourceId, LocalDateTime targetEntryDate) {
+        if (sourceType == null || sourceId == null || targetEntryDate == null) {
+            return false;
+        }
+        UUID clientId = requireClient();
+        UUID orgId = TenantContext.getCurrentOrg();
+        Optional<JournalEntry> existing = orgId == null
+                ? journalEntryRepository.findFirstByClientIdAndSourceTypeAndSourceId(clientId, sourceType, sourceId)
+                : journalEntryRepository.findByClientIdAndOrgIdAndSourceTypeAndSourceId(clientId, orgId, sourceType, sourceId);
+        if (existing.isEmpty() || !Boolean.TRUE.equals(existing.get().getAutoPosted())) {
+            return false;
+        }
+        JournalEntry entry = existing.get();
+        if (entry.getEntryDate() != null && entry.getEntryDate().equals(targetEntryDate)) {
+            return false;
+        }
+        entry.setEntryDate(targetEntryDate);
+        journalEntryRepository.save(entry);
+        return true;
+    }
+
     /** Find posting job, falling back to org-agnostic query when orgId is null */
     private Optional<AccountingPostingJob> findPostingJob(UUID clientId, UUID orgId, String sourceType, UUID sourceId) {
         if (orgId != null) {
@@ -679,6 +751,13 @@ public class AccountingPostingService {
         return LocalDateTime.ofInstant(instant, IST);
     }
 
+    private LocalDateTime sourceDocumentDate(Order order, LocalDateTime fallbackDate) {
+        if (order != null && order.getOrderDate() != null) {
+            return orderDate(order);
+        }
+        return fallbackDate != null ? fallbackDate : LocalDateTime.now();
+    }
+
     private BigDecimal clampTax(BigDecimal tax, BigDecimal total) {
         BigDecimal value = money(tax);
         if (value.compareTo(BigDecimal.ZERO) < 0) {
@@ -688,6 +767,26 @@ public class AccountingPostingService {
             return total;
         }
         return value;
+    }
+
+    private LocalDateTime parseBackfillDateTime(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        String trimmed = value.trim();
+        try {
+            return Instant.parse(trimmed).atZone(IST).toLocalDateTime();
+        } catch (DateTimeParseException ignored) {
+        }
+        try {
+            return OffsetDateTime.parse(trimmed).atZoneSameInstant(IST).toLocalDateTime();
+        } catch (DateTimeParseException ignored) {
+        }
+        try {
+            return LocalDateTime.parse(trimmed);
+        } catch (DateTimeParseException ex) {
+            throw new BusinessException("Invalid accounting backfill date-time: " + value);
+        }
     }
 
     private DateRange boundedRange(LocalDateTime from, LocalDateTime to) {
