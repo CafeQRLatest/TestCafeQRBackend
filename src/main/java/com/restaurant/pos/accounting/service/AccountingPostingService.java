@@ -220,8 +220,7 @@ public class AccountingPostingService {
 
                     // 2. Delete the old posting job so re-post works
                     String sourceType = invoiceSourceType(invoice);
-                    postingJobRepository.findByClientIdAndOrgIdAndSourceTypeAndSourceId(
-                            clientId, orgId, sourceType, invoice.getId())
+                    findPostingJob(clientId, orgId, sourceType, invoice.getId())
                             .ifPresent(postingJobRepository::delete);
 
                     // 3. Update invoice amount
@@ -314,7 +313,7 @@ public class AccountingPostingService {
             return PostingOutcome.SKIPPED;
         }
 
-        AccountingPostingJob job = postingJobRepository.findByClientIdAndOrgIdAndSourceTypeAndSourceId(clientId, orgId, sourceType, sourceId)
+        AccountingPostingJob job = findPostingJob(clientId, orgId, sourceType, sourceId)
                 .orElseGet(() -> {
                     AccountingPostingJob created = AccountingPostingJob.builder()
                             .sourceType(sourceType)
@@ -577,12 +576,25 @@ public class AccountingPostingService {
         if (sourceType == null || sourceId == null) {
             return false;
         }
-        return journalEntryRepository.existsByClientIdAndOrgIdAndSourceTypeAndSourceId(
-                requireClient(), TenantContext.getCurrentOrg(), sourceType, sourceId);
+        UUID clientId = requireClient();
+        UUID orgId = TenantContext.getCurrentOrg();
+        // Use org-agnostic check when orgId is null to avoid IS NULL mismatch
+        if (orgId == null) {
+            return journalEntryRepository.existsByClientIdAndSourceTypeAndSourceId(clientId, sourceType, sourceId);
+        }
+        return journalEntryRepository.existsByClientIdAndOrgIdAndSourceTypeAndSourceId(clientId, orgId, sourceType, sourceId);
+    }
+
+    /** Find posting job, falling back to org-agnostic query when orgId is null */
+    private Optional<AccountingPostingJob> findPostingJob(UUID clientId, UUID orgId, String sourceType, UUID sourceId) {
+        if (orgId != null) {
+            return postingJobRepository.findByClientIdAndOrgIdAndSourceTypeAndSourceId(clientId, orgId, sourceType, sourceId);
+        }
+        return postingJobRepository.findByClientIdAndSourceTypeAndSourceId(clientId, sourceType, sourceId);
     }
 
     private void markJobPosted(UUID clientId, UUID orgId, String sourceType, UUID sourceId, UUID journalEntryId) {
-        AccountingPostingJob job = postingJobRepository.findByClientIdAndOrgIdAndSourceTypeAndSourceId(clientId, orgId, sourceType, sourceId)
+        AccountingPostingJob job = findPostingJob(clientId, orgId, sourceType, sourceId)
                 .orElseGet(() -> {
                     AccountingPostingJob created = AccountingPostingJob.builder()
                             .sourceType(sourceType)

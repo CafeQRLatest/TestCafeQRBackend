@@ -14,11 +14,14 @@ public interface AccountingPostingJobRepository extends JpaRepository<Accounting
 
     Optional<AccountingPostingJob> findByClientIdAndOrgIdAndSourceTypeAndSourceId(UUID clientId, UUID orgId, String sourceType, UUID sourceId);
 
+    // Org-agnostic version: finds posting job regardless of org_id value
+    Optional<AccountingPostingJob> findByClientIdAndSourceTypeAndSourceId(UUID clientId, String sourceType, UUID sourceId);
+
     List<AccountingPostingJob> findByClientIdAndOrgIdAndStatusOrderByUpdatedAtDesc(UUID clientId, UUID orgId, String status);
 
     List<AccountingPostingJob> findByClientIdAndOrgId(UUID clientId, UUID orgId);
 
     @Modifying
-    @Query(value = "DELETE FROM accounting_posting_jobs WHERE client_id = :clientId AND org_id = :orgId", nativeQuery = true)
+    @Query(value = "DELETE FROM accounting_posting_jobs WHERE client_id = :clientId AND (org_id = :orgId OR org_id IS NULL)", nativeQuery = true)
     int bulkDeleteByClientIdAndOrgId(@Param("clientId") UUID clientId, @Param("orgId") UUID orgId);
 }

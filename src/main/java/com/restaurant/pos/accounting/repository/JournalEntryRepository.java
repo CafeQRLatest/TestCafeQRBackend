@@ -18,7 +18,12 @@ public interface JournalEntryRepository extends JpaRepository<JournalEntry, UUID
 
     Optional<JournalEntry> findByClientIdAndOrgIdAndSourceTypeAndSourceId(UUID clientId, UUID orgId, String sourceType, UUID sourceId);
 
+    // Org-agnostic versions
+    Optional<JournalEntry> findByClientIdAndSourceTypeAndSourceId(UUID clientId, String sourceType, UUID sourceId);
+
     boolean existsByClientIdAndOrgIdAndSourceTypeAndSourceId(UUID clientId, UUID orgId, String sourceType, UUID sourceId);
+
+    boolean existsByClientIdAndSourceTypeAndSourceId(UUID clientId, String sourceType, UUID sourceId);
 
     @Modifying
     @Query(value = "DELETE FROM journal_lines WHERE journal_entry_id IN (SELECT id FROM journal_entries WHERE client_id = :clientId AND org_id = :orgId)", nativeQuery = true)
