@@ -1,12 +1,26 @@
 package com.restaurant.pos.accounting.service;
 
 import com.restaurant.pos.accounting.domain.*;
+import com.restaurant.pos.accounting.dto.AccountingAccountPeriodDto;
+import com.restaurant.pos.accounting.dto.AccountingReconciliationDto;
+import com.restaurant.pos.accounting.dto.AccountingSummaryDto;
 import com.restaurant.pos.accounting.dto.TrialBalanceRowDto;
 import com.restaurant.pos.accounting.repository.*;
 import com.restaurant.pos.common.exception.BusinessException;
 import com.restaurant.pos.common.exception.ResourceNotFoundException;
 import com.restaurant.pos.common.tenant.TenantContext;
 import com.restaurant.pos.common.util.SecurityUtils;
+import com.restaurant.pos.invoice.domain.Invoice;
+import com.restaurant.pos.invoice.domain.InvoiceType;
+import com.restaurant.pos.invoice.repository.InvoiceRepository;
+import com.restaurant.pos.order.domain.Order;
+import com.restaurant.pos.order.domain.OrderType;
+import com.restaurant.pos.order.domain.Payment;
+import com.restaurant.pos.order.domain.PaymentSplit;
+import com.restaurant.pos.order.domain.PaymentType;
+import com.restaurant.pos.order.repository.OrderRepository;
+import com.restaurant.pos.order.repository.PaymentRepository;
+import com.restaurant.pos.order.repository.PaymentSplitRepository;
 import jakarta.persistence.criteria.Predicate;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Sort;
@@ -16,7 +30,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -27,11 +43,17 @@ public class AccountingService {
 
     private static final int DEFAULT_REPORT_DAYS = 31;
     private static final int MAX_REPORT_DAYS = 366;
+    private static final ZoneId IST = ZoneId.of("Asia/Kolkata");
+    private static final Set<String> FINANCIAL_PAYMENT_METHODS = Set.of("CASH", "ONLINE", "UPI", "CARD", "BANK", "CHEQUE");
 
     private final AccountingAccountRepository accountRepository;
     private final JournalEntryRepository journalEntryRepository;
     private final PartyLedgerEntryRepository partyLedgerEntryRepository;
     private final PaymentAllocationRepository paymentAllocationRepository;
+    private final PaymentRepository paymentRepository;
+    private final PaymentSplitRepository paymentSplitRepository;
+    private final InvoiceRepository invoiceRepository;
+    private final OrderRepository orderRepository;
 
     public List<AccountingAccount> getAccounts(boolean includeInactive) {
         UUID clientId = requireTenant();
@@ -101,11 +123,15 @@ public class AccountingService {
     }
 
     public List<JournalEntry> getJournalEntries(LocalDateTime from, LocalDateTime to) {
+        return getJournalEntries(from, to, "entryDate", "DESC");
+    }
+
+    public List<JournalEntry> getJournalEntries(LocalDateTime from, LocalDateTime to, String sortBy, String sortDir) {
         DateRange range = boundedRange(from, to);
         UUID clientId = requireTenant();
         UUID orgId = TenantContext.getCurrentOrg();
         Specification<JournalEntry> spec = journalSpec(clientId, orgId, range);
-        return journalEntryRepository.findAll(spec, Sort.by(Sort.Direction.DESC, "entryDate", "createdAt"));
+        return journalEntryRepository.findAll(spec, journalSort(sortBy, sortDir));
     }
 
     @Transactional
@@ -212,6 +238,207 @@ public class AccountingService {
         return new ArrayList<>(rows.values());
     }
 
+    public List<AccountingAccountPeriodDto> getPeriodAccounts(LocalDateTime from, LocalDateTime to, boolean includeInactive) {
+        DateRange range = boundedRange(from, to);
+        UUID clientId = requireTenant();
+        UUID orgId = TenantContext.getCurrentOrg();
+        List<AccountingAccount> accounts = getAccounts(true);
+        Set<UUID> visibleAccountIds = accounts.stream()
+                .filter(account -> includeInactive || !"N".equalsIgnoreCase(account.getIsactive()))
+                .map(AccountingAccount::getId)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+
+        Map<UUID, BigDecimal> openingEffects = zeroAccountMap(accounts);
+        Map<UUID, BigDecimal> periodDebits = zeroAccountMap(accounts);
+        Map<UUID, BigDecimal> periodCredits = zeroAccountMap(accounts);
+        Map<UUID, AccountingAccount> accountsById = accounts.stream()
+                .collect(Collectors.toMap(AccountingAccount::getId, Function.identity(), (left, right) -> left));
+
+        journalEntryRepository.findAll(journalSpec(clientId, orgId, null, range.from.minusNanos(1))).stream()
+                .filter(this::isPostedActiveJournal)
+                .flatMap(entry -> entry.getLines().stream())
+                .forEach(line -> {
+                    AccountingAccount account = accountsById.get(line.getAccountId());
+                    if (account != null) {
+                        openingEffects.merge(account.getId(), accountBalanceEffect(account, money(line.getDebit()), money(line.getCredit())), BigDecimal::add);
+                    }
+                });
+
+        journalEntryRepository.findAll(journalSpec(clientId, orgId, range.from, range.to)).stream()
+                .filter(this::isPostedActiveJournal)
+                .flatMap(entry -> entry.getLines().stream())
+                .forEach(line -> {
+                    if (!accountsById.containsKey(line.getAccountId())) {
+                        return;
+                    }
+                    periodDebits.merge(line.getAccountId(), money(line.getDebit()), BigDecimal::add);
+                    periodCredits.merge(line.getAccountId(), money(line.getCredit()), BigDecimal::add);
+                });
+
+        return accounts.stream()
+                .filter(account -> visibleAccountIds.contains(account.getId()))
+                .map(account -> {
+                    BigDecimal opening = money(account.getOpeningBalance()).add(openingEffects.getOrDefault(account.getId(), BigDecimal.ZERO));
+                    BigDecimal debit = periodDebits.getOrDefault(account.getId(), BigDecimal.ZERO);
+                    BigDecimal credit = periodCredits.getOrDefault(account.getId(), BigDecimal.ZERO);
+                    BigDecimal periodNet = accountBalanceEffect(account, debit, credit);
+                    return AccountingAccountPeriodDto.builder()
+                            .id(account.getId())
+                            .code(account.getCode())
+                            .name(account.getName())
+                            .accountType(account.getAccountType())
+                            .accountSubType(account.getAccountSubType())
+                            .systemKey(account.getSystemKey())
+                            .cashAccount(account.getCashAccount())
+                            .bankAccount(account.getBankAccount())
+                            .isActive(account.getIsactive())
+                            .openingBalance(money(account.getOpeningBalance()))
+                            .periodDebit(debit)
+                            .periodCredit(credit)
+                            .periodNet(periodNet)
+                            .periodOpening(opening)
+                            .periodClosing(opening.add(periodNet))
+                            .build();
+                })
+                .collect(Collectors.toList());
+    }
+
+    public AccountingSummaryDto getSummary(LocalDateTime from, LocalDateTime to) {
+        DateRange range = boundedRange(from, to);
+        UUID clientId = requireTenant();
+        UUID orgId = TenantContext.getCurrentOrg();
+        List<AccountingAccountPeriodDto> accounts = getPeriodAccounts(range.from, range.to, true);
+        Map<String, AccountingAccountPeriodDto> accountsBySystemKey = accounts.stream()
+                .filter(account -> account.getSystemKey() != null && !account.getSystemKey().isBlank())
+                .collect(Collectors.toMap(
+                        account -> account.getSystemKey().toUpperCase(Locale.ROOT),
+                        Function.identity(),
+                        (left, right) -> left
+                ));
+
+        BigDecimal netSales = movement(accountsBySystemKey, AccountingDefaultsService.SALES_REVENUE);
+        BigDecimal discounts = movement(accountsBySystemKey, AccountingDefaultsService.DISCOUNT_ALLOWED).max(BigDecimal.ZERO);
+        BigDecimal grossSales = netSales.add(discounts);
+        BigDecimal outputTax = movement(accountsBySystemKey, AccountingDefaultsService.OUTPUT_TAX);
+        BigDecimal inputTax = movement(accountsBySystemKey, AccountingDefaultsService.INPUT_TAX);
+        BigDecimal roundOff = movement(accountsBySystemKey, AccountingDefaultsService.ROUND_OFF);
+        BigDecimal billedTotal = netSales.add(outputTax).add(roundOff);
+        BigDecimal operatingExpenses = movement(accountsBySystemKey, AccountingDefaultsService.OPERATING_EXPENSES);
+        BigDecimal cogsPurchases = movement(accountsBySystemKey, AccountingDefaultsService.PURCHASE_COGS);
+        BigDecimal stockAdjustment = movement(accountsBySystemKey, AccountingDefaultsService.STOCK_ADJUSTMENT_GAIN_LOSS);
+        BigDecimal expenses = operatingExpenses.add(discounts).add(roundOff.max(BigDecimal.ZERO));
+        BigDecimal profit = netSales.subtract(cogsPurchases).subtract(operatingExpenses).subtract(discounts).subtract(roundOff.max(BigDecimal.ZERO)).subtract(stockAdjustment.max(BigDecimal.ZERO));
+        BigDecimal receivable = closing(accountsBySystemKey, AccountingDefaultsService.ACCOUNTS_RECEIVABLE);
+        BigDecimal payable = closing(accountsBySystemKey, AccountingDefaultsService.ACCOUNTS_PAYABLE);
+        BigDecimal inventoryValue = closing(accountsBySystemKey, AccountingDefaultsService.INVENTORY_ASSET);
+
+        Map<String, BigDecimal> paymentBreakdown = paymentBreakdown(clientId, orgId, range);
+        BigDecimal paymentCollected = paymentBreakdown.values().stream().reduce(BigDecimal.ZERO, BigDecimal::add);
+        long transactions = journalEntryRepository.findAll(journalSpec(clientId, orgId, range)).stream()
+                .filter(this::isPostedActiveJournal)
+                .count();
+
+        return AccountingSummaryDto.builder()
+                .from(range.from)
+                .to(range.to)
+                .transactions(transactions)
+                .grossSales(grossSales)
+                .discounts(discounts)
+                .netSales(netSales)
+                .outputTax(outputTax)
+                .inputTax(inputTax)
+                .billedTotal(billedTotal)
+                .paymentCollected(paymentCollected)
+                .cashCollected(paymentBreakdown.getOrDefault("CASH", BigDecimal.ZERO))
+                .onlineCollected(paymentBreakdown.getOrDefault("ONLINE", BigDecimal.ZERO))
+                .upiCollected(paymentBreakdown.getOrDefault("UPI", BigDecimal.ZERO))
+                .cardCollected(paymentBreakdown.getOrDefault("CARD", BigDecimal.ZERO))
+                .bankCollected(paymentBreakdown.getOrDefault("BANK", BigDecimal.ZERO))
+                .chequeCollected(paymentBreakdown.getOrDefault("CHEQUE", BigDecimal.ZERO))
+                .expenses(expenses)
+                .cogsPurchases(cogsPurchases)
+                .profit(profit)
+                .receivable(receivable)
+                .payable(payable)
+                .inventoryValue(inventoryValue)
+                .paymentBreakdown(paymentBreakdown)
+                .build();
+    }
+
+    public AccountingReconciliationDto getReconciliation(LocalDateTime from, LocalDateTime to) {
+        DateRange range = boundedRange(from, to);
+        UUID clientId = requireTenant();
+        UUID orgId = TenantContext.getCurrentOrg();
+        Instant instantFrom = range.from.atZone(IST).toInstant();
+        Instant instantTo = range.to.atZone(IST).toInstant();
+
+        long salesOrders = orderRepository.findAll((root, query, cb) -> {
+            List<Predicate> predicates = new ArrayList<>();
+            predicates.add(cb.equal(root.get("clientId"), clientId));
+            if (!SecurityUtils.isSuperAdmin() && orgId != null) {
+                predicates.add(cb.equal(root.get("orgId"), orgId));
+            }
+            predicates.add(cb.equal(root.get("orderType"), OrderType.SALE));
+            predicates.add(cb.equal(root.get("orderStatus"), "COMPLETED"));
+            predicates.add(cb.equal(root.get("isactive"), "Y"));
+            predicates.add(cb.greaterThanOrEqualTo(root.get("orderDate"), instantFrom));
+            predicates.add(cb.lessThanOrEqualTo(root.get("orderDate"), instantTo));
+            return cb.and(predicates.toArray(new Predicate[0]));
+        }).size();
+
+        List<Invoice> invoices = invoiceRepository.findAll((root, query, cb) -> {
+            List<Predicate> predicates = new ArrayList<>();
+            predicates.add(cb.equal(root.get("clientId"), clientId));
+            if (!SecurityUtils.isSuperAdmin() && orgId != null) {
+                predicates.add(cb.equal(root.get("orgId"), orgId));
+            }
+            predicates.add(cb.greaterThanOrEqualTo(root.get("invoiceDate"), range.from));
+            predicates.add(cb.lessThanOrEqualTo(root.get("invoiceDate"), range.to));
+            predicates.add(cb.or(cb.isNull(root.get("status")), cb.notEqual(cb.upper(root.get("status").as(String.class)), "VOID")));
+            predicates.add(cb.or(cb.isNull(root.get("docStatus")), cb.notEqual(cb.upper(root.get("docStatus").as(String.class)), "VOIDED")));
+            return cb.and(predicates.toArray(new Predicate[0]));
+        });
+        List<Payment> payments = paymentRepository.findActivePaymentsInPeriod(clientId, SecurityUtils.isSuperAdmin() ? null : orgId, range.from, range.to);
+        List<JournalEntry> entries = journalEntryRepository.findAll(journalSpec(clientId, orgId, range)).stream()
+                .filter(this::isPostedActiveJournal)
+                .toList();
+
+        Set<UUID> postedInvoiceIds = entries.stream()
+                .filter(entry -> Set.of(InvoiceType.CUSTOMER_INVOICE.name(), InvoiceType.VENDOR_BILL.name(), InvoiceType.EXPENSE_RECEIPT.name()).contains(entry.getSourceType()))
+                .map(JournalEntry::getSourceId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        Set<UUID> postedPaymentIds = entries.stream()
+                .filter(entry -> "INBOUND_PAYMENT".equals(entry.getSourceType()) || "OUTBOUND_PAYMENT".equals(entry.getSourceType()))
+                .map(JournalEntry::getSourceId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+
+        long missingInvoices = invoices.stream().map(Invoice::getId).filter(id -> !postedInvoiceIds.contains(id)).count();
+        long missingPayments = payments.stream().map(Payment::getId).filter(id -> !postedPaymentIds.contains(id)).count();
+        List<String> warnings = new ArrayList<>();
+        if (missingInvoices > 0) {
+            warnings.add(missingInvoices + " invoice(s) in this period do not have accounting journal entries.");
+        }
+        if (missingPayments > 0) {
+            warnings.add(missingPayments + " payment(s) in this period do not have accounting journal entries.");
+        }
+
+        return AccountingReconciliationDto.builder()
+                .from(range.from)
+                .to(range.to)
+                .salesOrders(salesOrders)
+                .invoices(invoices.size())
+                .payments(payments.size())
+                .postedInvoices(postedInvoiceIds.size())
+                .postedPayments(postedPaymentIds.size())
+                .missingInvoices(missingInvoices)
+                .missingPayments(missingPayments)
+                .outOfSync(missingInvoices > 0 || missingPayments > 0)
+                .warnings(warnings)
+                .build();
+    }
+
     @Transactional
     public PaymentAllocation allocatePayment(PaymentAllocation allocation) {
         UUID clientId = requireTenant();
@@ -233,16 +460,111 @@ public class AccountingService {
     }
 
     private Specification<JournalEntry> journalSpec(UUID clientId, UUID orgId, DateRange range) {
+        return journalSpec(clientId, orgId, range.from, range.to);
+    }
+
+    private Specification<JournalEntry> journalSpec(UUID clientId, UUID orgId, LocalDateTime from, LocalDateTime to) {
         return (root, query, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
             predicates.add(cb.equal(root.get("clientId"), clientId));
             if (!SecurityUtils.isSuperAdmin() && orgId != null) {
                 predicates.add(cb.equal(root.get("orgId"), orgId));
             }
-            predicates.add(cb.greaterThanOrEqualTo(root.get("entryDate"), range.from));
-            predicates.add(cb.lessThanOrEqualTo(root.get("entryDate"), range.to));
+            if (from != null) {
+                predicates.add(cb.greaterThanOrEqualTo(root.get("entryDate"), from));
+            }
+            if (to != null) {
+                predicates.add(cb.lessThanOrEqualTo(root.get("entryDate"), to));
+            }
             return cb.and(predicates.toArray(new Predicate[0]));
         };
+    }
+
+    private Sort journalSort(String sortBy, String sortDir) {
+        String field = switch (sortBy != null ? sortBy.trim() : "") {
+            case "entryNo" -> "entryNo";
+            case "totalDebit" -> "totalDebit";
+            case "totalCredit" -> "totalCredit";
+            case "createdAt" -> "createdAt";
+            default -> "entryDate";
+        };
+        Sort.Direction direction = "ASC".equalsIgnoreCase(sortDir) ? Sort.Direction.ASC : Sort.Direction.DESC;
+        return Sort.by(new Sort.Order(direction, field), new Sort.Order(direction, "createdAt"));
+    }
+
+    private boolean isPostedActiveJournal(JournalEntry entry) {
+        return entry != null
+                && entry.getStatus() == JournalStatus.POSTED
+                && !"N".equalsIgnoreCase(entry.getIsactive());
+    }
+
+    private Map<UUID, BigDecimal> zeroAccountMap(List<AccountingAccount> accounts) {
+        Map<UUID, BigDecimal> values = new LinkedHashMap<>();
+        for (AccountingAccount account : accounts) {
+            values.put(account.getId(), BigDecimal.ZERO);
+        }
+        return values;
+    }
+
+    private BigDecimal movement(Map<String, AccountingAccountPeriodDto> accountsBySystemKey, String systemKey) {
+        AccountingAccountPeriodDto account = accountsBySystemKey.get(systemKey);
+        return account != null ? money(account.getPeriodNet()) : BigDecimal.ZERO;
+    }
+
+    private BigDecimal closing(Map<String, AccountingAccountPeriodDto> accountsBySystemKey, String systemKey) {
+        AccountingAccountPeriodDto account = accountsBySystemKey.get(systemKey);
+        return account != null ? money(account.getPeriodClosing()) : BigDecimal.ZERO;
+    }
+
+    private Map<String, BigDecimal> paymentBreakdown(UUID clientId, UUID orgId, DateRange range) {
+        Map<String, BigDecimal> totals = new LinkedHashMap<>();
+        FINANCIAL_PAYMENT_METHODS.forEach(method -> totals.put(method, BigDecimal.ZERO));
+        List<Payment> payments = paymentRepository.findActivePaymentsInPeriod(clientId, SecurityUtils.isSuperAdmin() ? null : orgId, range.from, range.to);
+        Set<UUID> paymentIds = payments.stream()
+                .filter(payment -> payment.getPaymentType() == null || payment.getPaymentType() == PaymentType.INBOUND)
+                .map(Payment::getId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        Map<UUID, List<PaymentSplit>> splitsByPaymentId = paymentIds.isEmpty()
+                ? Map.of()
+                : paymentSplitRepository.findByPaymentIdInOrderByCreatedAtAsc(paymentIds).stream()
+                        .collect(Collectors.groupingBy(PaymentSplit::getPaymentId, LinkedHashMap::new, Collectors.toList()));
+        for (Payment payment : payments) {
+            if (payment.getPaymentType() != null && payment.getPaymentType() != PaymentType.INBOUND) {
+                continue;
+            }
+            List<PaymentSplit> splits = splitsByPaymentId.getOrDefault(payment.getId(), List.of());
+            if (splits.isEmpty()) {
+                addPaymentAmount(totals, normalizeFinancialPaymentMethod(payment.getPaymentMethod()), payment.getAmountPaid());
+            } else {
+                for (PaymentSplit split : splits) {
+                    addPaymentAmount(totals, normalizeFinancialPaymentMethod(split.getPaymentMethod()), split.getAmount());
+                }
+            }
+        }
+        return totals;
+    }
+
+    private void addPaymentAmount(Map<String, BigDecimal> totals, String method, BigDecimal amount) {
+        BigDecimal value = money(amount);
+        if (value.compareTo(BigDecimal.ZERO) <= 0) {
+            return;
+        }
+        totals.merge(method, value, BigDecimal::add);
+    }
+
+    private String normalizeFinancialPaymentMethod(String paymentMethod) {
+        if (paymentMethod == null || paymentMethod.isBlank()) {
+            return "CASH";
+        }
+        String method = paymentMethod.trim().toUpperCase(Locale.ROOT);
+        if (FINANCIAL_PAYMENT_METHODS.contains(method)) {
+            return method;
+        }
+        if ("MIXED".equals(method)) {
+            return "ONLINE";
+        }
+        return "CASH";
     }
 
     private AccountingAccount getScopedAccount(UUID id) {

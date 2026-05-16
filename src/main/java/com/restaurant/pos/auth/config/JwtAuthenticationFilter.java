@@ -43,6 +43,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         String path = request.getServletPath();
         String method = request.getMethod();
         String authHeader = request.getHeader("Authorization");
+
+        if ("OPTIONS".equalsIgnoreCase(method)) {
+            filterChain.doFilter(request, response);
+            return;
+        }
         
         StringBuilder cookiesLog = new StringBuilder();
         if (request.getCookies() != null) {
@@ -141,23 +146,29 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             filterChain.doFilter(request, response);
         } catch (ExpiredJwtException e) {
             System.out.println("===> [DEBUG] JWT Filter: Token expired: " + e.getMessage());
-            sendErrorResponse(response, "JWT token has expired", HttpServletResponse.SC_UNAUTHORIZED);
+            sendErrorResponse(request, response, "JWT token has expired", HttpServletResponse.SC_UNAUTHORIZED);
         } catch (MalformedJwtException e) {
             System.out.println("===> [DEBUG] JWT Filter: Malformed token: " + e.getMessage());
-            sendErrorResponse(response, "Invalid JWT token", HttpServletResponse.SC_UNAUTHORIZED);
+            sendErrorResponse(request, response, "Invalid JWT token", HttpServletResponse.SC_UNAUTHORIZED);
         } catch (SignatureException e) {
             System.out.println("===> [DEBUG] JWT Filter: Invalid signature: " + e.getMessage());
-            sendErrorResponse(response, "JWT signature match failed", HttpServletResponse.SC_UNAUTHORIZED);
+            sendErrorResponse(request, response, "JWT signature match failed", HttpServletResponse.SC_UNAUTHORIZED);
         } catch (Exception e) {
             System.out.println("===> [DEBUG] JWT Filter: FATAL ERROR: " + e.getMessage());
             e.printStackTrace();
-            sendErrorResponse(response, "Authentication failed: " + e.getMessage(), HttpServletResponse.SC_UNAUTHORIZED);
+            sendErrorResponse(request, response, "Authentication failed: " + e.getMessage(), HttpServletResponse.SC_UNAUTHORIZED);
         } finally {
             TenantContext.clear();
         }
     }
 
-    private void sendErrorResponse(HttpServletResponse response, String message, int status) throws IOException {
+    private void sendErrorResponse(HttpServletRequest request, HttpServletResponse response, String message, int status) throws IOException {
+        String origin = request.getHeader("Origin");
+        if (origin != null && !origin.isBlank()) {
+            response.setHeader("Access-Control-Allow-Origin", origin);
+            response.setHeader("Access-Control-Allow-Credentials", "true");
+            response.setHeader("Vary", "Origin");
+        }
         response.setStatus(status);
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
         

@@ -32,4 +32,25 @@ public interface JournalEntryRepository extends JpaRepository<JournalEntry, UUID
     @Modifying
     @Query(value = "DELETE FROM journal_entries WHERE client_id = :clientId AND org_id = :orgId", nativeQuery = true)
     int bulkDeleteByClientIdAndOrgId(@Param("clientId") UUID clientId, @Param("orgId") UUID orgId);
+
+    @Modifying
+    @Query(value = """
+            DELETE FROM journal_lines
+            WHERE journal_entry_id IN (
+                SELECT id FROM journal_entries
+                WHERE client_id = :clientId
+                  AND (:orgId IS NULL OR org_id = :orgId)
+                  AND COALESCE(auto_posted, false) = true
+            )
+            """, nativeQuery = true)
+    void bulkDeleteAutoPostedLinesByClientIdAndOrgId(@Param("clientId") UUID clientId, @Param("orgId") UUID orgId);
+
+    @Modifying
+    @Query(value = """
+            DELETE FROM journal_entries
+            WHERE client_id = :clientId
+              AND (:orgId IS NULL OR org_id = :orgId)
+              AND COALESCE(auto_posted, false) = true
+            """, nativeQuery = true)
+    int bulkDeleteAutoPostedByClientIdAndOrgId(@Param("clientId") UUID clientId, @Param("orgId") UUID orgId);
 }

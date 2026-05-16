@@ -2,7 +2,9 @@ package com.restaurant.pos.order.service;
 
 import com.restaurant.pos.common.tenant.TenantContext;
 import com.restaurant.pos.common.util.SecurityUtils;
+import com.restaurant.pos.accounting.dto.AccountingSummaryDto;
 import com.restaurant.pos.accounting.service.AccountingPostingService;
+import com.restaurant.pos.accounting.service.AccountingService;
 import com.restaurant.pos.invoice.domain.Invoice;
 import com.restaurant.pos.invoice.domain.InvoiceType;
 import com.restaurant.pos.invoice.repository.InvoiceRepository;
@@ -44,6 +46,7 @@ public class ReportService {
     private final PaymentSplitRepository paymentSplitRepository;
     private final CustomerRepository customerRepository;
     private final AccountingPostingService accountingPostingService;
+    private final AccountingService accountingService;
 
     private static final ZoneId IST = ZoneId.of("Asia/Kolkata");
 
@@ -426,63 +429,23 @@ public class ReportService {
     // ─── Profit & Loss ──────────────────────────────────────────────────────
 
     public ProfitLossDto getProfitLoss(Instant from, Instant to) {
-        SalesSummaryDto sales = getSalesSummary(from, to);
-
-        UUID clientId = TenantContext.getCurrentTenant();
-        UUID orgId = SecurityUtils.isSuperAdmin() ? null : TenantContext.getCurrentOrg();
-
-        // Fetch expense orders — orderDate is Instant
-        List<Order> expenseOrders = orderRepository.findAll((root, query, cb) -> {
-            var predicates = new ArrayList<jakarta.persistence.criteria.Predicate>();
-            predicates.add(cb.equal(root.get("clientId"), clientId));
-            if (orgId != null) {
-                predicates.add(cb.equal(root.get("orgId"), orgId));
-            }
-            predicates.add(cb.equal(root.get("orderType"), OrderType.EXPENSE));
-            predicates.add(cb.notEqual(root.get("orderStatus"), "CANCELLED"));
-            predicates.add(cb.equal(root.get("isactive"), "Y"));
-            if (from != null) {
-                predicates.add(cb.greaterThanOrEqualTo(root.get("orderDate"), from));
-            }
-            if (to != null) {
-                predicates.add(cb.lessThanOrEqualTo(root.get("orderDate"), to));
-            }
-            return cb.and(predicates.toArray(new jakarta.persistence.criteria.Predicate[0]));
-        });
-
-        BigDecimal totalExpenses = BigDecimal.ZERO;
-        for (Order exp : expenseOrders) {
-            totalExpenses = totalExpenses.add(safe(exp.getGrandTotal()));
-        }
-
-        // Credit outstanding — isCredit is Boolean, no date filter needed
-        List<Invoice> creditInvoices = invoiceRepository.findAll((root, query, cb) -> {
-            var predicates = new ArrayList<jakarta.persistence.criteria.Predicate>();
-            predicates.add(cb.equal(root.get("clientId"), clientId));
-            if (orgId != null) {
-                predicates.add(cb.equal(root.get("orgId"), orgId));
-            }
-            predicates.add(cb.equal(root.get("isCredit"), true));
-            predicates.add(cb.notEqual(root.get("status"), "VOID"));
-            return cb.and(predicates.toArray(new jakarta.persistence.criteria.Predicate[0]));
-        });
-
-        BigDecimal creditOutstanding = BigDecimal.ZERO;
-        for (Invoice ci : creditInvoices) {
-            creditOutstanding = creditOutstanding.add(safe(ci.getAmountDue()));
-        }
-
-        BigDecimal netRevenue = sales.getGrandTotal().subtract(sales.getTotalTax());
-        BigDecimal netProfit = netRevenue.subtract(totalExpenses);
-        BigDecimal netCashProfit = netProfit.subtract(creditOutstanding);
+        LocalDateTime ldFrom = from != null ? LocalDateTime.ofInstant(from, IST) : null;
+        LocalDateTime ldTo = to != null ? LocalDateTime.ofInstant(to, IST) : null;
+        AccountingSummaryDto summary = accountingService.getSummary(ldFrom, ldTo);
 
         return ProfitLossDto.builder()
-                .grossSales(sales.getGrandTotal())
-                .totalTax(sales.getTotalTax())
-                .totalExpenses(totalExpenses)
-                .netProfit(netProfit)
-                .creditOutstanding(creditOutstanding)
-                .netCashProfit(netCashProfit)
+                .grossSales(safe(summary.getGrossSales()))
+                .discounts(safe(summary.getDiscounts()))
+                .netSales(safe(summary.getNetSales()))
+                .totalTax(safe(summary.getOutputTax()))
+                .inputTax(safe(summary.getInputTax()))
+                .cogsPurchases(safe(summary.getCogsPurchases()))
+                .operatingExpenses(safe(summary.getExpenses()))
+                .totalExpenses(safe(summary.getExpenses()).add(safe(summary.getCogsPurchases())))
+                .netProfit(safe(summary.getProfit()))
+                .creditOutstanding(safe(summary.getReceivable()))
+                .netCashProfit(safe(summary.getPaymentCollected()).subtract(safe(summary.getExpenses())).subtract(safe(summary.getCogsPurchases())))
+                .basis("ACCOUNTING_JOURNALS")
                 .build();
     }
 

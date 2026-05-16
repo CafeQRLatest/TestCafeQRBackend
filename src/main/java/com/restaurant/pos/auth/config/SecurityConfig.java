@@ -3,6 +3,7 @@ package com.restaurant.pos.auth.config;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationProvider;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -35,7 +36,9 @@ public class SecurityConfig {
                 .csrf(AbstractHttpConfigurer::disable)
                 .exceptionHandling(ex -> ex.authenticationEntryPoint(authenticationEntryPoint))
                 .authorizeHttpRequests(req ->
-                        req.requestMatchers(
+                        req.requestMatchers(HttpMethod.OPTIONS, "/**")
+                                .permitAll()
+                                .requestMatchers(
                                         "/api/v1/auth/**",
                                         "/api/v1/debug/**",
                                         "/api/v1/public/**",
@@ -61,15 +64,18 @@ public class SecurityConfig {
         return http.build();
     }
 
-    @Value("${app.cors.allowed-origins:http://localhost:3000}")
+    @Value("${app.cors.allowed-origins:http://localhost:3000,https://cafe-test-qr-frontend.vercel.app,https://cafe-qr-frontend.vercel.app}")
     private String[] allowedOrigins;
 
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
         
-        // Use a more permissive approach for debugging
-        configuration.addAllowedOriginPattern("*"); 
+        for (String origin : allowedOrigins) {
+            if (origin != null && !origin.isBlank()) {
+                configuration.addAllowedOriginPattern(origin.trim());
+            }
+        }
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(Arrays.asList("*"));
         configuration.setExposedHeaders(Arrays.asList("*"));

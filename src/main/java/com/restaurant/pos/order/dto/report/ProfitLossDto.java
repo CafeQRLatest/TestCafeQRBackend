@@ -13,9 +13,15 @@ import java.math.BigDecimal;
 @AllArgsConstructor
 public class ProfitLossDto {
     private BigDecimal grossSales;
+    private BigDecimal discounts;
+    private BigDecimal netSales;
     private BigDecimal totalTax;
+    private BigDecimal inputTax;
+    private BigDecimal cogsPurchases;
+    private BigDecimal operatingExpenses;
     private BigDecimal totalExpenses;
     private BigDecimal netProfit;
     private BigDecimal creditOutstanding;
     private BigDecimal netCashProfit;
+    private String basis;
 }

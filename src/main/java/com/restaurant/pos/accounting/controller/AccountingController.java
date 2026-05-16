@@ -3,8 +3,11 @@ package com.restaurant.pos.accounting.controller;
 import com.restaurant.pos.accounting.domain.*;
 import com.restaurant.pos.accounting.dto.AccountingBackfillRequest;
 import com.restaurant.pos.accounting.dto.AccountingBackfillResponse;
+import com.restaurant.pos.accounting.dto.AccountingAccountPeriodDto;
 import com.restaurant.pos.accounting.dto.AccountingMappingsDto;
 import com.restaurant.pos.accounting.dto.AccountingPostingErrorDto;
+import com.restaurant.pos.accounting.dto.AccountingReconciliationDto;
+import com.restaurant.pos.accounting.dto.AccountingSummaryDto;
 import com.restaurant.pos.accounting.dto.TrialBalanceRowDto;
 import com.restaurant.pos.accounting.service.AccountingDefaultsService;
 import com.restaurant.pos.accounting.service.AccountingPostingService;
@@ -31,11 +34,13 @@ public class AccountingController {
 
     @GetMapping("/accounts")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
-    public ResponseEntity<ApiResponse<List<AccountingAccount>>> getAccounts(
-            @RequestParam(defaultValue = "false") boolean includeInactive
+    public ResponseEntity<ApiResponse<List<AccountingAccountPeriodDto>>> getAccounts(
+            @RequestParam(defaultValue = "false") boolean includeInactive,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime to
     ) {
         defaultsService.ensureDefaultAccounts();
-        return ResponseEntity.ok(ApiResponse.success(accountingService.getAccounts(includeInactive)));
+        return ResponseEntity.ok(ApiResponse.success(accountingService.getPeriodAccounts(from, to, includeInactive)));
     }
 
     @GetMapping("/accounts/{id}")
@@ -70,9 +75,11 @@ public class AccountingController {
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
     public ResponseEntity<ApiResponse<List<JournalEntry>>> getJournalEntries(
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime from,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime to
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime to,
+            @RequestParam(defaultValue = "entryDate") String sortBy,
+            @RequestParam(defaultValue = "DESC") String sortDir
     ) {
-        return ResponseEntity.ok(ApiResponse.success(accountingService.getJournalEntries(from, to)));
+        return ResponseEntity.ok(ApiResponse.success(accountingService.getJournalEntries(from, to, sortBy, sortDir)));
     }
 
     @PostMapping("/journals")
@@ -97,6 +104,25 @@ public class AccountingController {
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime to
     ) {
         return ResponseEntity.ok(ApiResponse.success(accountingService.getTrialBalance(from, to)));
+    }
+
+    @GetMapping("/summary")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
+    public ResponseEntity<ApiResponse<AccountingSummaryDto>> getSummary(
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime to
+    ) {
+        defaultsService.ensureDefaultAccounts();
+        return ResponseEntity.ok(ApiResponse.success(accountingService.getSummary(from, to)));
+    }
+
+    @GetMapping("/reconciliation")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
+    public ResponseEntity<ApiResponse<AccountingReconciliationDto>> getReconciliation(
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime to
+    ) {
+        return ResponseEntity.ok(ApiResponse.success(accountingService.getReconciliation(from, to)));
     }
 
     @PostMapping("/payment-allocations")
@@ -145,6 +171,6 @@ public class AccountingController {
     @PostMapping("/resync-all")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN')")
     public ResponseEntity<ApiResponse<AccountingBackfillResponse>> resyncAll() {
-        return ResponseEntity.ok(ApiResponse.success("Accounting data rebuilt from scratch", postingService.resyncAll()));
+        return ResponseEntity.ok(ApiResponse.success("Auto-posted accounting data safely rebuilt", postingService.resyncAll()));
     }
 }

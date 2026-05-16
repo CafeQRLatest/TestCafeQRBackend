@@ -1,6 +1,7 @@
 package com.restaurant.pos.order.service;
 
 import com.restaurant.pos.accounting.service.AccountingPostingService;
+import com.restaurant.pos.accounting.service.AccountingService;
 import com.restaurant.pos.common.tenant.TenantContext;
 import com.restaurant.pos.invoice.repository.InvoiceRepository;
 import com.restaurant.pos.order.domain.Order;
@@ -48,7 +49,8 @@ class ReportServiceTest {
                 mock(PaymentRepository.class),
                 mock(PaymentSplitRepository.class),
                 customerRepository,
-                mock(AccountingPostingService.class)
+                mock(AccountingPostingService.class),
+                mock(AccountingService.class)
         );
         clientId = UUID.randomUUID();
         TenantContext.setCurrentTenant(clientId);

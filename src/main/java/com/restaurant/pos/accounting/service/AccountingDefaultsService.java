@@ -12,6 +12,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 @Service
 @RequiredArgsConstructor
@@ -52,6 +53,7 @@ public class AccountingDefaultsService {
     private final AccountingAccountRepository accountRepository;
     private final AccountingAccountMappingRepository mappingRepository;
     private final AccountingPaymentMethodMappingRepository paymentMappingRepository;
+    private final Map<String, Boolean> ensuredDefaults = new ConcurrentHashMap<>();
 
     @Transactional
     public List<AccountingAccount> ensureDefaultAccounts() {
@@ -78,6 +80,7 @@ public class AccountingDefaultsService {
             }
         }
 
+        ensuredDefaults.put(defaultsKey(clientId, orgId), true);
         return new ArrayList<>(accountsByKey.values());
     }
 
@@ -115,10 +118,10 @@ public class AccountingDefaultsService {
 
     @Transactional
     public AccountingAccount resolveAccount(String mappingKey) {
-        ensureDefaultAccounts();
         UUID clientId = requireClient();
         UUID orgId = TenantContext.getCurrentOrg();
         String key = normalizeKey(mappingKey);
+        ensureDefaultsIfMissing(clientId, orgId, key);
         Optional<AccountingAccountMapping> override = mappingRepository.findByClientIdAndOrgIdAndMappingKeyIgnoreCase(clientId, orgId, key)
                 .filter(mapping -> "Y".equalsIgnoreCase(mapping.getIsactive()));
         if (override.isPresent()) {
@@ -131,10 +134,10 @@ public class AccountingDefaultsService {
 
     @Transactional
     public AccountingAccount resolvePaymentAccount(String paymentMethod) {
-        ensureDefaultAccounts();
         UUID clientId = requireClient();
         UUID orgId = TenantContext.getCurrentOrg();
         String method = normalizePaymentMethod(paymentMethod);
+        ensureDefaultsIfMissing(clientId, orgId, "CASH".equals(method) ? CASH : BANK_UPI_CLEARING);
         Optional<AccountingPaymentMethodMapping> override = paymentMappingRepository
                 .findByClientIdAndOrgIdAndPaymentMethodIgnoreCase(clientId, orgId, method)
                 .filter(mapping -> "Y".equalsIgnoreCase(mapping.getIsactive()));
@@ -148,6 +151,23 @@ public class AccountingDefaultsService {
     public String normalizePaymentMethod(String paymentMethod) {
         String method = normalizeKey(paymentMethod == null || paymentMethod.isBlank() ? "CASH" : paymentMethod);
         return PAYMENT_METHODS.contains(method) ? method : "CASH";
+    }
+
+    private void ensureDefaultsIfMissing(UUID clientId, UUID orgId, String requiredSystemKey) {
+        String cacheKey = defaultsKey(clientId, orgId);
+        if (Boolean.TRUE.equals(ensuredDefaults.get(cacheKey))
+                && accountRepository.findByClientIdAndOrgIdAndSystemKeyIgnoreCase(clientId, orgId, requiredSystemKey).isPresent()) {
+            return;
+        }
+        if (accountRepository.findByClientIdAndOrgIdAndSystemKeyIgnoreCase(clientId, orgId, requiredSystemKey).isPresent()) {
+            ensuredDefaults.put(cacheKey, true);
+            return;
+        }
+        ensureDefaultAccounts();
+    }
+
+    private String defaultsKey(UUID clientId, UUID orgId) {
+        return clientId + ":" + (orgId != null ? orgId : "GLOBAL");
     }
 
     private AccountingAccount createSystemAccount(UUID clientId, UUID orgId, AccountTemplate template) {
