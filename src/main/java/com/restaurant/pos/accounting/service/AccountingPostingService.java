@@ -590,7 +590,7 @@ public class AccountingPostingService {
         if (orgId != null) {
             return postingJobRepository.findByClientIdAndOrgIdAndSourceTypeAndSourceId(clientId, orgId, sourceType, sourceId);
         }
-        return postingJobRepository.findByClientIdAndSourceTypeAndSourceId(clientId, sourceType, sourceId);
+        return postingJobRepository.findFirstByClientIdAndSourceTypeAndSourceId(clientId, sourceType, sourceId);
     }
 
     private void markJobPosted(UUID clientId, UUID orgId, String sourceType, UUID sourceId, UUID journalEntryId) {

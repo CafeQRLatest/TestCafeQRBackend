@@ -14,8 +14,8 @@ public interface AccountingPostingJobRepository extends JpaRepository<Accounting
 
     Optional<AccountingPostingJob> findByClientIdAndOrgIdAndSourceTypeAndSourceId(UUID clientId, UUID orgId, String sourceType, UUID sourceId);
 
-    // Org-agnostic version: finds posting job regardless of org_id value
-    Optional<AccountingPostingJob> findByClientIdAndSourceTypeAndSourceId(UUID clientId, String sourceType, UUID sourceId);
+    // Org-agnostic version: finds first posting job regardless of org_id value
+    Optional<AccountingPostingJob> findFirstByClientIdAndSourceTypeAndSourceId(UUID clientId, String sourceType, UUID sourceId);
 
     List<AccountingPostingJob> findByClientIdAndOrgIdAndStatusOrderByUpdatedAtDesc(UUID clientId, UUID orgId, String status);
 

@@ -19,7 +19,7 @@ public interface JournalEntryRepository extends JpaRepository<JournalEntry, UUID
     Optional<JournalEntry> findByClientIdAndOrgIdAndSourceTypeAndSourceId(UUID clientId, UUID orgId, String sourceType, UUID sourceId);
 
     // Org-agnostic versions
-    Optional<JournalEntry> findByClientIdAndSourceTypeAndSourceId(UUID clientId, String sourceType, UUID sourceId);
+    Optional<JournalEntry> findFirstByClientIdAndSourceTypeAndSourceId(UUID clientId, String sourceType, UUID sourceId);
 
     boolean existsByClientIdAndOrgIdAndSourceTypeAndSourceId(UUID clientId, UUID orgId, String sourceType, UUID sourceId);
 
