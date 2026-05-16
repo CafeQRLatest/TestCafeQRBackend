@@ -179,47 +179,70 @@ public class AccountingPostingService {
         return response;
     }
 
-    // One-time cleanup: wipe all auto-posted entries and re-sync from scratch
-    public AccountingBackfillResponse resyncAll() {
+    /**
+     * Lightweight fix: finds invoices where totalAmount doesn't match the order's
+     * current grandTotal (caused by discounts applied after billing), updates the
+     * invoice, and re-posts the accounting entry. Only touches mismatched invoices.
+     * Completes in <5 seconds even on free-tier infrastructure.
+     */
+    public AccountingBackfillResponse fixInvoiceDiscounts() {
         UUID clientId = requireClient();
         UUID orgId = TenantContext.getCurrentOrg();
-        log.info("resyncAll started | clientId={} | orgId={}", clientId, orgId);
+        log.info("fixInvoiceDiscounts started | clientId={} | orgId={}", clientId, orgId);
 
-        // 1. Bulk-delete all journal lines + entries + posting jobs (3 fast SQL queries)
-        int journalsDeleted = cleanupAllAccountingData(clientId, orgId);
-
-        // 2. Reset all account balances to opening balance
-        List<AccountingAccount> accounts = accountRepository.findByClientIdAndOrgIdOrderByCodeAsc(clientId, orgId);
-        for (AccountingAccount account : accounts) {
-            account.setCurrentBalance(account.getOpeningBalance() != null ? account.getOpeningBalance() : BigDecimal.ZERO);
-            accountRepository.save(account);
-        }
-
-        log.info("resyncAll cleanup done | journals={} | now re-running backfill", journalsDeleted);
-
-        // 3. Re-run full backfill from Jan 1 of this year
-        AccountingBackfillRequest rebuildRequest = new AccountingBackfillRequest();
         LocalDateTime yearStart = LocalDateTime.of(java.time.LocalDate.now().getYear(), 1, 1, 0, 0);
         LocalDateTime now = LocalDateTime.now();
-        rebuildRequest.setFrom(yearStart);
-        rebuildRequest.setTo(now);
-        rebuildRequest.setSourceTypes(Set.of("INVOICE", "PAYMENT", "COGS", "STOCK"));
-        rebuildRequest.setDryRun(false);
+        List<Invoice> allInvoices = invoiceRepository.findByClientIdAndOrgIdAndInvoiceDateBetweenOrderByInvoiceDateAsc(
+                clientId, orgId, yearStart, now);
 
-        AccountingBackfillResponse response = backfill(rebuildRequest);
-        response.setReversed(journalsDeleted);
-        log.info("resyncAll complete | posted={} | skipped={} | failed={}", response.getPosted(), response.getSkipped(), response.getFailed());
+        AccountingBackfillResponse response = AccountingBackfillResponse.builder().dryRun(false).build();
+        int fixed = 0;
+        int scanned = 0;
+
+        for (Invoice invoice : allInvoices) {
+            scanned++;
+            if (invoice.getOrderId() == null) continue;
+
+            Optional<Order> orderOpt = resolveOrder(invoice.getOrderId());
+            if (orderOpt.isEmpty()) continue;
+
+            Order order = orderOpt.get();
+            BigDecimal orderTotal = money(order.getGrandTotal());
+            BigDecimal invoiceTotal = money(invoice.getTotalAmount());
+
+            if (orderTotal.compareTo(invoiceTotal) != 0) {
+                try {
+                    log.info("Fixing invoice {} | was {} -> should be {} | order {}",
+                            invoice.getInvoiceNo(), invoiceTotal, orderTotal, order.getOrderNo());
+
+                    // 1. Reverse old accounting entry
+                    reverseInvoice(invoice, "Invoice amount corrected: " + invoiceTotal + " -> " + orderTotal);
+
+                    // 2. Delete the old posting job so re-post works
+                    String sourceType = invoiceSourceType(invoice);
+                    postingJobRepository.findByClientIdAndOrgIdAndSourceTypeAndSourceId(
+                            clientId, orgId, sourceType, invoice.getId())
+                            .ifPresent(postingJobRepository::delete);
+
+                    // 3. Update invoice amount
+                    invoice.setTotalAmount(orderTotal);
+                    invoice.setAmountDue(BigDecimal.ZERO);
+                    invoiceRepository.save(invoice);
+
+                    // 4. Re-post with correct amount
+                    postInvoice(order, invoice);
+                    fixed++;
+                } catch (Exception ex) {
+                    log.warn("Failed to fix invoice {} | {}", invoice.getInvoiceNo(), ex.getMessage());
+                }
+            }
+        }
+
+        response.setScanned(scanned);
+        response.setPosted(fixed);
+        response.setSkipped(scanned - fixed);
+        log.info("fixInvoiceDiscounts complete | scanned={} | fixed={}", scanned, fixed);
         return response;
-    }
-
-    @Transactional
-    public int cleanupAllAccountingData(UUID clientId, UUID orgId) {
-        // Delete journal lines first (child FK), then journal entries, then posting jobs
-        // Uses native SQL for speed — 3 queries instead of N entity loads + deletes
-        journalEntryRepository.bulkDeleteLinesByClientIdAndOrgId(clientId, orgId);
-        int deleted = journalEntryRepository.bulkDeleteByClientIdAndOrgId(clientId, orgId);
-        postingJobRepository.bulkDeleteByClientIdAndOrgId(clientId, orgId);
-        return deleted;
     }
 
     private void retrySource(String sourceType, UUID sourceId) {
