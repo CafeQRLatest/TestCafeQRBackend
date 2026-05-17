@@ -75,6 +75,8 @@ public class OrderController {
             @RequestParam(required = false) java.util.UUID branchId,
             @RequestParam(required = false) java.util.UUID vendorId,
             @RequestParam(required = false) java.util.UUID customerId,
+            @RequestParam(required = false) java.util.UUID warehouseId,
+            @RequestParam(required = false) String paymentMethod,
             @RequestParam(required = false) String searchTerm
     ) {
         com.restaurant.pos.order.dto.OrderSearchCriteria criteria = com.restaurant.pos.order.dto.OrderSearchCriteria.builder()
@@ -85,6 +87,8 @@ public class OrderController {
                 .branchId(branchId)
                 .vendorId(vendorId)
                 .customerId(customerId)
+                .warehouseId(warehouseId)
+                .paymentMethod(paymentMethod)
                 .searchTerm(searchTerm)
                 .build();
         return ResponseEntity.ok(ApiResponse.success(orderService.searchOrders(criteria)));

@@ -8,6 +8,11 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.math.BigDecimal;
 import java.util.UUID;
+import java.util.List;
+import com.restaurant.pos.product.domain.ProductVariantMapping;
+import com.restaurant.pos.product.domain.VariantPricing;
+import com.restaurant.pos.product.domain.ProductUpsell;
+import com.restaurant.pos.purchasing.domain.PricelistProduct;
 
 @Data
 @Builder
@@ -23,8 +28,9 @@ public class ProductListDto {
     private String imageUrl;
     private UUID categoryId;
     private String categoryName;
-    private UUID uomId;
+
     private String uomName;
+    private UUID uomId;
     private String productCode;
     private String productType;
     private BigDecimal taxRate;
@@ -39,4 +45,6 @@ public class ProductListDto {
     private int variantCount;
     private boolean hasUpsells;
     private int upsellCount;
+    private UUID defaultPricelistId;
+    private String defaultPricelistName;
 }

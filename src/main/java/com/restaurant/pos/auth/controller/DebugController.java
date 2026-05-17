@@ -15,6 +15,7 @@ import java.util.UUID;
 public class DebugController {
     private final com.restaurant.pos.client.repository.ClientRepository clientRepository;
     private final com.restaurant.pos.auth.repository.UserRepository userRepository;
+    private final com.restaurant.pos.product.repository.ProductRepository productRepository;
 
     @GetMapping("/check-client")
     public ResponseEntity<?> checkClient(@RequestParam String email) {
@@ -29,6 +30,18 @@ public class DebugController {
             "user_clientId", user.getClientId() != null ? user.getClientId().toString() : "NULL",
             "clientByEmail", clientByEmail != null ? clientByEmail.getSubscriptionStatus() : "NOT_FOUND",
             "clientById", clientById != null ? clientById.getSubscriptionStatus() : "NOT_FOUND"
+        ));
+    }
+    @GetMapping("/check-products")
+    public ResponseEntity<?> checkProducts(@RequestParam String clientId) {
+        UUID id = UUID.fromString(clientId);
+        var productsAll = productRepository.findByClientId(id);
+        var productsFiltered = productRepository.findByClientIdAndOrgIdOrGlobal(id, null);
+        return ResponseEntity.ok(java.util.Map.of(
+            "clientId", clientId,
+            "count_via_findByClientId", productsAll.size(),
+            "count_via_findByClientIdAndOrgIdOrGlobal", productsFiltered.size(),
+            "first_product_name", productsFiltered.isEmpty() ? "NONE" : productsFiltered.get(0).getName()
         ));
     }
 }

@@ -1,9 +1,10 @@
 package com.restaurant.pos.product.domain;
 
 import com.restaurant.pos.common.entity.AuditableEntity;
-import com.fasterxml.jackson.annotation.JsonProperty;
+import com.restaurant.pos.purchasing.domain.PricelistProduct;
 import jakarta.persistence.*;
 import org.hibernate.annotations.BatchSize;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -79,6 +80,10 @@ public class Product extends AuditableEntity {
     @JoinColumn(name = "uom_id")
     private Uom uom;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "default_pricelist_id")
+    private com.restaurant.pos.purchasing.domain.Pricelist defaultPricelist;
+
     @OneToMany(mappedBy = "product", cascade = CascadeType.ALL, orphanRemoval = true)
     @Builder.Default
     @BatchSize(size = 20)
@@ -93,4 +98,9 @@ public class Product extends AuditableEntity {
     @Builder.Default
     @BatchSize(size = 20)
     private List<ProductUpsell> upsells = new ArrayList<>();
+
+    @OneToMany(mappedBy = "product", cascade = CascadeType.ALL, orphanRemoval = true)
+    @Builder.Default
+    @BatchSize(size = 20)
+    private List<PricelistProduct> pricelistProducts = new ArrayList<>();
 }

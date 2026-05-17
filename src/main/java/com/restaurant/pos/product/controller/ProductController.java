@@ -30,7 +30,10 @@ public class ProductController {
     @GetMapping
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<List<ProductListDto>>> getProducts() {
-        return ResponseEntity.ok(ApiResponse.success(productService.getProducts()));
+        System.out.println("===> [DEBUG] ProductController: Request received for getProducts");
+        List<ProductListDto> products = productService.getProducts();
+        System.out.println("===> [DEBUG] ProductController: Returning " + products.size() + " products");
+        return ResponseEntity.ok(ApiResponse.success(products));
     }
 
     @GetMapping("/{id}")

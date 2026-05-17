@@ -19,6 +19,7 @@ import com.restaurant.pos.product.dto.VariantGroupDto;
 import com.restaurant.pos.product.dto.VariantOptionDto;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.hibernate.Hibernate;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
@@ -43,7 +44,7 @@ public class ProductService {
     private final VariantOptionRepository variantOptionRepository;
 
     @Transactional(readOnly = true)
-    @Cacheable(value = "products_categories_v2", key = "T(com.restaurant.pos.common.tenant.TenantContext).getCurrentTenant() + ':' + T(com.restaurant.pos.common.tenant.TenantContext).getCurrentOrg()")
+    // @Cacheable(value = "products_categories_v2", key = "T(com.restaurant.pos.common.tenant.TenantContext).getCurrentTenant() + ':' + T(com.restaurant.pos.common.tenant.TenantContext).getCurrentOrg()")
     public List<Category> getCategories() {
         return categoryRepository.findByClientIdAndOrgIdOrGlobal(TenantContext.getCurrentTenant(),
                 TenantContext.getCurrentOrg());
@@ -291,13 +292,16 @@ public class ProductService {
     // --- Product Methods ---
 
     @Transactional(readOnly = true)
-    @Cacheable(value = "products_list_v2", key = "T(com.restaurant.pos.common.tenant.TenantContext).getCurrentTenant() + ':' + T(com.restaurant.pos.common.tenant.TenantContext).getCurrentOrg()")
+    // @Cacheable(value = "products_list_v4", key = "T(com.restaurant.pos.common.tenant.TenantContext).getCurrentTenant() + ':' + T(com.restaurant.pos.common.tenant.TenantContext).getCurrentOrg()")
     public List<ProductListDto> getProducts() {
         UUID clientId = TenantContext.getCurrentTenant();
         UUID orgId = TenantContext.getCurrentOrg();
 
-        return productRepository.findByClientIdAndOrgIdOrGlobal(clientId, orgId)
-                .stream()
+        System.out.println("===> [DEBUG] ProductService: Fetching products for Client: " + clientId + " | Org: " + orgId);
+        List<Product> products = productRepository.findByClientIdAndOrgIdOrGlobal(clientId, orgId);
+        System.out.println("===> [DEBUG] ProductService: Repository returned " + products.size() + " products");
+
+        return products.stream()
                 .map(this::mapToDto)
                 .collect(Collectors.toList());
     }
@@ -378,29 +382,37 @@ public class ProductService {
     }
 
     private ProductListDto mapToDto(Product product) {
-        return ProductListDto.builder()
-                .id(product.getId())
-                .name(product.getName())
-                .description(product.getDescription())
-                .price(product.getPrice())
-                .isAvailable(product.isAvailable())
-                .imageUrl(product.getImageUrl())
-                .categoryId(product.getCategory() != null ? product.getCategory().getId() : null)
-                .categoryName(product.getCategory() != null ? product.getCategory().getName() : null)
-                .uomId(product.getUom() != null ? product.getUom().getId() : null)
-                .uomName(product.getUom() != null ? product.getUom().getName() : null)
-                .productCode(product.getProductCode())
-                .taxRate(product.getTaxRate())
-                .taxCode(product.getTaxCode())
-                .isActive(product.isActive())
-                .isPackagedGood(product.isPackagedGood())
-                .isIngredient(product.isIngredient())
-                .productType(product.getProductType())
-                .hasVariants(product.getVariantMappings() != null && !product.getVariantMappings().isEmpty())
-                .variantCount(product.getVariantMappings() != null ? product.getVariantMappings().size() : 0)
-                .hasUpsells(product.getUpsells() != null && !product.getUpsells().isEmpty())
-                .upsellCount(product.getUpsells() != null ? product.getUpsells().size() : 0)
-                .build();
+        try {
+            return ProductListDto.builder()
+                    .id(product.getId())
+                    .name(product.getName())
+                    .description(product.getDescription())
+                    .price(product.getPrice())
+                    .isAvailable(product.isAvailable())
+                    .imageUrl(product.getImageUrl())
+                    .categoryId(product.getCategory() != null ? product.getCategory().getId() : null)
+                    .categoryName(product.getCategory() != null ? product.getCategory().getName() : null)
+                    .uomId(product.getUom() != null ? product.getUom().getId() : null)
+                    .uomName(product.getUom() != null ? product.getUom().getName() : null)
+                    .productCode(product.getProductCode())
+                    .taxRate(product.getTaxRate())
+                    .taxCode(product.getTaxCode())
+                    .isActive(product.isActive())
+                    .isPackagedGood(product.isPackagedGood())
+                    .isIngredient(product.isIngredient())
+                    .productType(product.getProductType())
+                    .hasVariants(product.getVariantMappings() != null && !product.getVariantMappings().isEmpty())
+                    .variantCount(product.getVariantMappings() != null ? product.getVariantMappings().size() : 0)
+                    .hasUpsells(product.getUpsells() != null && !product.getUpsells().isEmpty())
+                    .upsellCount(product.getUpsells() != null ? product.getUpsells().size() : 0)
+                    .defaultPricelistId(product.getDefaultPricelist() != null ? product.getDefaultPricelist().getId() : null)
+                    .defaultPricelistName(product.getDefaultPricelist() != null ? product.getDefaultPricelist().getName() : null)
+                    .build();
+        } catch (Exception e) {
+            System.err.println("===> [ERROR] mapToDto failed for product: " + product.getId() + " - " + e.getMessage());
+            e.printStackTrace();
+            throw e;
+        }
     }
 
     private ProductDetailDto mapToDetailDto(Product product) {
@@ -518,7 +530,7 @@ public class ProductService {
 
 
     @Transactional
-    @CacheEvict(value = "products_list_v2", key = "T(com.restaurant.pos.common.tenant.TenantContext).getCurrentTenant() + ':' + T(com.restaurant.pos.common.tenant.TenantContext).getCurrentOrg()")
+    @CacheEvict(value = "products_list_v3", key = "T(com.restaurant.pos.common.tenant.TenantContext).getCurrentTenant() + ':' + T(com.restaurant.pos.common.tenant.TenantContext).getCurrentOrg()")
     public Product createProduct(Product product) {
         UUID clientId = TenantContext.getCurrentTenant();
         UUID orgId = TenantContext.getCurrentOrg();
@@ -584,10 +596,17 @@ public class ProductService {
                 upsell.setOrgId(orgId);
             });
         }
+        if (product.getPricelistProducts() != null) {
+            product.getPricelistProducts().forEach(pp -> {
+                pp.setProduct(product);
+                pp.setClientId(clientId);
+                pp.setOrgId(orgId);
+            });
+        }
     }
 
     @Transactional
-    @CacheEvict(value = "products_list_v2", key = "T(com.restaurant.pos.common.tenant.TenantContext).getCurrentTenant() + ':' + T(com.restaurant.pos.common.tenant.TenantContext).getCurrentOrg()")
+    @CacheEvict(value = "products_list_v3", key = "T(com.restaurant.pos.common.tenant.TenantContext).getCurrentTenant() + ':' + T(com.restaurant.pos.common.tenant.TenantContext).getCurrentOrg()")
     public List<Product> bulkCreateProducts(List<Product> products) {
         UUID clientId = TenantContext.getCurrentTenant();
         UUID orgId = TenantContext.getCurrentOrg();
@@ -646,7 +665,7 @@ public class ProductService {
     }
 
     @Transactional
-    @CacheEvict(value = "products_list_v2", key = "T(com.restaurant.pos.common.tenant.TenantContext).getCurrentTenant() + ':' + T(com.restaurant.pos.common.tenant.TenantContext).getCurrentOrg()")
+    @CacheEvict(value = "products_list_v4", key = "T(com.restaurant.pos.common.tenant.TenantContext).getCurrentTenant() + ':' + T(com.restaurant.pos.common.tenant.TenantContext).getCurrentOrg()")
     public Product updateProduct(UUID id, Product product) {
         Product existing = productRepository.findById(java.util.Objects.requireNonNull(id))
                 .orElseThrow(() -> new ResourceNotFoundException("Product not found"));
@@ -687,6 +706,9 @@ public class ProductService {
 
         existing.setCategory(resolveCategoryReference(product.getCategory(), clientId, orgId));
         existing.setUom(resolveUomReference(product.getUom(), clientId, orgId));
+        existing.setDefaultPricelist(product.getDefaultPricelist());
+
+        setProductRelationships(product, clientId, orgId);
 
         // Update Mappings
         existing.getVariantMappings().clear();
@@ -731,6 +753,12 @@ public class ProductService {
                 upsell.setOrgId(orgId);
             });
             existing.getUpsells().addAll(product.getUpsells());
+        }
+
+        // Update Pricelist Products
+        existing.getPricelistProducts().clear();
+        if (product.getPricelistProducts() != null) {
+            existing.getPricelistProducts().addAll(product.getPricelistProducts());
         }
 
         return productRepository.save(existing);
@@ -794,7 +822,7 @@ public class ProductService {
     }
 
     @Transactional
-    @CacheEvict(value = "products_list_v2", key = "T(com.restaurant.pos.common.tenant.TenantContext).getCurrentTenant() + ':' + T(com.restaurant.pos.common.tenant.TenantContext).getCurrentOrg()")
+    @CacheEvict(value = "products_list_v3", key = "T(com.restaurant.pos.common.tenant.TenantContext).getCurrentTenant() + ':' + T(com.restaurant.pos.common.tenant.TenantContext).getCurrentOrg()")
     public void deleteProduct(UUID id) {
         Product existing = productRepository.findById(java.util.Objects.requireNonNull(id))
                 .orElseThrow(() -> new ResourceNotFoundException("Product not found"));

@@ -714,6 +714,7 @@ public class OrderService {
     @Transactional(readOnly = true)
     public List<Order> getOrdersByType(OrderType orderType) {
         UUID tenantId = TenantContext.getCurrentTenant();
+        List<Order> orders;
         if (SecurityUtils.isSuperAdmin()) {
             return hydrateOrders(orderRepository.findByClientIdAndOrderTypeOrderByCreatedAtDesc(tenantId, orderType));
         }
@@ -906,43 +907,92 @@ public class OrderService {
             paymentRepository.save(payment);
         });
 
-        // 3. Create NEW order record with the original Order No
-        Order newOrder = Order.builder()
-            .terminalId(oldOrder.getTerminalId())
-            .orderNo(originalOrderNo)
-            .orderType(oldOrder.getOrderType())
-            .orderStatus(updates.getOrderStatus() != null ? updates.getOrderStatus() : oldOrder.getOrderStatus())
-            .paymentStatus(updates.getPaymentStatus() != null ? updates.getPaymentStatus() : oldOrder.getPaymentStatus())
-            .orderSource(oldOrder.getOrderSource())
-            .sourceDeviceId(oldOrder.getSourceDeviceId())
-            .sourceTerminalId(oldOrder.getSourceTerminalId())
-            .sourceOperationId(oldOrder.getSourceOperationId())
-            .sourceOfflineId(oldOrder.getSourceOfflineId())
-            .sourceLocalRef(oldOrder.getSourceLocalRef())
-            .offlineCreatedAt(oldOrder.getOfflineCreatedAt())
-            .syncOrigin(oldOrder.getSyncOrigin())
-            .fulfillmentType(updates.getFulfillmentType())
-            .tableNumber(updates.getTableNumber())
-            .tableId(updates.getTableId())
-            .customerId(updates.getCustomerId())
-            .customerName(updates.getCustomerName())
-            .customerPhone(updates.getCustomerPhone())
-            .customerIds(updates.getCustomerIds())
-            .totalAmount(updates.getTotalAmount())
-            .totalTaxAmount(updates.getTotalTaxAmount())
-            .totalDiscountAmount(updates.getTotalDiscountAmount())
-            .grandTotal(updates.getGrandTotal())
-            .description(updates.getDescription())
-            .originalOrderId(oldOrder.getId())
-            .revisionNumber((oldOrder.getRevisionNumber() != null ? oldOrder.getRevisionNumber() : 0) + 1)
-            .build();
-            
-        // Manually set inherited fields
+        // 3. Create the correct entity subtype to preserve the JPA discriminator value.
+        //    Using Order.builder().build() always creates the base Order class (@DiscriminatorValue("SALE")),
+        //    which would corrupt Purchase/Expense orders in the database.
+        Order newOrder;
+        OrderType preservedType = oldOrder.getOrderType();
+        if (preservedType == OrderType.PURCHASE) {
+            newOrder = new com.restaurant.pos.purchasing.domain.PurchaseOrder();
+        } else if (preservedType == OrderType.EXPENSE) {
+            newOrder = new com.restaurant.pos.expense.domain.Expense();
+        } else {
+            newOrder = new Order();
+        }
+
+        // Copy core identification
+        newOrder.setId(UUID.randomUUID());
+        newOrder.setOrderNo(originalOrderNo);
+        newOrder.setOrderType(oldOrder.getOrderType());
+        newOrder.setTerminalId(oldOrder.getTerminalId());
+        newOrder.setOrderSource(oldOrder.getOrderSource());
+        newOrder.setOriginalOrderId(oldOrder.getId());
+        newOrder.setRevisionNumber((oldOrder.getRevisionNumber() != null ? oldOrder.getRevisionNumber() : 0) + 1);
+
+        newOrder.setSourceDeviceId(oldOrder.getSourceDeviceId());
+        newOrder.setSourceTerminalId(oldOrder.getSourceTerminalId());
+        newOrder.setSourceOperationId(oldOrder.getSourceOperationId());
+        newOrder.setSourceOfflineId(oldOrder.getSourceOfflineId());
+        newOrder.setSourceLocalRef(oldOrder.getSourceLocalRef());
+        newOrder.setOfflineCreatedAt(oldOrder.getOfflineCreatedAt());
+        newOrder.setSyncOrigin(oldOrder.getSyncOrigin());
+
+        // Status
+        newOrder.setOrderStatus(updates.getOrderStatus() != null ? updates.getOrderStatus() : oldOrder.getOrderStatus());
+        newOrder.setPaymentStatus(updates.getPaymentStatus() != null ? updates.getPaymentStatus() : oldOrder.getPaymentStatus());
+
+        // Parties & references (merge from updates, fallback to old)
+        newOrder.setVendorId(updates.getVendorId() != null ? updates.getVendorId() : oldOrder.getVendorId());
+        newOrder.setCustomerId(updates.getCustomerId() != null ? updates.getCustomerId() : oldOrder.getCustomerId());
+        newOrder.setCustomerName(updates.getCustomerName() != null ? updates.getCustomerName() : oldOrder.getCustomerName());
+        newOrder.setCustomerPhone(updates.getCustomerPhone() != null ? updates.getCustomerPhone() : oldOrder.getCustomerPhone());
+        newOrder.setCustomerIds(updates.getCustomerIds() != null ? updates.getCustomerIds() : oldOrder.getCustomerIds());
+        newOrder.setWarehouseId(updates.getWarehouseId() != null ? updates.getWarehouseId() : oldOrder.getWarehouseId());
+        newOrder.setPricelistId(updates.getPricelistId() != null ? updates.getPricelistId() : oldOrder.getPricelistId());
+        newOrder.setCurrencyId(updates.getCurrencyId() != null ? updates.getCurrencyId() : oldOrder.getCurrencyId());
+        newOrder.setPaymentMethod(updates.getPaymentMethod() != null ? updates.getPaymentMethod() : oldOrder.getPaymentMethod());
+        newOrder.setReference(updates.getReference() != null ? updates.getReference() : oldOrder.getReference());
+
+        // Dates & addresses
+        newOrder.setOrderDate(updates.getOrderDate() != null ? updates.getOrderDate() : oldOrder.getOrderDate());
+        newOrder.setFulfillmentType(updates.getFulfillmentType() != null ? updates.getFulfillmentType() : oldOrder.getFulfillmentType());
+        newOrder.setTableNumber(updates.getTableNumber());
+        newOrder.setTableId(updates.getTableId());
+
+        // Financial totals
+        newOrder.setTotalAmount(updates.getTotalAmount() != null ? updates.getTotalAmount() : oldOrder.getTotalAmount());
+        newOrder.setTotalTaxAmount(updates.getTotalTaxAmount() != null ? updates.getTotalTaxAmount() : oldOrder.getTotalTaxAmount());
+        newOrder.setTotalDiscountAmount(updates.getTotalDiscountAmount() != null ? updates.getTotalDiscountAmount() : oldOrder.getTotalDiscountAmount());
+        newOrder.setGrandTotal(updates.getGrandTotal() != null ? updates.getGrandTotal() : oldOrder.getGrandTotal());
+        newOrder.setDescription(updates.getDescription() != null ? updates.getDescription() : oldOrder.getDescription());
+
+        // Expense category (for EXPENSE type)
+        newOrder.setExpenseCategoryId(updates.getExpenseCategoryId() != null ? updates.getExpenseCategoryId() : oldOrder.getExpenseCategoryId());
+
+        // Tenant fields
         newOrder.setClientId(oldOrder.getClientId());
         newOrder.setOrgId(oldOrder.getOrgId());
 
-        if (updates.getLines() != null) {
+        // Lines — from the request payload (or fall back to old lines)
+        if (updates.getLines() != null && !updates.getLines().isEmpty()) {
             updates.getLines().forEach(newOrder::addLine);
+        } else if (oldOrder.getLines() != null && !oldOrder.getLines().isEmpty()) {
+            // Copy lines from old order when updates don't include them
+            for (com.restaurant.pos.order.domain.OrderLine oldLine : oldOrder.getLines()) {
+                com.restaurant.pos.order.domain.OrderLine copy = new com.restaurant.pos.order.domain.OrderLine();
+                copy.setProductId(oldLine.getProductId());
+                copy.setVariantId(oldLine.getVariantId());
+                copy.setProductName(oldLine.getProductName());
+                copy.setIsPackagedGood(oldLine.getIsPackagedGood());
+                copy.setQuantity(oldLine.getQuantity());
+                copy.setUnitOfMeasure(oldLine.getUnitOfMeasure());
+                copy.setUnitPrice(oldLine.getUnitPrice());
+                copy.setTaxRate(oldLine.getTaxRate());
+                copy.setTaxAmount(oldLine.getTaxAmount());
+                copy.setDiscountAmount(oldLine.getDiscountAmount());
+                copy.setLineTotal(oldLine.getLineTotal());
+                newOrder.addLine(copy);
+            }
         }
         hydrateOrderLines(newOrder);
         hydrateCustomer(newOrder);

@@ -14,11 +14,11 @@ import java.util.UUID;
 public interface ProductRepository extends JpaRepository<Product, UUID> {
     List<Product> findByClientId(UUID clientId);
 
-    @EntityGraph(attributePaths = {"category", "uom"})
+    @EntityGraph(attributePaths = {"category", "uom", "defaultPricelist"})
     @Query("SELECT p FROM Product p WHERE p.clientId = :clientId AND (:orgId IS NULL OR p.orgId IS NULL OR p.orgId = :orgId)")
     List<Product> findByClientIdAndOrgIdOrGlobal(UUID clientId, UUID orgId);
 
-    @EntityGraph(attributePaths = {"category", "uom"})
+    @EntityGraph(attributePaths = {"category", "uom", "defaultPricelist"})
     @Query("SELECT p FROM Product p WHERE p.clientId = :clientId AND (:orgId IS NULL OR p.orgId IS NULL OR p.orgId = :orgId) AND p.isActive = true")
     List<Product> findByClientIdAndOrgIdOrGlobalAndIsActiveTrue(UUID clientId, UUID orgId);
 

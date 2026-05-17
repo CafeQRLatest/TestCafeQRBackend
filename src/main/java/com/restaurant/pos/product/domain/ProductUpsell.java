@@ -37,6 +37,16 @@ public class ProductUpsell extends AuditableEntity {
     @JsonIgnoreProperties({ "category", "uom", "variantMappings", "variantPricings", "upsells" })
     private Product upsellProduct;
 
+    @JsonProperty("upsellProductId")
+    public UUID getUpsellProductId() {
+        return upsellProduct != null ? upsellProduct.getId() : null;
+    }
+
+    @JsonProperty("upsellProductName")
+    public String getUpsellProductName() {
+        return upsellProduct != null ? upsellProduct.getName() : null;
+    }
+
     @Builder.Default
     @JsonProperty("isActive")
     private boolean isActive = true;

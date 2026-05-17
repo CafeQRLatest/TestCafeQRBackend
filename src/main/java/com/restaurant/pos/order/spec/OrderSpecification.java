@@ -38,12 +38,22 @@ public class OrderSpecification {
                 predicates.add(cb.lessThanOrEqualTo(root.get("orderDate"), criteria.getToDate()));
             }
 
-            // Vendor/Customer
+            // Parties
             if (criteria.getVendorId() != null) {
                 predicates.add(cb.equal(root.get("vendorId"), criteria.getVendorId()));
             }
             if (criteria.getCustomerId() != null) {
                 predicates.add(cb.equal(root.get("customerId"), criteria.getCustomerId()));
+            }
+
+            // Warehouse
+            if (criteria.getWarehouseId() != null) {
+                predicates.add(cb.equal(root.get("warehouseId"), criteria.getWarehouseId()));
+            }
+
+            // Payment Method
+            if (criteria.getPaymentMethod() != null && !criteria.getPaymentMethod().isBlank()) {
+                predicates.add(cb.equal(root.get("paymentMethod"), criteria.getPaymentMethod()));
             }
 
             // Fuzzy Search
@@ -59,13 +69,20 @@ public class OrderSpecification {
                 ));
             }
 
-            // Active/Inactive
-            if (criteria.getStatus() != null && "VOID".equalsIgnoreCase(criteria.getStatus())) {
-                predicates.add(cb.or(
-                    cb.equal(root.get("isactive"), "N"),
-                    cb.equal(root.get("orderStatus"), "VOID")
-                ));
+            // Status Filtering
+            String status = criteria.getStatus();
+            if (status != null && !status.isBlank() && !"ALL".equalsIgnoreCase(status)) {
+                if ("VOID".equalsIgnoreCase(status)) {
+                    predicates.add(cb.or(
+                        cb.equal(root.get("isactive"), "N"),
+                        cb.equal(root.get("orderStatus"), "VOID")
+                    ));
+                } else {
+                    predicates.add(cb.equal(root.get("orderStatus"), status));
+                    predicates.add(cb.equal(root.get("isactive"), "Y"));
+                }
             } else {
+                // Default: show active non-void records
                 predicates.add(cb.equal(root.get("isactive"), "Y"));
                 predicates.add(cb.notEqual(root.get("orderStatus"), "VOID"));
             }
