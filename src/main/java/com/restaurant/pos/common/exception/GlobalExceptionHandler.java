@@ -88,8 +88,11 @@ public class GlobalExceptionHandler {
     @ExceptionHandler({DuplicateResourceException.class, org.springframework.dao.DataIntegrityViolationException.class})
     public ResponseEntity<ApiResponse<Void>> handleDuplicateResourceException(Exception ex) {
         log.warn("Duplicate resource violation: {}", ex.getMessage());
+        String message = ex instanceof DuplicateResourceException
+                ? ex.getMessage()
+                : "The resource you are trying to create already exists or violates a unique constraint.";
         return ResponseEntity.status(HttpStatus.CONFLICT)
-                .body(ApiResponse.error("The resource you are trying to create already exists or violates a unique constraint."));
+                .body(ApiResponse.error(message));
     }
 
     @ExceptionHandler(org.springframework.security.access.AccessDeniedException.class)

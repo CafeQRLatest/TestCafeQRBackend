@@ -6,6 +6,8 @@ import com.restaurant.pos.auth.repository.MenuRepository;
 import com.restaurant.pos.auth.repository.UserRepository;
 import com.restaurant.pos.common.dto.ApiResponse;
 import com.restaurant.pos.common.tenant.TenantContext;
+import com.restaurant.pos.common.exception.BusinessException;
+import com.restaurant.pos.common.exception.DuplicateResourceException;
 import com.restaurant.pos.common.exception.ResourceNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -43,13 +45,18 @@ public class UserController {
     @PostMapping
     @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")
     public ResponseEntity<ApiResponse<User>> createUser(@RequestBody User user) {
-        if (user.getPassword() != null) {
-            user.setPassword(passwordEncoder.encode(user.getPassword()));
-        }
+        validateNewUser(user);
+        user.setFirstName(user.getFirstName().trim());
+        user.setLastName(user.getLastName().trim());
+        user.setEmail(normalizeEmail(user.getEmail()));
+        user.setPassword(passwordEncoder.encode(user.getPassword().trim()));
         if (user.getClientId() == null) {
             user.setClientId(TenantContext.getCurrentTenant());
         }
         user.setIsactive("Y");
+        if (user.getIsEnabled() == null) {
+            user.setIsEnabled(true);
+        }
         return ResponseEntity.ok(ApiResponse.success(repository.save(user)));
     }
 
@@ -65,9 +72,28 @@ public class UserController {
         }
 
         // Update other fields
-        existingUser.setFirstName(user.getFirstName());
-        existingUser.setLastName(user.getLastName());
-        existingUser.setEmail(user.getEmail());
+        if (!hasText(user.getFirstName())) {
+            throw new BusinessException("First name is required.");
+        }
+        if (!hasText(user.getLastName())) {
+            throw new BusinessException("Last name is required.");
+        }
+        if (!hasText(user.getEmail())) {
+            throw new BusinessException("Email is required.");
+        }
+        if (user.getRoleEntity() == null || user.getRoleEntity().getId() == null) {
+            throw new BusinessException("Auth role is required.");
+        }
+        String normalizedEmail = normalizeEmail(user.getEmail());
+        repository.findByEmail(normalizedEmail)
+                .filter(other -> !other.getId().equals(id))
+                .ifPresent(other -> {
+                    throw new DuplicateResourceException("A staff account with this email already exists.");
+                });
+
+        existingUser.setFirstName(user.getFirstName().trim());
+        existingUser.setLastName(user.getLastName().trim());
+        existingUser.setEmail(normalizedEmail);
         existingUser.setPhone(user.getPhone());
         existingUser.setRoleEntity(user.getRoleEntity());
         // Allow orgId to be null/empty for Global Access
@@ -81,6 +107,38 @@ public class UserController {
         existingUser.setIsactive(user.getIsactive());
 
         return ResponseEntity.ok(ApiResponse.success(repository.save(existingUser)));
+    }
+
+    private void validateNewUser(User user) {
+        if (user == null) {
+            throw new BusinessException("Staff account details are required.");
+        }
+        if (!hasText(user.getFirstName())) {
+            throw new BusinessException("First name is required.");
+        }
+        if (!hasText(user.getLastName())) {
+            throw new BusinessException("Last name is required.");
+        }
+        if (!hasText(user.getEmail())) {
+            throw new BusinessException("Email is required.");
+        }
+        if (user.getRoleEntity() == null || user.getRoleEntity().getId() == null) {
+            throw new BusinessException("Auth role is required.");
+        }
+        if (!hasText(user.getPassword())) {
+            throw new BusinessException("Password is required for new staff accounts.");
+        }
+        if (repository.existsByEmail(normalizeEmail(user.getEmail()))) {
+            throw new DuplicateResourceException("A staff account with this email already exists.");
+        }
+    }
+
+    private boolean hasText(String value) {
+        return value != null && !value.trim().isEmpty();
+    }
+
+    private String normalizeEmail(String email) {
+        return email == null ? null : email.trim().toLowerCase();
     }
 
 
