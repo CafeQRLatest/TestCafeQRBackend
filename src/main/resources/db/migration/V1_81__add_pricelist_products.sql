@@ -1,4 +1,4 @@
--- V1.67 Add Pricelist Products for specific product pricing per pricelist
+-- V1.81 Add Pricelist Products for specific product pricing per pricelist
 DO $$ 
 BEGIN 
     CREATE TABLE IF NOT EXISTS pricelist_products (
@@ -18,5 +18,5 @@ BEGIN
     CREATE INDEX IF NOT EXISTS idx_pricelist_products_product ON pricelist_products(product_id);
     CREATE INDEX IF NOT EXISTS idx_pricelist_products_pricelist ON pricelist_products(pricelist_id);
     
-    RAISE NOTICE 'V1.67 Pricelist products table created successfully.';
+    RAISE NOTICE 'V1.81 Pricelist products table created successfully.';
 END $$;
