@@ -16,7 +16,7 @@ public class ConfigurationController {
     private final SystemConfigurationService configurationService;
 
     @GetMapping
-    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ApiResponse<ConfigurationDto>> getConfiguration() {
         return ResponseEntity.ok(ApiResponse.success(configurationService.getConfiguration()));
     }
