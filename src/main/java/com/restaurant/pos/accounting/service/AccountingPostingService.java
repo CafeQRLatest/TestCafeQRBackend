@@ -22,6 +22,7 @@ import com.restaurant.pos.product.domain.Product;
 import com.restaurant.pos.product.repository.ProductRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -50,6 +51,7 @@ public class AccountingPostingService {
     private final AccountingDefaultsService defaultsService;
     private final AccountingAccountRepository accountRepository;
     private final JournalEntryRepository journalEntryRepository;
+    private final PartyLedgerEntryRepository partyLedgerEntryRepository;
     private final AccountingPostingJobRepository postingJobRepository;
     private final OrderRepository orderRepository;
     private final InvoiceRepository invoiceRepository;
@@ -234,7 +236,14 @@ public class AccountingPostingService {
         UUID orgId = TenantContext.getCurrentOrg();
         log.info("resyncAll started | clientId={} | orgId={}", clientId, orgId);
 
-        int journalsDeleted = inTransaction(() -> cleanupAutoPostedAccountingData(clientId, orgId));
+        int journalsDeleted;
+        try {
+            journalsDeleted = inTransaction(() -> cleanupAutoPostedAccountingData(clientId, orgId));
+        } catch (DataIntegrityViolationException ex) {
+            log.warn("resyncAll cleanup blocked by accounting dependencies | clientId={} | orgId={} | message={}",
+                    clientId, orgId, ex.getMostSpecificCause().getMessage());
+            throw new BusinessException("Unable to rebuild auto-posted accounting entries because dependent accounting records could not be cleaned. Please refresh and try again.");
+        }
         inTransaction(() -> {
             recalculateAccountBalances(clientId, orgId);
             return null;
@@ -267,9 +276,10 @@ public class AccountingPostingService {
 
     @Transactional
     public int cleanupAutoPostedAccountingData(UUID clientId, UUID orgId) {
+        postingJobRepository.bulkDeleteByClientIdAndOrgId(clientId, orgId);
+        partyLedgerEntryRepository.bulkDeleteForAutoPostedJournalsByClientIdAndOrgId(clientId, orgId);
         journalEntryRepository.bulkDeleteAutoPostedLinesByClientIdAndOrgId(clientId, orgId);
         int deleted = journalEntryRepository.bulkDeleteAutoPostedByClientIdAndOrgId(clientId, orgId);
-        postingJobRepository.bulkDeleteByClientIdAndOrgId(clientId, orgId);
         return deleted;
     }
 

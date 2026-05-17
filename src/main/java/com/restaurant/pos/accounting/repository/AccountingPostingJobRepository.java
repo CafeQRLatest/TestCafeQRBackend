@@ -22,6 +22,6 @@ public interface AccountingPostingJobRepository extends JpaRepository<Accounting
     List<AccountingPostingJob> findByClientIdAndOrgId(UUID clientId, UUID orgId);
 
     @Modifying
-    @Query(value = "DELETE FROM accounting_posting_jobs WHERE client_id = :clientId AND (org_id = :orgId OR org_id IS NULL)", nativeQuery = true)
+    @Query(value = "DELETE FROM accounting_posting_jobs WHERE client_id = :clientId AND (:orgId IS NULL OR org_id = :orgId)", nativeQuery = true)
     int bulkDeleteByClientIdAndOrgId(@Param("clientId") UUID clientId, @Param("orgId") UUID orgId);
 }
