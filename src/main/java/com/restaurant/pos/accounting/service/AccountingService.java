@@ -396,6 +396,40 @@ public class AccountingService {
         if (missingPayments > 0) {
             warnings.add(missingPayments + " payment(s) in this period do not have accounting journal entries.");
         }
+        Set<UUID> completedSalesOrderIds = salesOrders.stream()
+                .map(Order::getId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        Map<UUID, List<PaymentSplit>> splitsByPaymentId = loadPaymentSplitsByPaymentId(payments);
+        BigDecimal billedSalesTotal = salesOrders.stream()
+                .map(Order::getGrandTotal)
+                .map(this::money)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal linkedSalesPaymentsTotal = BigDecimal.ZERO;
+        BigDecimal otherActivePaymentsTotal = BigDecimal.ZERO;
+        long unmatchedPaymentCount = 0;
+        for (Payment payment : payments) {
+            if (!isInboundPayment(payment)) {
+                continue;
+            }
+            BigDecimal paymentAmount = paymentFinancialAmount(payment, splitsByPaymentId);
+            if (paymentAmount.compareTo(BigDecimal.ZERO) <= 0) {
+                continue;
+            }
+            UUID paymentOrderId = payment.getOrderId();
+            if (paymentOrderId != null && completedSalesOrderIds.contains(paymentOrderId)) {
+                linkedSalesPaymentsTotal = linkedSalesPaymentsTotal.add(paymentAmount);
+            } else {
+                otherActivePaymentsTotal = otherActivePaymentsTotal.add(paymentAmount);
+                unmatchedPaymentCount++;
+            }
+        }
+        BigDecimal paymentCollectedTotal = linkedSalesPaymentsTotal.add(otherActivePaymentsTotal);
+        boolean hasOtherActivePayments = otherActivePaymentsTotal.compareTo(BigDecimal.ZERO) > 0;
+        if (hasOtherActivePayments) {
+            warnings.add(unmatchedPaymentCount + " active payment(s) worth " + otherActivePaymentsTotal
+                    + " are not linked to completed sales in this period.");
+        }
 
         return AccountingReconciliationDto.builder()
                 .from(range.from)
@@ -407,7 +441,12 @@ public class AccountingService {
                 .postedPayments(postedPaymentIds.size())
                 .missingInvoices(missingInvoices)
                 .missingPayments(missingPayments)
-                .outOfSync(missingInvoices > 0 || missingPayments > 0)
+                .billedSalesTotal(billedSalesTotal)
+                .linkedSalesPaymentsTotal(linkedSalesPaymentsTotal)
+                .otherActivePaymentsTotal(otherActivePaymentsTotal)
+                .paymentCollectedTotal(paymentCollectedTotal)
+                .unmatchedPaymentCount(unmatchedPaymentCount)
+                .outOfSync(missingInvoices > 0 || missingPayments > 0 || hasOtherActivePayments)
                 .warnings(warnings)
                 .build();
     }
@@ -522,6 +561,10 @@ public class AccountingService {
                 && !"VOIDED".equalsIgnoreCase(payment.getDocStatus());
     }
 
+    private boolean isInboundPayment(Payment payment) {
+        return payment != null && (payment.getPaymentType() == null || payment.getPaymentType() == PaymentType.INBOUND);
+    }
+
     private Specification<JournalEntry> journalSpec(UUID clientId, UUID orgId, DateRange range) {
         return journalSpec(clientId, orgId, range.from, range.to);
     }
@@ -584,17 +627,9 @@ public class AccountingService {
         FINANCIAL_PAYMENT_METHODS.forEach(method -> totals.put(method, BigDecimal.ZERO));
         List<Order> salesOrders = findCompletedSaleOrdersInPeriod(clientId, orgId, range);
         List<Payment> payments = findPaymentsInPeriodIncludingOrderPeriod(clientId, orgId, range, salesOrders);
-        Set<UUID> paymentIds = payments.stream()
-                .filter(payment -> payment.getPaymentType() == null || payment.getPaymentType() == PaymentType.INBOUND)
-                .map(Payment::getId)
-                .filter(Objects::nonNull)
-                .collect(Collectors.toCollection(LinkedHashSet::new));
-        Map<UUID, List<PaymentSplit>> splitsByPaymentId = paymentIds.isEmpty()
-                ? Map.of()
-                : paymentSplitRepository.findByPaymentIdInOrderByCreatedAtAsc(paymentIds).stream()
-                        .collect(Collectors.groupingBy(PaymentSplit::getPaymentId, LinkedHashMap::new, Collectors.toList()));
+        Map<UUID, List<PaymentSplit>> splitsByPaymentId = loadPaymentSplitsByPaymentId(payments);
         for (Payment payment : payments) {
-            if (payment.getPaymentType() != null && payment.getPaymentType() != PaymentType.INBOUND) {
+            if (!isInboundPayment(payment)) {
                 continue;
             }
             List<PaymentSplit> splits = splitsByPaymentId.getOrDefault(payment.getId(), List.of());
@@ -609,12 +644,44 @@ public class AccountingService {
         return totals;
     }
 
+    private Map<UUID, List<PaymentSplit>> loadPaymentSplitsByPaymentId(Collection<Payment> payments) {
+        Set<UUID> paymentIds = payments.stream()
+                .filter(this::isInboundPayment)
+                .map(Payment::getId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        if (paymentIds.isEmpty()) {
+            return Map.of();
+        }
+        return paymentSplitRepository.findByPaymentIdInOrderByCreatedAtAsc(paymentIds).stream()
+                .collect(Collectors.groupingBy(PaymentSplit::getPaymentId, LinkedHashMap::new, Collectors.toList()));
+    }
+
+    private BigDecimal paymentFinancialAmount(Payment payment, Map<UUID, List<PaymentSplit>> splitsByPaymentId) {
+        if (!isInboundPayment(payment)) {
+            return BigDecimal.ZERO;
+        }
+        List<PaymentSplit> splits = splitsByPaymentId.getOrDefault(payment.getId(), List.of());
+        if (splits.isEmpty()) {
+            return positiveMoney(payment.getAmountPaid());
+        }
+        return splits.stream()
+                .map(PaymentSplit::getAmount)
+                .map(this::positiveMoney)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
     private void addPaymentAmount(Map<String, BigDecimal> totals, String method, BigDecimal amount) {
-        BigDecimal value = money(amount);
+        BigDecimal value = positiveMoney(amount);
         if (value.compareTo(BigDecimal.ZERO) <= 0) {
             return;
         }
         totals.merge(method, value, BigDecimal::add);
+    }
+
+    private BigDecimal positiveMoney(BigDecimal amount) {
+        BigDecimal value = money(amount);
+        return value.compareTo(BigDecimal.ZERO) > 0 ? value : BigDecimal.ZERO;
     }
 
     private String normalizeFinancialPaymentMethod(String paymentMethod) {

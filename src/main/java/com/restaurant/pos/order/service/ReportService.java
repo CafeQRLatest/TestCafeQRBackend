@@ -432,6 +432,9 @@ public class ReportService {
         LocalDateTime ldFrom = from != null ? LocalDateTime.ofInstant(from, IST) : null;
         LocalDateTime ldTo = to != null ? LocalDateTime.ofInstant(to, IST) : null;
         AccountingSummaryDto summary = accountingService.getSummary(ldFrom, ldTo);
+        BigDecimal cashCollectedAfterExpenses = safe(summary.getPaymentCollected())
+                .subtract(safe(summary.getExpenses()))
+                .subtract(safe(summary.getCogsPurchases()));
 
         return ProfitLossDto.builder()
                 .grossSales(safe(summary.getGrossSales()))
@@ -444,7 +447,8 @@ public class ReportService {
                 .totalExpenses(safe(summary.getExpenses()).add(safe(summary.getCogsPurchases())))
                 .netProfit(safe(summary.getProfit()))
                 .creditOutstanding(safe(summary.getReceivable()))
-                .netCashProfit(safe(summary.getPaymentCollected()).subtract(safe(summary.getExpenses())).subtract(safe(summary.getCogsPurchases())))
+                .netCashProfit(cashCollectedAfterExpenses)
+                .cashCollectedAfterExpenses(cashCollectedAfterExpenses)
                 .basis("ACCOUNTING_JOURNALS")
                 .build();
     }

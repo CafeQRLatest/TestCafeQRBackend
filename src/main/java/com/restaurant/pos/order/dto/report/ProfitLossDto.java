@@ -23,5 +23,6 @@ public class ProfitLossDto {
     private BigDecimal netProfit;
     private BigDecimal creditOutstanding;
     private BigDecimal netCashProfit;
+    private BigDecimal cashCollectedAfterExpenses;
     private String basis;
 }
