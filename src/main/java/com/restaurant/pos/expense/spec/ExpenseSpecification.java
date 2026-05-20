@@ -46,10 +46,10 @@ public class ExpenseSpecification {
                 predicates.add(cb.equal(root.get("expenseCategoryId"), criteria.getCategoryId()));
             }
 
-            // Payment Method
-            if (criteria.getPaymentMethod() != null && !criteria.getPaymentMethod().isBlank()) {
-                predicates.add(cb.equal(root.get("reference"), criteria.getPaymentMethod()));
-            }
+            // Payment Method — NOT filterable server-side here:
+            // The payment method lives on the linked Payment entity (a separate row),
+            // not on the Expense/Order entity. Filtering by it requires a subquery join.
+            // The frontend handles this client-side on the (already small, period-filtered) result set.
 
             // Fuzzy Search (Order No or Description)
             if (criteria.getSearchTerm() != null && !criteria.getSearchTerm().isBlank()) {
