@@ -71,7 +71,11 @@ public class DocumentSequenceService {
     @Transactional
     public List<DocumentSequence> getAllSequences() {
         UUID clientId = TenantContext.getCurrentTenant();
-        UUID orgId = getEffectiveOrgId();
+        UUID orgId = branchContext.getReadOrgId(null);
+        
+        if (orgId == null) {
+            return sequenceRepository.findByClientId(clientId);
+        }
         
         List<DocumentSequence> existing = sequenceRepository.findByClientIdAndOrgId(clientId, orgId);
         

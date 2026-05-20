@@ -16,6 +16,8 @@ import java.util.UUID;
 @Repository
 public interface DocumentSequenceRepository extends JpaRepository<DocumentSequence, UUID> {
 
+    List<DocumentSequence> findByClientId(UUID clientId);
+
     List<DocumentSequence> findByClientIdAndOrgId(UUID clientId, UUID orgId);
     
     Optional<DocumentSequence> findByClientIdAndOrgIdAndDocumentType(UUID clientId, UUID orgId, DocumentType documentType);

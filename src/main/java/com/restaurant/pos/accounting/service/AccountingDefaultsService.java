@@ -60,7 +60,10 @@ public class AccountingDefaultsService {
     @Transactional
     public List<AccountingAccount> ensureDefaultAccounts() {
         UUID clientId = requireClient();
-        UUID orgId = branchContext.requireWriteOrgId(TenantContext.getCurrentOrg());
+        UUID orgId = TenantContext.getCurrentOrg();
+        if (orgId == null) {
+            return List.of();
+        }
         Map<String, AccountingAccount> accountsByKey = new LinkedHashMap<>();
 
         for (AccountTemplate template : ACCOUNT_TEMPLATES) {
