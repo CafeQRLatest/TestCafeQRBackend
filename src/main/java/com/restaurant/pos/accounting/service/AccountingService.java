@@ -237,7 +237,51 @@ public class AccountingService {
                     row.setBalance(debit.subtract(credit));
                 });
 
-        return new ArrayList<>(rows.values());
+        List<TrialBalanceRowDto> result = new ArrayList<>(rows.values());
+        if (orgId == null) {
+            Map<String, List<TrialBalanceRowDto>> systemKeyGroups = new LinkedHashMap<>();
+            List<TrialBalanceRowDto> nonSystemRows = new ArrayList<>();
+            Map<UUID, String> accountSystemKeys = accounts.stream()
+                    .filter(a -> a.getSystemKey() != null && !a.getSystemKey().isBlank())
+                    .collect(Collectors.toMap(AccountingAccount::getId, AccountingAccount::getSystemKey));
+            
+            for (TrialBalanceRowDto row : result) {
+                String sysKey = accountSystemKeys.get(row.getAccountId());
+                if (sysKey != null) {
+                    systemKeyGroups.computeIfAbsent(sysKey.toUpperCase(Locale.ROOT), k -> new ArrayList<>()).add(row);
+                } else {
+                    nonSystemRows.add(row);
+                }
+            }
+            
+            List<TrialBalanceRowDto> mergedSystemRows = new ArrayList<>();
+            for (Map.Entry<String, List<TrialBalanceRowDto>> entry : systemKeyGroups.entrySet()) {
+                List<TrialBalanceRowDto> group = entry.getValue();
+                TrialBalanceRowDto first = group.get(0);
+                BigDecimal totalDebit = BigDecimal.ZERO;
+                BigDecimal totalCredit = BigDecimal.ZERO;
+                BigDecimal totalBalance = BigDecimal.ZERO;
+                for (TrialBalanceRowDto r : group) {
+                    totalDebit = totalDebit.add(r.getDebit());
+                    totalCredit = totalCredit.add(r.getCredit());
+                    totalBalance = totalBalance.add(r.getBalance());
+                }
+                mergedSystemRows.add(TrialBalanceRowDto.builder()
+                        .accountId(first.getAccountId())
+                        .code(first.getCode())
+                        .name(first.getName())
+                        .accountType(first.getAccountType())
+                        .debit(totalDebit)
+                        .credit(totalCredit)
+                        .balance(totalBalance)
+                        .build());
+            }
+            List<TrialBalanceRowDto> finalRows = new ArrayList<>();
+            finalRows.addAll(mergedSystemRows);
+            finalRows.addAll(nonSystemRows);
+            return finalRows;
+        }
+        return result;
     }
 
     public List<AccountingAccountPeriodDto> getPeriodAccounts(LocalDateTime from, LocalDateTime to, boolean includeInactive) {
@@ -277,7 +321,7 @@ public class AccountingService {
                     periodCredits.merge(line.getAccountId(), money(line.getCredit()), BigDecimal::add);
                 });
 
-        return accounts.stream()
+        List<AccountingAccountPeriodDto> list = accounts.stream()
                 .filter(account -> visibleAccountIds.contains(account.getId()))
                 .map(account -> {
                     BigDecimal opening = money(account.getOpeningBalance()).add(openingEffects.getOrDefault(account.getId(), BigDecimal.ZERO));
@@ -303,6 +347,59 @@ public class AccountingService {
                             .build();
                 })
                 .collect(Collectors.toList());
+
+        if (orgId == null) {
+            Map<String, List<AccountingAccountPeriodDto>> systemKeyGroups = new LinkedHashMap<>();
+            List<AccountingAccountPeriodDto> nonSystemAccounts = new ArrayList<>();
+            for (AccountingAccountPeriodDto dto : list) {
+                if (dto.getSystemKey() != null && !dto.getSystemKey().isBlank()) {
+                    systemKeyGroups.computeIfAbsent(dto.getSystemKey().toUpperCase(Locale.ROOT), k -> new ArrayList<>()).add(dto);
+                } else {
+                    nonSystemAccounts.add(dto);
+                }
+            }
+            List<AccountingAccountPeriodDto> mergedAccounts = new ArrayList<>();
+            for (Map.Entry<String, List<AccountingAccountPeriodDto>> entry : systemKeyGroups.entrySet()) {
+                List<AccountingAccountPeriodDto> group = entry.getValue();
+                AccountingAccountPeriodDto first = group.get(0);
+                BigDecimal openingBalance = BigDecimal.ZERO;
+                BigDecimal periodDebit = BigDecimal.ZERO;
+                BigDecimal periodCredit = BigDecimal.ZERO;
+                BigDecimal periodNet = BigDecimal.ZERO;
+                BigDecimal periodOpening = BigDecimal.ZERO;
+                BigDecimal periodClosing = BigDecimal.ZERO;
+                for (AccountingAccountPeriodDto dto : group) {
+                    openingBalance = openingBalance.add(dto.getOpeningBalance());
+                    periodDebit = periodDebit.add(dto.getPeriodDebit());
+                    periodCredit = periodCredit.add(dto.getPeriodCredit());
+                    periodNet = periodNet.add(dto.getPeriodNet());
+                    periodOpening = periodOpening.add(dto.getPeriodOpening());
+                    periodClosing = periodClosing.add(dto.getPeriodClosing());
+                }
+                mergedAccounts.add(AccountingAccountPeriodDto.builder()
+                        .id(first.getId())
+                        .code(first.getCode())
+                        .name(first.getName())
+                        .accountType(first.getAccountType())
+                        .accountSubType(first.getAccountSubType())
+                        .systemKey(first.getSystemKey())
+                        .cashAccount(first.getCashAccount())
+                        .bankAccount(first.getBankAccount())
+                        .isActive(first.getIsActive())
+                        .openingBalance(openingBalance)
+                        .periodDebit(periodDebit)
+                        .periodCredit(periodCredit)
+                        .periodNet(periodNet)
+                        .periodOpening(periodOpening)
+                        .periodClosing(periodClosing)
+                        .build());
+            }
+            List<AccountingAccountPeriodDto> finalResult = new ArrayList<>();
+            finalResult.addAll(mergedAccounts);
+            finalResult.addAll(nonSystemAccounts);
+            return finalResult;
+        }
+        return list;
     }
 
     public AccountingSummaryDto getSummary(LocalDateTime from, LocalDateTime to) {

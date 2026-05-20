@@ -178,7 +178,8 @@ public class AccountingPostingService {
         AccountingBackfillResponse response = AccountingBackfillResponse.builder().dryRun(dryRun).build();
 
         List<Order> ordersInBusinessPeriod = List.of();
-        if (sources.contains("INVOICE") || sources.contains("PAYMENT") || sources.contains("COGS")) {
+        if (sources.contains("INVOICE") || sources.contains("PAYMENT") || sources.contains("COGS")
+                || sources.contains("EXPENSE") || sources.contains("PURCHASE")) {
             Instant fromInstant = range.from.atZone(IST).toInstant();
             Instant toInstant = range.to.atZone(IST).toInstant();
             ordersInBusinessPeriod = orderRepository.findByClientIdAndOrgIdAndOrderDateBetweenOrderByOrderDateAsc(clientId, orgId, fromInstant, toInstant);
@@ -198,6 +199,45 @@ public class AccountingPostingService {
                     }
                 });
             }
+        } else {
+            if (sources.contains("EXPENSE")) {
+                Set<UUID> scannedInvoiceIds = new HashSet<>();
+                for (Invoice invoice : invoiceRepository.findByClientIdAndOrgIdAndInvoiceDateBetweenOrderByInvoiceDateAsc(clientId, orgId, range.from, range.to)) {
+                    if (invoice.getInvoiceType() == InvoiceType.EXPENSE_RECEIPT) {
+                        if (invoice.getId() != null && scannedInvoiceIds.add(invoice.getId())) {
+                            countInvoiceBackfill(response, dryRun, invoice);
+                        }
+                    }
+                }
+                for (Order order : ordersInBusinessPeriod) {
+                    if (order.getOrderType() == OrderType.EXPENSE) {
+                        invoiceRepository.findByOrderId(order.getId()).forEach(invoice -> {
+                            if (invoice.getId() != null && scannedInvoiceIds.add(invoice.getId())) {
+                                countInvoiceBackfill(response, dryRun, invoice);
+                            }
+                        });
+                    }
+                }
+            }
+            if (sources.contains("PURCHASE")) {
+                Set<UUID> scannedInvoiceIds = new HashSet<>();
+                for (Invoice invoice : invoiceRepository.findByClientIdAndOrgIdAndInvoiceDateBetweenOrderByInvoiceDateAsc(clientId, orgId, range.from, range.to)) {
+                    if (invoice.getInvoiceType() == InvoiceType.VENDOR_BILL) {
+                        if (invoice.getId() != null && scannedInvoiceIds.add(invoice.getId())) {
+                            countInvoiceBackfill(response, dryRun, invoice);
+                        }
+                    }
+                }
+                for (Order order : ordersInBusinessPeriod) {
+                    if (order.getOrderType() == OrderType.PURCHASE) {
+                        invoiceRepository.findByOrderId(order.getId()).forEach(invoice -> {
+                            if (invoice.getId() != null && scannedInvoiceIds.add(invoice.getId())) {
+                                countInvoiceBackfill(response, dryRun, invoice);
+                            }
+                        });
+                    }
+                }
+            }
         }
         if (sources.contains("PAYMENT")) {
             Set<UUID> scannedPaymentIds = new HashSet<>();
@@ -212,6 +252,51 @@ public class AccountingPostingService {
                         countPaymentBackfill(response, dryRun, payment);
                     }
                 });
+            }
+        } else {
+            if (sources.contains("EXPENSE")) {
+                Set<UUID> scannedPaymentIds = new HashSet<>();
+                for (Payment payment : paymentRepository.findByClientIdAndOrgIdAndPaymentDateBetweenOrderByPaymentDateAsc(clientId, orgId, range.from, range.to)) {
+                    if (payment.getPaymentType() == PaymentType.OUTBOUND) {
+                        Optional<Order> order = resolveOrder(payment.getOrderId());
+                        if (order.isPresent() && order.get().getOrderType() == OrderType.EXPENSE) {
+                            if (payment.getId() != null && scannedPaymentIds.add(payment.getId())) {
+                                countPaymentBackfill(response, dryRun, payment);
+                            }
+                        }
+                    }
+                }
+                for (Order order : ordersInBusinessPeriod) {
+                    if (order.getOrderType() == OrderType.EXPENSE) {
+                        paymentRepository.findByOrderId(order.getId()).forEach(payment -> {
+                            if (payment.getId() != null && scannedPaymentIds.add(payment.getId())) {
+                                countPaymentBackfill(response, dryRun, payment);
+                            }
+                        });
+                    }
+                }
+            }
+            if (sources.contains("PURCHASE")) {
+                Set<UUID> scannedPaymentIds = new HashSet<>();
+                for (Payment payment : paymentRepository.findByClientIdAndOrgIdAndPaymentDateBetweenOrderByPaymentDateAsc(clientId, orgId, range.from, range.to)) {
+                    if (payment.getPaymentType() == PaymentType.OUTBOUND) {
+                        Optional<Order> order = resolveOrder(payment.getOrderId());
+                        if (order.isPresent() && order.get().getOrderType() == OrderType.PURCHASE) {
+                            if (payment.getId() != null && scannedPaymentIds.add(payment.getId())) {
+                                countPaymentBackfill(response, dryRun, payment);
+                            }
+                        }
+                    }
+                }
+                for (Order order : ordersInBusinessPeriod) {
+                    if (order.getOrderType() == OrderType.PURCHASE) {
+                        paymentRepository.findByOrderId(order.getId()).forEach(payment -> {
+                            if (payment.getId() != null && scannedPaymentIds.add(payment.getId())) {
+                                countPaymentBackfill(response, dryRun, payment);
+                            }
+                        });
+                    }
+                }
             }
         }
         if (sources.contains("COGS")) {
@@ -826,10 +911,8 @@ public class AccountingPostingService {
                             normalized.add("PAYMENT");
                     case "SALE_COGS", "COGS" -> normalized.add("COGS");
                     case "STOCK_ADJUSTMENT", "STOCK_ADJUSTMENTS", "STOCK" -> normalized.add("STOCK");
-                    case "EXPENSE", "EXPENSES", "PURCHASE", "PURCHASES", "PURCHASE_BILL", "PURCHASE_PAYMENT" -> {
-                        normalized.add("INVOICE");
-                        normalized.add("PAYMENT");
-                    }
+                    case "EXPENSE", "EXPENSES" -> normalized.add("EXPENSE");
+                    case "PURCHASE", "PURCHASES", "PURCHASE_BILL", "PURCHASE_PAYMENT" -> normalized.add("PURCHASE");
                     default -> normalized.add(source);
                 }
             }
