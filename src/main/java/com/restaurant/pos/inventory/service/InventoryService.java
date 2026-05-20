@@ -1,6 +1,7 @@
 package com.restaurant.pos.inventory.service;
 
 import com.restaurant.pos.common.exception.ResourceNotFoundException;
+import com.restaurant.pos.common.service.BranchContextService;
 import com.restaurant.pos.common.tenant.TenantContext;
 import com.restaurant.pos.common.util.SecurityUtils;
 import com.restaurant.pos.accounting.service.AccountingPostingService;
@@ -25,6 +26,7 @@ public class InventoryService {
     private final StockAdjustmentRepository stockAdjustmentRepository;
     private final StockTransferRepository stockTransferRepository;
     private final AccountingPostingService accountingPostingService;
+    private final BranchContextService branchContext;
 
     // --- Warehouse Management ---
 
@@ -49,9 +51,7 @@ public class InventoryService {
     @Transactional
     public Warehouse saveWarehouse(Warehouse warehouse) {
         warehouse.setClientId(TenantContext.getCurrentTenant());
-        if (!SecurityUtils.isSuperAdmin() || warehouse.getOrgId() == null) {
-            warehouse.setOrgId(TenantContext.getCurrentOrg());
-        }
+        warehouse.setOrgId(branchContext.requireWriteOrgId(warehouse.getOrgId()));
         return warehouseRepository.save(warehouse);
     }
 
@@ -71,7 +71,8 @@ public class InventoryService {
                              UUID referenceId, BigDecimal unitCost) {
         
         UUID clientId = TenantContext.getCurrentTenant();
-        UUID orgId = TenantContext.getCurrentOrg();
+        // Use getCurrentOrg() but ensure it's not null. Stock movements must happen in a branch context.
+        UUID orgId = branchContext.requireWriteOrgId(TenantContext.getCurrentOrg());
 
         // 1. Get current balance from snapshot (or 0)
         StockSnapshot snapshot = stockSnapshotRepository
@@ -117,7 +118,7 @@ public class InventoryService {
     @Transactional
     public StockAdjustment saveAdjustment(StockAdjustment adjustment) {
         UUID clientId = TenantContext.getCurrentTenant();
-        UUID orgId = TenantContext.getCurrentOrg();
+        UUID orgId = branchContext.requireWriteOrgId(adjustment.getOrgId());
         
         adjustment.setClientId(clientId);
         adjustment.setOrgId(orgId);
@@ -144,7 +145,7 @@ public class InventoryService {
     @Transactional
     public StockTransfer saveTransfer(StockTransfer transfer) {
         UUID clientId = TenantContext.getCurrentTenant();
-        UUID orgId = TenantContext.getCurrentOrg();
+        UUID orgId = branchContext.requireWriteOrgId(transfer.getOrgId());
         
         transfer.setClientId(clientId);
         transfer.setOrgId(orgId);

@@ -2,6 +2,7 @@ package com.restaurant.pos.purchasing.service;
 
 import com.restaurant.pos.common.exception.BusinessException;
 import com.restaurant.pos.common.exception.ResourceNotFoundException;
+import com.restaurant.pos.common.service.BranchContextService;
 import com.restaurant.pos.common.tenant.TenantContext;
 import com.restaurant.pos.common.util.SecurityUtils;
 import com.restaurant.pos.purchasing.domain.*;
@@ -21,9 +22,10 @@ public class PurchasingService {
     private final VendorRepository vendorRepository;
     private final CurrencyRepository currencyRepository;
     private final PricelistRepository pricelistRepository;
+    private final BranchContextService branchContext;
 
     // ═══════════════════════════════════════════════════════════════════════
-    // CUSTOMERS
+    // CUSTOMERS (GLOBAL — client-scoped, not branch-scoped)
     // ═══════════════════════════════════════════════════════════════════════
 
     public List<Customer> getCustomers() {
@@ -47,9 +49,8 @@ public class PurchasingService {
     @Transactional
     public Customer saveCustomer(Customer customer) {
         customer.setClientId(TenantContext.getCurrentTenant());
-        if (!SecurityUtils.isSuperAdmin() || customer.getOrgId() == null) {
-            customer.setOrgId(TenantContext.getCurrentOrg());
-        }
+        // Customers are GLOBAL (client-scoped, not branch-scoped)
+        customer.setOrgId(null);
         customer.setPhone(normalizePhone(customer.getPhone()));
         ensureUniqueCustomerPhone(customer.getClientId(), customer.getPhone(), null);
         return customerRepository.save(customer);
@@ -125,9 +126,7 @@ public class PurchasingService {
     @Transactional
     public Vendor saveVendor(Vendor vendor) {
         vendor.setClientId(TenantContext.getCurrentTenant());
-        if (!SecurityUtils.isSuperAdmin() || vendor.getOrgId() == null) {
-            vendor.setOrgId(TenantContext.getCurrentOrg());
-        }
+        vendor.setOrgId(branchContext.requireWriteOrgId(vendor.getOrgId()));
         return vendorRepository.save(vendor);
     }
 
@@ -165,7 +164,7 @@ public class PurchasingService {
     @Transactional
     public Currency saveCurrency(Currency currency) {
         currency.setClientId(TenantContext.getCurrentTenant());
-        currency.setOrgId(TenantContext.getCurrentOrg());
+        currency.setOrgId(branchContext.requireWriteOrgId(currency.getOrgId()));
         if (Boolean.TRUE.equals(currency.getIsDefault())) {
             clearDefaultCurrencies(currency.getClientId());
         }
@@ -223,7 +222,7 @@ public class PurchasingService {
     @Transactional
     public Pricelist savePricelist(Pricelist pricelist) {
         pricelist.setClientId(TenantContext.getCurrentTenant());
-        pricelist.setOrgId(TenantContext.getCurrentOrg());
+        pricelist.setOrgId(branchContext.requireWriteOrgId(pricelist.getOrgId()));
         if (Boolean.TRUE.equals(pricelist.getIsDefault())) {
             clearDefaultPricelists(pricelist.getClientId(), pricelist.getPricelistType());
         }
@@ -250,7 +249,7 @@ public class PurchasingService {
         }
         existing.setIsDefault(updates.getIsDefault());
         existing.setIsactive(updates.getIsactive());
-        
+
         return pricelistRepository.save(existing);
     }
 

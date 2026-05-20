@@ -4,6 +4,7 @@ import com.restaurant.pos.accounting.domain.*;
 import com.restaurant.pos.accounting.dto.AccountingMappingsDto;
 import com.restaurant.pos.accounting.repository.*;
 import com.restaurant.pos.common.exception.BusinessException;
+import com.restaurant.pos.common.service.BranchContextService;
 import com.restaurant.pos.common.tenant.TenantContext;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
@@ -53,12 +54,13 @@ public class AccountingDefaultsService {
     private final AccountingAccountRepository accountRepository;
     private final AccountingAccountMappingRepository mappingRepository;
     private final AccountingPaymentMethodMappingRepository paymentMappingRepository;
+    private final BranchContextService branchContext;
     private final Map<String, Boolean> ensuredDefaults = new ConcurrentHashMap<>();
 
     @Transactional
     public List<AccountingAccount> ensureDefaultAccounts() {
         UUID clientId = requireClient();
-        UUID orgId = TenantContext.getCurrentOrg();
+        UUID orgId = branchContext.requireWriteOrgId(TenantContext.getCurrentOrg());
         Map<String, AccountingAccount> accountsByKey = new LinkedHashMap<>();
 
         for (AccountTemplate template : ACCOUNT_TEMPLATES) {

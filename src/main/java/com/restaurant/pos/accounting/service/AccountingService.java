@@ -8,6 +8,7 @@ import com.restaurant.pos.accounting.dto.TrialBalanceRowDto;
 import com.restaurant.pos.accounting.repository.*;
 import com.restaurant.pos.common.exception.BusinessException;
 import com.restaurant.pos.common.exception.ResourceNotFoundException;
+import com.restaurant.pos.common.service.BranchContextService;
 import com.restaurant.pos.common.tenant.TenantContext;
 import com.restaurant.pos.common.util.SecurityUtils;
 import com.restaurant.pos.invoice.domain.Invoice;
@@ -54,6 +55,7 @@ public class AccountingService {
     private final PaymentSplitRepository paymentSplitRepository;
     private final InvoiceRepository invoiceRepository;
     private final OrderRepository orderRepository;
+    private final BranchContextService branchContext;
 
     public List<AccountingAccount> getAccounts(boolean includeInactive) {
         UUID clientId = requireTenant();
@@ -846,11 +848,7 @@ public class AccountingService {
     }
 
     private UUID resolveOrg(UUID requestedOrgId) {
-        if (SecurityUtils.isSuperAdmin() && requestedOrgId != null) {
-            return requestedOrgId;
-        }
-        UUID currentOrg = TenantContext.getCurrentOrg();
-        return currentOrg != null ? currentOrg : requestedOrgId;
+        return branchContext.requireWriteOrgId(requestedOrgId);
     }
 
     private String normalizeCode(String value) {

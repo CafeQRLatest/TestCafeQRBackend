@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.restaurant.pos.accounting.service.AccountingPostingService;
 import com.restaurant.pos.common.exception.ResourceNotFoundException;
 import com.restaurant.pos.common.exception.BusinessException;
+import com.restaurant.pos.common.service.BranchContextService;
 import com.restaurant.pos.common.tenant.TenantContext;
 import com.restaurant.pos.common.util.SecurityUtils;
 import com.restaurant.pos.inventory.service.InventoryService;
@@ -94,6 +95,7 @@ public class OrderService {
     private final ProductRepository productRepository;
     private final CustomerRepository customerRepository;
     private final ObjectMapper objectMapper;
+    private final BranchContextService branchContext;
 
     private void prepareSourceFields(Order order) {
         UUID terminalId = TenantContext.getCurrentTerminal();
@@ -829,9 +831,7 @@ public class OrderService {
         String requestedPaymentNo = order.getOfflinePaymentNo();
         
         order.setClientId(TenantContext.getCurrentTenant());
-        if (!SecurityUtils.isSuperAdmin() || order.getOrgId() == null) {
-            order.setOrgId(TenantContext.getCurrentOrg());
-        }
+        order.setOrgId(branchContext.requireWriteOrgId(order.getOrgId()));
         prepareSourceFields(order);
 
         if (order.getOrderStatus() == null) {

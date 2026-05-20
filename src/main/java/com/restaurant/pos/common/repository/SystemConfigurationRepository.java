@@ -12,4 +12,10 @@ public interface SystemConfigurationRepository extends JpaRepository<SystemConfi
     Optional<SystemConfiguration> findFirstByClientIdAndOrgIdIsNull(UUID clientId);
 
     Optional<SystemConfiguration> findFirstByClientIdIsNullAndOrgIdIsNullOrderByCreatedAtAsc();
+
+    // Branch-scoped config lookup
+    Optional<SystemConfiguration> findFirstByClientIdAndOrgId(UUID clientId, UUID orgId);
+
+    // Delete branch-level override (revert to client default)
+    void deleteByClientIdAndOrgId(UUID clientId, UUID orgId);
 }

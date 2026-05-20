@@ -1,6 +1,7 @@
 package com.restaurant.pos.sequence.service;
 
 import com.restaurant.pos.common.exception.BusinessException;
+import com.restaurant.pos.common.service.BranchContextService;
 import com.restaurant.pos.common.tenant.TenantContext;
 import com.restaurant.pos.invoice.repository.InvoiceRepository;
 import com.restaurant.pos.order.repository.OrderRepository;
@@ -30,6 +31,7 @@ public class DocumentSequenceService {
     private final OrderRepository orderRepository;
     private final InvoiceRepository invoiceRepository;
     private final PaymentRepository paymentRepository;
+    private final BranchContextService branchContext;
 
     /**
      * CRITICAL: Uses REQUIRES_NEW to ensure the sequence increment is immediately committed
@@ -182,15 +184,6 @@ public class DocumentSequenceService {
     }
 
     private UUID getEffectiveOrgId() {
-        UUID orgId = TenantContext.getCurrentOrg();
-        if (orgId != null) return orgId;
-        
-        // Fallback: Use the first organization found for this client
-        UUID clientId = TenantContext.getCurrentTenant();
-        log.warn("No active Org ID in context for Client {}. Falling back to first available branch.", clientId);
-        return organizationRepository.findAllByClientId(clientId).stream()
-                .findFirst()
-                .map(Organization::getId)
-                .orElseThrow(() -> new BusinessException("No branch configuration found. Please create at least one branch in 'Branch Management'."));
+        return branchContext.requireWriteOrgId(TenantContext.getCurrentOrg());
     }
 }

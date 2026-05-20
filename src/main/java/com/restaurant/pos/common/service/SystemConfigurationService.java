@@ -28,9 +28,12 @@ public class SystemConfigurationService {
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public ConfigurationDto getConfiguration() {
         UUID clientId = TenantContext.getCurrentTenant();
-        SystemConfiguration config = clientId == null
-                ? getGlobalConfiguration()
-                : getOrCreateTenantConfiguration(clientId);
+        if (clientId == null) {
+            return mapToDto(getGlobalConfiguration());
+        }
+        // Branch-aware resolution: try branch config first, then client default
+        UUID orgId = TenantContext.getCurrentOrg();
+        SystemConfiguration config = resolveConfiguration(clientId, orgId);
         return mapToDto(config);
     }
 
@@ -57,6 +60,92 @@ public class SystemConfigurationService {
         return mapToDto(config);
     }
 
+    // ═══════════════════════════════════════════════════════════════════════
+    // BRANCH-LEVEL CONFIG OVERRIDES
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /**
+     * Get configuration for a specific branch.
+     * Returns the branch-level override if it exists, otherwise the client default.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public ConfigurationDto getConfigurationForBranch(UUID orgId) {
+        UUID clientId = TenantContext.getCurrentTenant();
+        if (clientId == null) {
+            throw new BusinessException("Client context is required");
+        }
+        SystemConfiguration config = resolveConfiguration(clientId, orgId);
+        ConfigurationDto dto = mapToDto(config);
+        dto.setBranchOverride(config.getOrgId() != null);
+        return dto;
+    }
+
+    /**
+     * Save a branch-level configuration override (full copy strategy).
+     * Creates a new branch config row if none exists, copying from the client default first.
+     */
+    @Transactional
+    public ConfigurationDto updateBranchConfiguration(UUID orgId, ConfigurationDto dto) {
+        UUID clientId = TenantContext.getCurrentTenant();
+        if (clientId == null) {
+            throw new BusinessException("Client context is required");
+        }
+        if (orgId == null) {
+            throw new BusinessException("Branch ID is required for branch-level configuration");
+        }
+
+        SystemConfiguration branchConfig = repository.findFirstByClientIdAndOrgId(clientId, orgId)
+                .orElseGet(() -> {
+                    // Full-copy strategy: clone the client default into a new branch row
+                    SystemConfiguration clientDefault = getOrCreateTenantConfiguration(clientId);
+                    SystemConfiguration copy = cloneConfiguration(clientDefault);
+                    copy.setId(null);
+                    copy.setOrgId(orgId);
+                    return copy;
+                });
+
+        updateEntityFromDto(branchConfig, dto);
+        SystemConfiguration saved = repository.save(branchConfig);
+        log.info("Branch configuration updated. clientId={}, orgId={}", clientId, orgId);
+        ConfigurationDto result = mapToDto(saved);
+        result.setBranchOverride(true);
+        return result;
+    }
+
+    /**
+     * Delete the branch-level override, reverting the branch to the client default.
+     */
+    @Transactional
+    public void deleteBranchConfiguration(UUID orgId) {
+        UUID clientId = TenantContext.getCurrentTenant();
+        if (clientId == null) {
+            throw new BusinessException("Client context is required");
+        }
+        if (orgId == null) {
+            throw new BusinessException("Branch ID is required");
+        }
+        repository.deleteByClientIdAndOrgId(clientId, orgId);
+        log.info("Branch configuration override deleted (reverted to client default). clientId={}, orgId={}", clientId, orgId);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // RESOLUTION LOGIC
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /**
+     * Resolution order:
+     * 1. Branch-level config (client_id + org_id) — if exists
+     * 2. Client-level config (client_id, org_id IS NULL) — fallback
+     * 3. Global default (both NULL) — last resort
+     */
+    private SystemConfiguration resolveConfiguration(UUID clientId, UUID orgId) {
+        if (orgId != null) {
+            return repository.findFirstByClientIdAndOrgId(clientId, orgId)
+                    .orElseGet(() -> getOrCreateTenantConfiguration(clientId));
+        }
+        return getOrCreateTenantConfiguration(clientId);
+    }
+
     private SystemConfiguration getOrCreateTenantConfiguration(UUID clientId) {
         return repository.findFirstByClientIdAndOrgIdIsNull(clientId)
                 .orElseGet(() -> createDefaultConfig(clientId));
@@ -80,13 +169,57 @@ public class SystemConfigurationService {
                 .taxRatesJson("[]")
                 .pricesIncludeTax(false)
                 .taxSplitEnabled(true)
-                .currencySymbol("₹")
+                .currencySymbol("\u20b9")
                 .currencyPosition("before")
                 .roundOffMode("automatic")
                 .roundOffAutoFactor(java.math.BigDecimal.ONE)
                 .roundOffManualLimit(java.math.BigDecimal.TEN)
                 .build();
         return repository.save(config);
+    }
+
+    private SystemConfiguration cloneConfiguration(SystemConfiguration source) {
+        return SystemConfiguration.builder()
+                .clientId(source.getClientId())
+                .orgId(source.getOrgId())
+                .onlinePaymentEnabled(source.isOnlinePaymentEnabled())
+                .menuImagesEnabled(source.isMenuImagesEnabled())
+                .creditEnabled(source.isCreditEnabled())
+                .tableManagementEnabled(source.isTableManagementEnabled())
+                .qrOrderingEnabled(source.isQrOrderingEnabled())
+                .inventoryEnabled(source.isInventoryEnabled())
+                .productionEnabled(source.isProductionEnabled())
+                .customersEnabled(source.isCustomersEnabled())
+                .loyaltyEnabled(source.isLoyaltyEnabled())
+                .sendToKitchenEnabled(source.isSendToKitchenEnabled())
+                .onlineDeliveryEnabled(source.isOnlineDeliveryEnabled())
+                .allowMultipleCustomersPerOrder(source.isAllowMultipleCustomersPerOrder())
+                .posProductListingEnabled(source.isPosProductListingEnabled())
+                .discountEnabled(source.isDiscountEnabled())
+                .roundOffEnabled(source.isRoundOffEnabled())
+                .roundOffMode(source.getRoundOffMode())
+                .roundOffAutoFactor(source.getRoundOffAutoFactor())
+                .roundOffManualLimit(source.getRoundOffManualLimit())
+                .taxEnabled(source.isTaxEnabled())
+                .taxLabelGlobal(source.getTaxLabelGlobal())
+                .taxRatesJson(source.getTaxRatesJson())
+                .taxDefaultId(source.getTaxDefaultId())
+                .pricesIncludeTax(source.isPricesIncludeTax())
+                .taxSplitEnabled(source.isTaxSplitEnabled())
+                .currencySymbol(source.getCurrencySymbol())
+                .currencyPosition(source.getCurrencyPosition())
+                .billFooter(source.getBillFooter())
+                .printLogoBitmap(source.getPrintLogoBitmap())
+                .printLogoCols(source.getPrintLogoCols())
+                .printLogoRows(source.getPrintLogoRows())
+                .paperMm(source.getPaperMm())
+                .printCols(source.getPrintCols())
+                .printLeftMarginDots(source.getPrintLeftMarginDots())
+                .printRightMarginDots(source.getPrintRightMarginDots())
+                .printAutoCut(source.isPrintAutoCut())
+                .printWinListUrl(source.getPrintWinListUrl())
+                .printWinPostUrl(source.getPrintWinPostUrl())
+                .build();
     }
 
     private ConfigurationDto mapToDto(SystemConfiguration entity) {
@@ -158,7 +291,7 @@ public class SystemConfigurationService {
         entity.setTaxSplitEnabled(dto.isTaxSplitEnabled());
         if (dto.getCurrencySymbol() != null) entity.setCurrencySymbol(dto.getCurrencySymbol());
         if (dto.getCurrencyPosition() != null) entity.setCurrencyPosition(dto.getCurrencyPosition());
-        
+
         // Receipt Customization
         entity.setBillFooter(dto.getBillFooter());
         entity.setPrintLogoBitmap(dto.getPrintLogoBitmap());

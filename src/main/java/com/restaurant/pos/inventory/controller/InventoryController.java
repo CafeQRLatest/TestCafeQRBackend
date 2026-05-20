@@ -1,6 +1,7 @@
  package com.restaurant.pos.inventory.controller;
 
 import com.restaurant.pos.common.dto.ApiResponse;
+import com.restaurant.pos.common.service.BranchContextService;
 import com.restaurant.pos.inventory.domain.StockAdjustment;
 import com.restaurant.pos.inventory.domain.StockSnapshot;
 import com.restaurant.pos.inventory.domain.StockTransfer;
@@ -25,6 +26,7 @@ public class InventoryController {
     private final StockAdjustmentRepository stockAdjustmentRepository;
     private final StockTransferRepository stockTransferRepository;
     private final com.restaurant.pos.inventory.repository.StockLedgerRepository stockLedgerRepository;
+    private final BranchContextService branchContext;
 
     @GetMapping("/history/{warehouseId}")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
@@ -42,10 +44,16 @@ public class InventoryController {
 
     @GetMapping("/adjustments")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
-    public ResponseEntity<ApiResponse<List<StockAdjustment>>> getAdjustments() {
+    public ResponseEntity<ApiResponse<List<StockAdjustment>>> getAdjustments(
+            @RequestParam(required = false) UUID orgId) {
+        UUID clientId = TenantContext.getCurrentTenant();
+        UUID effectiveOrgId = branchContext.getReadOrgId(orgId);
+        if (effectiveOrgId != null) {
+            return ResponseEntity.ok(ApiResponse.success(
+                stockAdjustmentRepository.findByClientIdAndOrgIdOrderByAdjustmentDateDesc(clientId, effectiveOrgId)));
+        }
         return ResponseEntity.ok(ApiResponse.success(
-            stockAdjustmentRepository.findByClientIdAndOrgIdOrderByAdjustmentDateDesc(
-                TenantContext.getCurrentTenant(), TenantContext.getCurrentOrg())));
+            stockAdjustmentRepository.findByClientIdOrderByAdjustmentDateDesc(clientId)));
     }
 
     @PostMapping("/adjustments")
@@ -65,10 +73,16 @@ public class InventoryController {
 
     @GetMapping("/transfers")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
-    public ResponseEntity<ApiResponse<List<StockTransfer>>> getTransfers() {
+    public ResponseEntity<ApiResponse<List<StockTransfer>>> getTransfers(
+            @RequestParam(required = false) UUID orgId) {
+        UUID clientId = TenantContext.getCurrentTenant();
+        UUID effectiveOrgId = branchContext.getReadOrgId(orgId);
+        if (effectiveOrgId != null) {
+            return ResponseEntity.ok(ApiResponse.success(
+                stockTransferRepository.findByClientIdAndOrgIdOrderByTransferDateDesc(clientId, effectiveOrgId)));
+        }
         return ResponseEntity.ok(ApiResponse.success(
-            stockTransferRepository.findByClientIdAndOrgIdOrderByTransferDateDesc(
-                TenantContext.getCurrentTenant(), TenantContext.getCurrentOrg())));
+            stockTransferRepository.findByClientIdOrderByTransferDateDesc(clientId)));
     }
 
     @PostMapping("/transfers")
