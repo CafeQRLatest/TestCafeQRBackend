@@ -733,11 +733,11 @@ public class AccountingPostingService {
                 .terminalId(terminalId)
                 .warehouseId(warehouseId)
                 .currencyId(currencyId)
-                .orgId(orgId)
                 .autoPosted(true)
                 .description(description)
                 .lines(new ArrayList<>())
                 .build();
+        entry.setOrgId(orgId);
         lines.forEach(entry::attachLine);
         return Optional.of(entry);
     }
