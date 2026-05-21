@@ -68,7 +68,9 @@ public class AccountingPostingService {
         }
         UUID invoiceId = invoice.getId();
         String sourceType = invoiceSourceType(invoice);
-        return postAfterCommitOrNow(sourceType, invoiceId, () -> {
+        // Derive orgId from the source entities — critical for Super Admin "All Branches" mode
+        UUID sourceOrgId = invoice.getOrgId() != null ? invoice.getOrgId() : (order != null ? order.getOrgId() : null);
+        return postAfterCommitOrNow(sourceType, invoiceId, sourceOrgId, () -> {
             Invoice currentInvoice = invoiceRepository.findById(invoiceId).orElse(invoice);
             Order currentOrder = resolveOrder(currentInvoice.getOrderId()).orElse(order);
             return buildInvoiceJournal(currentOrder, currentInvoice);
@@ -81,7 +83,8 @@ public class AccountingPostingService {
         }
         UUID paymentId = payment.getId();
         String sourceType = paymentSourceType(payment);
-        return postAfterCommitOrNow(sourceType, paymentId, () -> {
+        UUID sourceOrgId = payment.getOrgId() != null ? payment.getOrgId() : (order != null ? order.getOrgId() : null);
+        return postAfterCommitOrNow(sourceType, paymentId, sourceOrgId, () -> {
             Payment currentPayment = paymentRepository.findById(paymentId).orElse(payment);
             Order currentOrder = resolveOrder(currentPayment.getOrderId()).orElse(order);
             return buildPaymentJournal(currentOrder, currentPayment);
@@ -94,7 +97,7 @@ public class AccountingPostingService {
             return PostingOutcome.SKIPPED;
         }
         UUID orderId = order.getId();
-        return postAfterCommitOrNow("SALE_COGS", orderId,
+        return postAfterCommitOrNow("SALE_COGS", orderId, order.getOrgId(),
                 () -> buildSaleCogsJournal(resolveOrder(orderId).orElse(order)));
     }
 
@@ -103,7 +106,7 @@ public class AccountingPostingService {
             return PostingOutcome.SKIPPED;
         }
         UUID adjustmentId = adjustment.getId();
-        return postAfterCommitOrNow("STOCK_ADJUSTMENT", adjustmentId,
+        return postAfterCommitOrNow("STOCK_ADJUSTMENT", adjustmentId, adjustment.getOrgId(),
                 () -> buildStockAdjustmentJournal(stockAdjustmentRepository.findById(adjustmentId).orElse(adjustment)));
     }
 
@@ -122,7 +125,8 @@ public class AccountingPostingService {
         }
         String reversalSourceType = sourceType + "_REV";
         UUID reversalSourceId = original.get().getId();
-        return postAfterCommitOrNow(reversalSourceType, reversalSourceId, () -> buildReversalJournal(original.get(), reason));
+        UUID sourceOrgId = original.get().getOrgId();
+        return postAfterCommitOrNow(reversalSourceType, reversalSourceId, sourceOrgId, () -> buildReversalJournal(original.get(), reason));
     }
 
     public PostingOutcome reverseInvoice(Invoice invoice, String reason) {
@@ -439,13 +443,30 @@ public class AccountingPostingService {
         }
     }
 
-    private PostingOutcome safePost(String sourceType, UUID sourceId, Supplier<Optional<JournalEntry>> builder) {
+    /**
+     * Posts a journal entry with proper branch context.
+     * @param sourceOrgId The orgId from the source entity — used to set TenantContext
+     *                    so that account resolution works in "All Branches" (super admin) mode.
+     */
+    private PostingOutcome safePost(String sourceType, UUID sourceId, UUID sourceOrgId, Supplier<Optional<JournalEntry>> builder) {
         if (sourceId == null || sourceType == null) {
             return PostingOutcome.SKIPPED;
         }
         UUID clientId;
         UUID orgId;
         AccountingPostingJob job = null;
+
+        // When a Super Admin is in "All Branches" mode, TenantContext.orgId is null.
+        // The sourceOrgId (from the order/invoice/payment entity) tells us which branch
+        // this transaction belongs to. We temporarily set TenantContext so that:
+        //   - AccountingDefaultsService.resolveAccount() finds branch-level system accounts
+        //   - AccountingService.createJournalEntry() -> resolveOrg() gets a valid orgId
+        UUID previousOrgId = TenantContext.getCurrentOrg();
+        boolean contextSwitched = false;
+        if (sourceOrgId != null && previousOrgId == null) {
+            TenantContext.setCurrentOrg(sourceOrgId);
+            contextSwitched = true;
+        }
         try {
             clientId = requireClient();
             orgId = TenantContext.getCurrentOrg();
@@ -474,6 +495,7 @@ public class AccountingPostingService {
                 markJobSkipped(job);
                 return PostingOutcome.SKIPPED;
             }
+
             JournalEntry saved = accountingService.createJournalEntry(maybeEntry.get());
             markJobPosted(clientId, orgId, sourceType, sourceId, saved.getId());
             return sourceType.endsWith("_REV") ? PostingOutcome.REVERSED : PostingOutcome.POSTED;
@@ -483,23 +505,29 @@ public class AccountingPostingService {
                 markJobFailed(job, ex);
             }
             return PostingOutcome.FAILED;
+        } finally {
+            if (contextSwitched) {
+                TenantContext.setCurrentOrg(previousOrgId);
+            }
         }
     }
 
-    private PostingOutcome postAfterCommitOrNow(String sourceType, UUID sourceId, Supplier<Optional<JournalEntry>> builder) {
+    private PostingOutcome postAfterCommitOrNow(String sourceType, UUID sourceId, UUID sourceOrgId, Supplier<Optional<JournalEntry>> builder) {
         if (TransactionSynchronizationManager.isSynchronizationActive()
                 && TransactionSynchronizationManager.isActualTransactionActive()) {
             UUID clientId = TenantContext.getCurrentTenant();
             UUID orgId = TenantContext.getCurrentOrg();
+            // Capture the effective orgId: prefer sourceOrgId, then TenantContext
+            UUID effectiveOrgId = sourceOrgId != null ? sourceOrgId : orgId;
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override
                 public void afterCommit() {
                     UUID previousClientId = TenantContext.getCurrentTenant();
                     UUID previousOrgId = TenantContext.getCurrentOrg();
                     TenantContext.setCurrentTenant(clientId);
-                    TenantContext.setCurrentOrg(orgId);
+                    TenantContext.setCurrentOrg(effectiveOrgId);
                     try {
-                        safePost(sourceType, sourceId, builder);
+                        safePost(sourceType, sourceId, sourceOrgId, builder);
                     } catch (Exception ex) {
                         log.warn("Deferred accounting posting failed | sourceType={} | sourceId={} | message={}",
                                 sourceType, sourceId, ex.getMessage());
@@ -511,7 +539,7 @@ public class AccountingPostingService {
             });
             return PostingOutcome.SKIPPED;
         }
-        return safePost(sourceType, sourceId, builder);
+        return safePost(sourceType, sourceId, sourceOrgId, builder);
     }
 
     private Optional<JournalEntry> buildInvoiceJournal(Order order, Invoice invoice) {
@@ -561,9 +589,10 @@ public class AccountingPostingService {
                     null, null, "Expense payable");
         }
 
+        UUID orgId = invoice.getOrgId() != null ? invoice.getOrgId() : (order != null ? order.getOrgId() : null);
         return journal(invoiceSourceType(invoice), invoice.getId(), sourceDocumentDate(order, invoice.getInvoiceDate()), invoice.getTerminalId(),
                 order != null ? order.getWarehouseId() : null, order != null ? order.getCurrencyId() : null,
-                "Auto posted invoice " + invoice.getInvoiceNo(), lines);
+                orgId, "Auto posted invoice " + invoice.getInvoiceNo(), lines);
     }
 
     private Optional<JournalEntry> buildPaymentJournal(Order order, Payment payment) {
@@ -603,9 +632,10 @@ public class AccountingPostingService {
                     PartyType.VENDOR, order != null ? order.getVendorId() : null, "Payable settled");
         }
 
+        UUID orgId = payment.getOrgId() != null ? payment.getOrgId() : (order != null ? order.getOrgId() : null);
         return journal(paymentSourceType(payment), payment.getId(), sourceDocumentDate(order, payment.getPaymentDate()), payment.getTerminalId(),
                 order != null ? order.getWarehouseId() : null, order != null ? order.getCurrencyId() : null,
-                "Auto posted payment " + payment.getReferenceNo(), lines);
+                orgId, "Auto posted payment " + payment.getReferenceNo(), lines);
     }
 
     private Optional<JournalEntry> buildSaleCogsJournal(Order order) {
@@ -629,7 +659,7 @@ public class AccountingPostingService {
         addLine(lines, defaultsService.resolveAccount(AccountingDefaultsService.INVENTORY_ASSET), BigDecimal.ZERO, costTotal,
                 null, null, "Inventory consumed by sale");
         return journal("SALE_COGS", order.getId(), orderDate(order), order.getTerminalId(), order.getWarehouseId(), order.getCurrencyId(),
-                "Auto posted COGS for " + order.getOrderNo(), lines);
+                order.getOrgId(), "Auto posted COGS for " + order.getOrderNo(), lines);
     }
 
     private Optional<JournalEntry> buildStockAdjustmentJournal(StockAdjustment adjustment) {
@@ -660,7 +690,7 @@ public class AccountingPostingService {
                     null, null, "Stock adjustment decrease");
         }
         return journal("STOCK_ADJUSTMENT", adjustment.getId(), adjustment.getAdjustmentDate(), null, adjustment.getWarehouseId(), null,
-                "Auto posted stock adjustment " + adjustment.getAdjustmentNumber(), lines);
+                adjustment.getOrgId(), "Auto posted stock adjustment " + adjustment.getAdjustmentNumber(), lines);
     }
 
     private Optional<JournalEntry> buildReversalJournal(JournalEntry original, String reason) {
@@ -676,15 +706,21 @@ public class AccountingPostingService {
         }
         return journal(original.getSourceType() + "_REV", original.getId(), LocalDateTime.now(), original.getTerminalId(),
                 original.getWarehouseId(), original.getCurrencyId(),
-                "Reversal for " + original.getEntryNo() + (reason == null || reason.isBlank() ? "" : " - " + reason),
+                original.getOrgId(), "Reversal for " + original.getEntryNo() + (reason == null || reason.isBlank() ? "" : " - " + reason),
                 lines).map(entry -> {
                     entry.setReversalOfJournalEntryId(original.getId());
                     return entry;
                 });
     }
 
+    /**
+     * Builds a JournalEntry from the given parameters.
+     * The orgId MUST be derived from the source entity (order, invoice, payment, etc.)
+     * — never from TenantContext — so that journal posting works correctly even when
+     * the user is a Super Admin in "All Branches" mode (where TenantContext.orgId is null).
+     */
     private Optional<JournalEntry> journal(String sourceType, UUID sourceId, LocalDateTime date, UUID terminalId, UUID warehouseId,
-                                           UUID currencyId, String description, List<JournalLine> lines) {
+                                           UUID currencyId, UUID orgId, String description, List<JournalLine> lines) {
         if (lines == null || lines.isEmpty()) {
             return Optional.empty();
         }
@@ -697,6 +733,7 @@ public class AccountingPostingService {
                 .terminalId(terminalId)
                 .warehouseId(warehouseId)
                 .currencyId(currencyId)
+                .orgId(orgId)
                 .autoPosted(true)
                 .description(description)
                 .lines(new ArrayList<>())
