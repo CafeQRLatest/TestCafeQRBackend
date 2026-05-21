@@ -20,6 +20,8 @@ public interface AccountingAccountRepository extends JpaRepository<AccountingAcc
 
     Optional<AccountingAccount> findByClientIdAndOrgIdAndSystemKeyIgnoreCase(UUID clientId, UUID orgId, String systemKey);
 
+    Optional<AccountingAccount> findByClientIdAndOrgIdAndCodeIgnoreCase(UUID clientId, UUID orgId, String code);
+
     boolean existsByClientIdAndOrgIdAndCodeIgnoreCase(UUID clientId, UUID orgId, String code);
 
     boolean existsByClientIdAndOrgIdAndCodeIgnoreCaseAndIdNot(UUID clientId, UUID orgId, String code, UUID id);

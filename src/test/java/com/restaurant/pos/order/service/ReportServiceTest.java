@@ -2,11 +2,13 @@ package com.restaurant.pos.order.service;
 
 import com.restaurant.pos.accounting.service.AccountingPostingService;
 import com.restaurant.pos.accounting.service.AccountingService;
+import com.restaurant.pos.accounting.dto.AccountingSummaryDto;
 import com.restaurant.pos.common.tenant.TenantContext;
 import com.restaurant.pos.invoice.repository.InvoiceRepository;
 import com.restaurant.pos.order.domain.Order;
 import com.restaurant.pos.order.domain.OrderType;
 import com.restaurant.pos.order.dto.report.OrderReportDto;
+import com.restaurant.pos.order.dto.report.ProfitLossDto;
 import com.restaurant.pos.order.repository.OrderRepository;
 import com.restaurant.pos.order.repository.PaymentRepository;
 import com.restaurant.pos.order.repository.PaymentSplitRepository;
@@ -36,6 +38,7 @@ class ReportServiceTest {
 
     private OrderRepository orderRepository;
     private CustomerRepository customerRepository;
+    private AccountingService accountingService;
     private ReportService reportService;
     private UUID clientId;
 
@@ -43,6 +46,7 @@ class ReportServiceTest {
     void setUp() {
         orderRepository = mock(OrderRepository.class);
         customerRepository = mock(CustomerRepository.class);
+        accountingService = mock(AccountingService.class);
         reportService = new ReportService(
                 orderRepository,
                 mock(InvoiceRepository.class),
@@ -50,7 +54,7 @@ class ReportServiceTest {
                 mock(PaymentSplitRepository.class),
                 customerRepository,
                 mock(AccountingPostingService.class),
-                mock(AccountingService.class)
+                accountingService
         );
         clientId = UUID.randomUUID();
         TenantContext.setCurrentTenant(clientId);
@@ -99,5 +103,32 @@ class ReportServiceTest {
             assertThat(row.getCustomerName()).isEqualTo("Rahul (123456), Riyas (7012120844)");
             assertThat(row.getCustomers()).extracting("id").containsExactly(primary.getId(), secondary.getId());
         });
+    }
+
+    @Test
+    void profitLossUsesAccountingSummaryExpenses() {
+        when(accountingService.getSummary(any(), any())).thenReturn(AccountingSummaryDto.builder()
+                .grossSales(new BigDecimal("3750.50"))
+                .discounts(new BigDecimal("525.00"))
+                .netSales(new BigDecimal("3225.50"))
+                .outputTax(new BigDecimal("321.80"))
+                .inputTax(BigDecimal.ZERO)
+                .expenses(new BigDecimal("2000.00"))
+                .cogsPurchases(BigDecimal.ZERO)
+                .profit(new BigDecimal("1225.50"))
+                .receivable(BigDecimal.ZERO)
+                .paymentCollected(new BigDecimal("3747.30"))
+                .build());
+
+        ProfitLossDto pnl = reportService.getProfitLoss(
+                Instant.parse("2026-05-01T00:00:00Z"),
+                Instant.parse("2026-05-22T18:29:00Z")
+        );
+
+        assertThat(pnl.getOperatingExpenses()).isEqualByComparingTo("2000.00");
+        assertThat(pnl.getTotalExpenses()).isEqualByComparingTo("2000.00");
+        assertThat(pnl.getNetProfit()).isEqualByComparingTo("1225.50");
+        assertThat(pnl.getCashCollectedAfterExpenses()).isEqualByComparingTo("1747.30");
+        assertThat(pnl.getBasis()).isEqualTo("ACCOUNTING_JOURNALS");
     }
 }

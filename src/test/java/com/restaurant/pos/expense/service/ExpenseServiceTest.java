@@ -35,6 +35,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -48,6 +49,7 @@ class ExpenseServiceTest {
     private InvoiceRepository invoiceRepository;
     private PaymentRepository paymentRepository;
     private IdempotencyStore idempotencyStore;
+    private AccountingPostingService accountingPostingService;
     private ExpenseService expenseService;
 
     private UUID clientId;
@@ -63,13 +65,14 @@ class ExpenseServiceTest {
         invoiceRepository = mock(InvoiceRepository.class);
         paymentRepository = mock(PaymentRepository.class);
         idempotencyStore = mock(IdempotencyStore.class);
+        accountingPostingService = mock(AccountingPostingService.class);
 
         expenseService = new ExpenseService(
                 categoryRepository,
                 expenseRepository,
                 new ExpenseMapper(),
                 sequenceService,
-                mock(AccountingPostingService.class),
+                accountingPostingService,
                 currencyRepository,
                 invoiceRepository,
                 paymentRepository,
@@ -169,6 +172,18 @@ class ExpenseServiceTest {
         assertThat(submittedExpense.getAmount()).isEqualByComparingTo("1000.00");
         assertThat(submittedExpense.getPaymentMethod()).isEqualTo("BANK_TRANSFER");
         assertThat(submittedExpense.getOrgId()).isEqualTo(branchId);
+
+        ArgumentCaptor<Invoice> invoiceCaptor = ArgumentCaptor.forClass(Invoice.class);
+        ArgumentCaptor<Payment> paymentCaptor = ArgumentCaptor.forClass(Payment.class);
+        verify(accountingPostingService).postInvoice(eq(null), invoiceCaptor.capture());
+        verify(accountingPostingService).postPayment(eq(null), paymentCaptor.capture());
+        assertThat(invoiceCaptor.getValue().getId()).isEqualTo(invoiceId);
+        assertThat(invoiceCaptor.getValue().getExpenseId()).isEqualTo(expenseId);
+        assertThat(invoiceCaptor.getValue().getInvoiceType().name()).isEqualTo("EXPENSE_RECEIPT");
+        assertThat(paymentCaptor.getValue().getId()).isEqualTo(paymentId);
+        assertThat(paymentCaptor.getValue().getExpenseId()).isEqualTo(expenseId);
+        assertThat(paymentCaptor.getValue().getInvoiceId()).isEqualTo(invoiceId);
+        assertThat(paymentCaptor.getValue().getPaymentType().name()).isEqualTo("OUTBOUND");
 
         verify(idempotencyStore).put(cacheKey, response);
     }

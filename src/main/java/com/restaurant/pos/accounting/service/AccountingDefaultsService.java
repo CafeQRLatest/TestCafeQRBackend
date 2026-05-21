@@ -69,6 +69,8 @@ public class AccountingDefaultsService {
         for (AccountTemplate template : ACCOUNT_TEMPLATES) {
             AccountingAccount account = accountRepository
                     .findByClientIdAndOrgIdAndSystemKeyIgnoreCase(clientId, orgId, template.getSystemKey())
+                    .or(() -> accountRepository.findByClientIdAndOrgIdAndCodeIgnoreCase(clientId, orgId, template.getCode())
+                            .map(existingAccount -> recoverSystemAccount(existingAccount, template)))
                     .orElseGet(() -> createSystemAccount(clientId, orgId, template));
             accountsByKey.put(template.getSystemKey(), account);
         }
@@ -191,6 +193,27 @@ public class AccountingDefaultsService {
                 .build();
         account.setClientId(clientId);
         account.setOrgId(orgId);
+        return accountRepository.save(account);
+    }
+
+    private AccountingAccount recoverSystemAccount(AccountingAccount account, AccountTemplate template) {
+        account.setCode(template.getCode());
+        account.setName(template.getName());
+        account.setAccountType(template.getAccountType());
+        account.setAccountSubType(template.getSubType());
+        account.setSystemKey(template.getSystemKey());
+        account.setSystemAccount(true);
+        account.setCashAccount(template.isCashAccount());
+        account.setBankAccount(template.isBankAccount());
+        if (account.getOpeningBalance() == null) {
+            account.setOpeningBalance(BigDecimal.ZERO);
+        }
+        if (account.getCurrentBalance() == null) {
+            account.setCurrentBalance(account.getOpeningBalance());
+        }
+        if (account.getIsactive() == null || account.getIsactive().isBlank()) {
+            account.setIsactive("Y");
+        }
         return accountRepository.save(account);
     }
 
