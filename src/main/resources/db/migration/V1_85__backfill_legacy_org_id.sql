@@ -80,11 +80,6 @@ SET account_id = da.target_id
 FROM duplicate_accounts da
 WHERE ple.account_id = da.null_id;
 
-UPDATE accounting_accounts aa
-SET account_id = da.target_id
-FROM duplicate_accounts da
-WHERE aa.account_id = da.null_id;
-
 UPDATE accounting_account_mappings aam
 SET account_id = da.target_id
 FROM duplicate_accounts da
