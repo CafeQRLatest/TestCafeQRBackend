@@ -509,9 +509,6 @@ public class AccountingPostingService {
         if (sourceId == null || sourceType == null) {
             return PostingOutcome.SKIPPED;
         }
-        UUID clientId;
-        UUID orgId;
-        AccountingPostingJob job = null;
 
         // When a Super Admin is in "All Branches" mode, TenantContext.orgId is null.
         // The sourceOrgId (from the order/invoice/payment entity) tells us which branch
@@ -525,42 +522,47 @@ public class AccountingPostingService {
             contextSwitched = true;
         }
         try {
-            clientId = requireClient();
-            orgId = TenantContext.getCurrentOrg();
-            if (alreadyPosted(sourceType, sourceId)) {
-                markJobPosted(clientId, orgId, sourceType, sourceId, null);
-                return PostingOutcome.SKIPPED;
-            }
+            return inTransaction(() -> {
+                UUID clientId = requireClient();
+                UUID orgId = TenantContext.getCurrentOrg();
+                if (alreadyPosted(sourceType, sourceId)) {
+                    markJobPosted(clientId, orgId, sourceType, sourceId, null);
+                    return PostingOutcome.SKIPPED;
+                }
 
-            job = findPostingJob(clientId, orgId, sourceType, sourceId)
-                    .orElseGet(() -> {
-                        AccountingPostingJob created = AccountingPostingJob.builder()
-                                .sourceType(sourceType)
-                                .sourceId(sourceId)
-                                .status("PENDING")
-                                .attemptCount(0)
-                                .build();
-                        created.setClientId(clientId);
-                        created.setOrgId(orgId);
-                        return created;
-                    });
-            job.setAttemptCount(job.getAttemptCount() == null ? 1 : job.getAttemptCount() + 1);
-            postingJobRepository.save(job);
+                AccountingPostingJob job = findPostingJob(clientId, orgId, sourceType, sourceId)
+                        .orElseGet(() -> {
+                            AccountingPostingJob created = AccountingPostingJob.builder()
+                                    .sourceType(sourceType)
+                                    .sourceId(sourceId)
+                                    .status("PENDING")
+                                    .attemptCount(0)
+                                    .build();
+                            created.setClientId(clientId);
+                            created.setOrgId(orgId);
+                            return created;
+                        });
+                job.setAttemptCount(job.getAttemptCount() == null ? 1 : job.getAttemptCount() + 1);
+                postingJobRepository.save(job);
 
-            Optional<JournalEntry> maybeEntry = builder.get();
-            if (maybeEntry.isEmpty()) {
-                markJobSkipped(job);
-                return PostingOutcome.SKIPPED;
-            }
+                try {
+                    Optional<JournalEntry> maybeEntry = builder.get();
+                    if (maybeEntry.isEmpty()) {
+                        markJobSkipped(job);
+                        return PostingOutcome.SKIPPED;
+                    }
 
-            JournalEntry saved = accountingService.createJournalEntry(maybeEntry.get());
-            markJobPosted(clientId, orgId, sourceType, sourceId, saved.getId());
-            return sourceType.endsWith("_REV") ? PostingOutcome.REVERSED : PostingOutcome.POSTED;
+                    JournalEntry saved = accountingService.createJournalEntry(maybeEntry.get());
+                    markJobPosted(clientId, orgId, sourceType, sourceId, saved.getId());
+                    return sourceType.endsWith("_REV") ? PostingOutcome.REVERSED : PostingOutcome.POSTED;
+                } catch (Exception ex) {
+                    log.warn("Accounting posting failed | sourceType={} | sourceId={} | message={}", sourceType, sourceId, ex.getMessage());
+                    markJobFailed(job, ex);
+                    return PostingOutcome.FAILED;
+                }
+            });
         } catch (Exception ex) {
-            log.warn("Accounting posting failed | sourceType={} | sourceId={} | message={}", sourceType, sourceId, ex.getMessage());
-            if (job != null) {
-                markJobFailed(job, ex);
-            }
+            log.error("Fatal transaction error during accounting posting | sourceType={} | sourceId={}", sourceType, sourceId, ex);
             return PostingOutcome.FAILED;
         } finally {
             if (contextSwitched) {

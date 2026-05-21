@@ -422,7 +422,22 @@ public class AccountingService {
         BigDecimal inputTax = movement(accountsBySystemKey, AccountingDefaultsService.INPUT_TAX);
         BigDecimal roundOff = movement(accountsBySystemKey, AccountingDefaultsService.ROUND_OFF);
         BigDecimal billedTotal = netSales.add(outputTax).add(roundOff);
-        BigDecimal operatingExpenses = movement(accountsBySystemKey, AccountingDefaultsService.OPERATING_EXPENSES);
+        BigDecimal operatingExpenses = BigDecimal.ZERO;
+        for (AccountingAccountPeriodDto account : accounts) {
+            if (account.getAccountType() == AccountType.EXPENSE) {
+                String sysKey = account.getSystemKey();
+                if (sysKey != null) {
+                    String normKey = sysKey.toUpperCase(Locale.ROOT);
+                    if (normKey.equals(AccountingDefaultsService.PURCHASE_COGS) ||
+                        normKey.equals(AccountingDefaultsService.DISCOUNT_ALLOWED) ||
+                        normKey.equals(AccountingDefaultsService.ROUND_OFF) ||
+                        normKey.equals(AccountingDefaultsService.STOCK_ADJUSTMENT_GAIN_LOSS)) {
+                        continue;
+                    }
+                }
+                operatingExpenses = operatingExpenses.add(money(account.getPeriodNet()));
+            }
+        }
         BigDecimal cogsPurchases = movement(accountsBySystemKey, AccountingDefaultsService.PURCHASE_COGS);
         BigDecimal stockAdjustment = movement(accountsBySystemKey, AccountingDefaultsService.STOCK_ADJUSTMENT_GAIN_LOSS);
         BigDecimal expenses = operatingExpenses.add(roundOff.max(BigDecimal.ZERO));
