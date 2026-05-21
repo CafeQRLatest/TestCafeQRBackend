@@ -18,13 +18,29 @@ public interface DocumentSequenceRepository extends JpaRepository<DocumentSequen
 
     List<DocumentSequence> findByClientId(UUID clientId);
 
-    List<DocumentSequence> findByClientIdAndOrgId(UUID clientId, UUID orgId);
+    @Query("""
+            SELECT ds FROM DocumentSequence ds
+            WHERE ds.clientId = :clientId
+              AND ((:orgId IS NULL AND ds.orgId IS NULL) OR ds.orgId = :orgId)
+            """)
+    List<DocumentSequence> findByClientIdAndOrgId(@Param("clientId") UUID clientId, @Param("orgId") UUID orgId);
     
-    Optional<DocumentSequence> findByClientIdAndOrgIdAndDocumentType(UUID clientId, UUID orgId, DocumentType documentType);
+    @Query("""
+            SELECT ds FROM DocumentSequence ds
+            WHERE ds.clientId = :clientId
+              AND ((:orgId IS NULL AND ds.orgId IS NULL) OR ds.orgId = :orgId)
+              AND ds.documentType = :documentType
+            """)
+    Optional<DocumentSequence> findByClientIdAndOrgIdAndDocumentType(@Param("clientId") UUID clientId, @Param("orgId") UUID orgId, @Param("documentType") DocumentType documentType);
 
     // CRITICAL for preventing duplicates: Pessimistic write lock blocks other threads until transaction completes
     @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @Query("SELECT ds FROM DocumentSequence ds WHERE ds.clientId = :clientId AND ds.orgId = :orgId AND ds.documentType = :documentType")
+    @Query("""
+            SELECT ds FROM DocumentSequence ds
+            WHERE ds.clientId = :clientId
+              AND ((:orgId IS NULL AND ds.orgId IS NULL) OR ds.orgId = :orgId)
+              AND ds.documentType = :documentType
+            """)
     Optional<DocumentSequence> findAndLockByDocumentType(
             @Param("clientId") UUID clientId, 
             @Param("orgId") UUID orgId, 

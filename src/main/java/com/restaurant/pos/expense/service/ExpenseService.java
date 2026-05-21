@@ -43,7 +43,9 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -106,9 +108,10 @@ public class ExpenseService {
     @Transactional(timeout = EXPENSE_WRITE_TIMEOUT_SECONDS)
     public ExpenseResponse createExpense(String idempotencyKey, CreateExpenseRequest request) {
         boolean hasIdempotencyKey = idempotencyKey != null && !idempotencyKey.isBlank();
+        ExpenseWriteScope targetScope = resolveExpenseWriteScope(request);
 
         // Idempotency check — prevents duplicate Expense+Invoice+Payment triplets on retries
-        String cacheKey = TenantContext.getCurrentOrg() + ":" + idempotencyKey;
+        String cacheKey = TenantContext.getCurrentTenant() + ":" + targetScope.cacheKeyPart() + ":" + idempotencyKey;
         ExpenseResponse cached = idempotencyStore.get(cacheKey);
         if (cached != null) {
             log.info("Expense idempotency hit | keyPresent={}", hasIdempotencyKey);
@@ -118,16 +121,16 @@ public class ExpenseService {
         long startedAtNanos = System.nanoTime();
 
         try {
-            ExpenseCategory category = getOwnedExpenseCategory(request.getCategoryId());
+            ExpenseCategory category = getOwnedExpenseCategory(request.getCategoryId(), targetScope.orgId());
 
             if (!category.isActive()) {
                 throw new BusinessException("Cannot assign expense to an inactive category");
             }
 
-            Expense expense = buildExpenseEntity(request, category);
+            Expense expense = buildExpenseEntity(request, category, targetScope);
 
             // Generate unique sequence number for the expense
-            String expenseNo = sequenceService.generateNextSequence(DocumentType.EXPENSE);
+            String expenseNo = sequenceService.generateNextSequence(DocumentType.EXPENSE, targetScope.orgId());
             expense.setExpenseNo(expenseNo);
 
             log.info(
@@ -153,7 +156,7 @@ public class ExpenseService {
             );
 
             // Generate unique sequence number for the invoice
-            String invoiceNo = sequenceService.generateNextSequence(DocumentType.EXPENSE_RECEIPT);
+            String invoiceNo = sequenceService.generateNextSequence(DocumentType.EXPENSE_RECEIPT, targetScope.orgId());
 
             // Construct and save the associated Invoice (with expenseId set and orderId = null)
             Invoice invoice = Invoice.builder()
@@ -179,7 +182,7 @@ public class ExpenseService {
             Invoice savedInvoice = invoiceRepository.save(invoice);
 
             // Generate unique sequence number for the payment
-            String paymentNo = sequenceService.generateNextSequence(DocumentType.OUTBOUND_PAYMENT);
+            String paymentNo = sequenceService.generateNextSequence(DocumentType.OUTBOUND_PAYMENT, targetScope.orgId());
 
             // Construct and save the associated Payment (with expenseId set and orderId = null)
             String normalizedMethod = normalizePaymentMethod(savedExpense.getPaymentMethod());
@@ -248,16 +251,20 @@ public class ExpenseService {
     public ExpenseResponse updateExpense(UUID id, UpdateExpenseRequest request) {
         Expense oldExpense = expenseRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Expense not found: " + id));
+        validateExpenseAccess(oldExpense);
 
         if (!oldExpense.isActive()) {
             throw new BusinessException("Cannot modify a voided or inactive expense record");
         }
 
-        ExpenseCategory category = getOwnedExpenseCategory(request.getCategoryId());
+        ExpenseWriteScope targetScope = resolveExpenseWriteScope(request);
+        ExpenseCategory category = getOwnedExpenseCategory(request.getCategoryId(), targetScope.orgId());
 
         String originalExpenseNo = oldExpense.getExpenseNo();
         int revision = oldExpense.getRevisionNumber() != null ? oldExpense.getRevisionNumber() : 0;
         boolean amountChanged = oldExpense.getAmount().compareTo(request.getAmount()) != 0;
+        boolean scopeChanged = !Objects.equals(oldExpense.getOrgId(), targetScope.orgId());
+        boolean paymentChainChanged = amountChanged || scopeChanged;
 
         log.info("Updating expense | id={} | amountChanged={}", id, amountChanged);
 
@@ -284,19 +291,21 @@ public class ExpenseService {
         List<Payment> oldPayments = paymentRepository.findByExpenseId(id);
 
         // 4. Create NEW Expense record
-        Expense newExpense = buildExpenseEntity(request, category);
-        newExpense.setExpenseNo(originalExpenseNo);
+        Expense newExpense = buildExpenseEntity(request, category, targetScope);
+        newExpense.setExpenseNo(scopeChanged
+                ? sequenceService.generateNextSequence(DocumentType.EXPENSE, targetScope.orgId())
+                : originalExpenseNo);
         newExpense.setRevisionNumber(revision + 1);
         newExpense.setOriginalExpenseId(oldExpense.getId());
 
-        if (!oldPayments.isEmpty() && !amountChanged) {
+        if (!oldPayments.isEmpty() && !paymentChainChanged) {
             newExpense.setPaymentStatus("PENDING");
         }
 
         Expense savedNew = expenseRepository.save(newExpense);
 
         // Generate invoice number for new invoice
-        String newInvoiceNo = sequenceService.generateNextSequence(DocumentType.EXPENSE_RECEIPT);
+        String newInvoiceNo = sequenceService.generateNextSequence(DocumentType.EXPENSE_RECEIPT, targetScope.orgId());
 
         Invoice newInvoice = Invoice.builder()
                 .invoiceType(InvoiceType.EXPENSE_RECEIPT)
@@ -321,12 +330,13 @@ public class ExpenseService {
         Invoice savedNewInvoice = invoiceRepository.save(newInvoice);
 
         if (!oldPayments.isEmpty()) {
-            if (!amountChanged) {
+            if (!paymentChainChanged) {
                 // REUSE: Link the first payment to the new expense/invoice
                 Payment oldPayment = oldPayments.get(0);
                 oldPayment.setExpenseId(savedNew.getId());
                 oldPayment.setInvoiceId(savedNewInvoice.getId());
                 oldPayment.setExpenseCategoryId(category.getId());
+                oldPayment.setOrgId(savedNew.getOrgId());
                 paymentRepository.saveAndFlush(oldPayment);
 
                 savedNew.setPaymentStatus("PAID");
@@ -348,7 +358,7 @@ public class ExpenseService {
                 paymentRepository.flush();
 
                 // Create new payment
-                String newPaymentNo = sequenceService.generateNextSequence(DocumentType.OUTBOUND_PAYMENT);
+                String newPaymentNo = sequenceService.generateNextSequence(DocumentType.OUTBOUND_PAYMENT, targetScope.orgId());
                 String normalizedMethod = normalizePaymentMethod(savedNew.getPaymentMethod());
                 Payment newPayment = Payment.builder()
                         .paymentType(PaymentType.OUTBOUND)
@@ -377,7 +387,7 @@ public class ExpenseService {
             }
         } else {
             // Create new payment
-            String newPaymentNo = sequenceService.generateNextSequence(DocumentType.OUTBOUND_PAYMENT);
+            String newPaymentNo = sequenceService.generateNextSequence(DocumentType.OUTBOUND_PAYMENT, targetScope.orgId());
             String normalizedMethod = normalizePaymentMethod(savedNew.getPaymentMethod());
             Payment newPayment = Payment.builder()
                     .paymentType(PaymentType.OUTBOUND)
@@ -419,6 +429,7 @@ public class ExpenseService {
 
         Expense expense = expenseRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Expense not found: " + id));
+        validateExpenseAccess(expense);
 
         if (!expense.isActive()) {
             throw new BusinessException("Expense is already voided");
@@ -476,6 +487,7 @@ public class ExpenseService {
     public ExpenseResponse getExpenseById(UUID id) {
         Expense expense = expenseRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Expense not found: " + id));
+        validateExpenseAccess(expense);
 
         ExpenseCategory category = categoryRepository.findById(expense.getCategoryId())
                 .orElse(null);
@@ -520,7 +532,7 @@ public class ExpenseService {
     /**
      * Builds an Expense entity from any request implementing ExpenseBaseRequest.
      */
-    private Expense buildExpenseEntity(ExpenseBaseRequest request, ExpenseCategory category) {
+    private Expense buildExpenseEntity(ExpenseBaseRequest request, ExpenseCategory category, ExpenseWriteScope targetScope) {
         Instant expenseDate = (request.getExpenseDate() != null) ? request.getExpenseDate() : Instant.now();
         String paymentMethod = (request.getPaymentMethod() != null && !request.getPaymentMethod().isBlank()) ? request.getPaymentMethod() : "CASH";
 
@@ -538,8 +550,7 @@ public class ExpenseService {
                 .build();
 
         // Contextual Metadata
-        UUID orgId = TenantContext.getCurrentOrg();
-        expense.setOrgId((request.getBranchId() != null) ? request.getBranchId() : orgId);
+        expense.setOrgId(targetScope.orgId());
         expense.setClientId(TenantContext.getCurrentTenant());
         expense.setTerminalId(TenantContext.getCurrentTerminal());
 
@@ -570,15 +581,68 @@ public class ExpenseService {
         return (System.nanoTime() - startedAtNanos) / 1_000_000L;
     }
 
-    private ExpenseCategory getOwnedExpenseCategory(UUID categoryId) {
+    private ExpenseCategory getOwnedExpenseCategory(UUID categoryId, UUID targetOrgId) {
         String profileOwner = currentProfileOwner();
         return categoryRepository.findByIdAndClientIdAndOrgIdAndCreatedBy(
                         categoryId,
                         TenantContext.getCurrentTenant(),
-                        TenantContext.getCurrentOrg(),
+                        targetOrgId,
                         profileOwner
                 )
                 .orElseThrow(() -> new BusinessException("Invalid expense category"));
+    }
+
+    private ExpenseWriteScope resolveExpenseWriteScope(ExpenseBaseRequest request) {
+        if (request == null) {
+            throw new BusinessException("Expense request is required");
+        }
+        UUID currentOrgId = TenantContext.getCurrentOrg();
+        String requestedScope = normalizeScope(request.getScope(), request.getBranchId(), currentOrgId);
+        if ("GLOBAL".equals(requestedScope)) {
+            if (!canUseOrganizationScope()) {
+                throw new BusinessException("Only organization admins can record organization-level expenses.");
+            }
+            return new ExpenseWriteScope(null, "GLOBAL");
+        }
+        if ("ALL".equals(requestedScope)) {
+            throw new BusinessException("Select Organization or a branch before recording an expense.");
+        }
+        UUID targetOrgId = request.getBranchId() != null ? request.getBranchId() : currentOrgId;
+        if (targetOrgId == null) {
+            throw new BusinessException("Select Organization or a branch before recording an expense.");
+        }
+        if (!canUseOrganizationScope() && !targetOrgId.equals(currentOrgId)) {
+            throw new BusinessException("You can record expenses only for your assigned branch.");
+        }
+        return new ExpenseWriteScope(targetOrgId, "BRANCH");
+    }
+
+    private String normalizeScope(String scope, UUID branchId, UUID currentOrgId) {
+        if (scope != null && !scope.isBlank()) {
+            String normalized = scope.trim().toUpperCase(Locale.ROOT);
+            return switch (normalized) {
+                case "ALL", "GLOBAL", "BRANCH" -> normalized;
+                default -> throw new BusinessException("Invalid expense scope.");
+            };
+        }
+        if (branchId != null || currentOrgId != null) {
+            return "BRANCH";
+        }
+        return "ALL";
+    }
+
+    private boolean canUseOrganizationScope() {
+        return SecurityUtils.isSuperAdmin() || SecurityUtils.hasRole("ADMIN");
+    }
+
+    private void validateExpenseAccess(Expense expense) {
+        UUID currentOrgId = TenantContext.getCurrentOrg();
+        if (canUseOrganizationScope()) {
+            return;
+        }
+        if (currentOrgId == null || !Objects.equals(currentOrgId, expense.getOrgId())) {
+            throw new ResourceNotFoundException("Expense not found: " + expense.getId());
+        }
     }
 
     private String currentProfileOwner() {
@@ -587,5 +651,11 @@ public class ExpenseService {
             throw new BusinessException("Authenticated profile is required for expense categories");
         }
         return owner.trim();
+    }
+
+    private record ExpenseWriteScope(UUID orgId, String scope) {
+        private String cacheKeyPart() {
+            return orgId == null ? "GLOBAL" : orgId.toString();
+        }
     }
 }

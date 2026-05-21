@@ -40,4 +40,7 @@ public class CreateExpenseRequest implements ExpenseBaseRequest {
 
     @Schema(description = "Target branch ID for organizational attribution")
     private UUID branchId;
+
+    @Schema(description = "Expense scope: GLOBAL for organization-level, BRANCH for a specific branch", example = "BRANCH")
+    private String scope;
 }

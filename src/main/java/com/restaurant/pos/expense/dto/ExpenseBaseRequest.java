@@ -16,4 +16,5 @@ public interface ExpenseBaseRequest {
     String getDescription();
     String getPaymentMethod();
     UUID getBranchId();
+    String getScope();
 }

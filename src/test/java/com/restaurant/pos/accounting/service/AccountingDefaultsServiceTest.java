@@ -123,6 +123,38 @@ class AccountingDefaultsServiceTest {
                 });
     }
 
+    @Test
+    void ensureDefaultAccountsCreatesGlobalDefaultsWhenOrgContextIsNull() {
+        TenantContext.setCurrentOrg(null);
+
+        when(accountRepository.findByClientIdAndOrgIdAndSystemKeyIgnoreCase(any(), any(), any())).thenReturn(Optional.empty());
+        when(accountRepository.findByClientIdAndOrgIdAndCodeIgnoreCase(any(), any(), any())).thenReturn(Optional.empty());
+        when(accountRepository.save(any(AccountingAccount.class))).thenAnswer(invocation -> {
+            AccountingAccount account = invocation.getArgument(0);
+            if (account.getId() == null) {
+                account.setId(UUID.randomUUID());
+            }
+            return account;
+        });
+        when(mappingRepository.findByClientIdAndOrgIdAndMappingKeyIgnoreCase(any(), any(), any())).thenReturn(Optional.empty());
+        when(mappingRepository.save(any(AccountingAccountMapping.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(paymentMappingRepository.findByClientIdAndOrgIdAndPaymentMethodIgnoreCase(any(), any(), any())).thenReturn(Optional.empty());
+        when(paymentMappingRepository.save(any(AccountingPaymentMethodMapping.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        List<AccountingAccount> created = service.ensureDefaultAccounts();
+
+        assertThat(created).hasSize(defaultAccounts().size());
+        assertThat(created).allSatisfy(account -> {
+            assertThat(account.getClientId()).isEqualTo(clientId);
+            assertThat(account.getOrgId()).isNull();
+            assertThat(account.getSystemAccount()).isTrue();
+        });
+
+        ArgumentCaptor<AccountingPaymentMethodMapping> paymentMappingCaptor = ArgumentCaptor.forClass(AccountingPaymentMethodMapping.class);
+        verify(paymentMappingRepository, org.mockito.Mockito.times(7)).save(paymentMappingCaptor.capture());
+        assertThat(paymentMappingCaptor.getAllValues()).allSatisfy(mapping -> assertThat(mapping.getOrgId()).isNull());
+    }
+
     private AccountingAccount legacyAccount(String code, String name, AccountType type) {
         AccountingAccount account = AccountingAccount.builder()
                 .id(UUID.randomUUID())

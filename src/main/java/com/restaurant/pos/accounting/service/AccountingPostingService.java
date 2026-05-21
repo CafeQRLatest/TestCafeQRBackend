@@ -157,11 +157,24 @@ public class AccountingPostingService {
     }
 
     public PostingOutcome reverseInvoice(Invoice invoice, String reason) {
-        return invoice == null ? PostingOutcome.SKIPPED : reverseSource(invoiceSourceType(invoice), invoice.getId(), reason);
+        return invoice == null ? PostingOutcome.SKIPPED : reverseSourceInScope(invoiceSourceType(invoice), invoice.getId(), reason, invoice.getOrgId());
     }
 
     public PostingOutcome reversePayment(Payment payment, String reason) {
-        return payment == null ? PostingOutcome.SKIPPED : reverseSource(paymentSourceType(payment), payment.getId(), reason);
+        return payment == null ? PostingOutcome.SKIPPED : reverseSourceInScope(paymentSourceType(payment), payment.getId(), reason, payment.getOrgId());
+    }
+
+    private PostingOutcome reverseSourceInScope(String sourceType, UUID sourceId, String reason, UUID sourceOrgId) {
+        UUID previousOrgId = TenantContext.getCurrentOrg();
+        if (Objects.equals(previousOrgId, sourceOrgId)) {
+            return reverseSource(sourceType, sourceId, reason);
+        }
+        TenantContext.setCurrentOrg(sourceOrgId);
+        try {
+            return reverseSource(sourceType, sourceId, reason);
+        } finally {
+            TenantContext.setCurrentOrg(previousOrgId);
+        }
     }
 
     @Transactional(readOnly = true)

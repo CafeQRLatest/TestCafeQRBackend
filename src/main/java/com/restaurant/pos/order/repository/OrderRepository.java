@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Repository;
 
@@ -70,9 +71,22 @@ public interface OrderRepository extends JpaRepository<Order, UUID>, JpaSpecific
     Optional<Order> findByOrderNoAndClientId(String orderNo, UUID clientId);
 
     @EntityGraph(attributePaths = "lines")
-    List<Order> findByClientIdAndOrgIdAndOrderDateBetweenOrderByOrderDateAsc(UUID clientId, UUID orgId, java.time.Instant from, java.time.Instant to);
+    @Query("""
+            SELECT o FROM Order o
+            WHERE o.clientId = :clientId
+              AND (:orgId IS NULL OR o.orgId = :orgId)
+              AND o.orderDate BETWEEN :from AND :to
+            ORDER BY o.orderDate ASC
+            """)
+    List<Order> findByClientIdAndOrgIdAndOrderDateBetweenOrderByOrderDateAsc(@Param("clientId") UUID clientId, @Param("orgId") UUID orgId, @Param("from") java.time.Instant from, @Param("to") java.time.Instant to);
 
-    boolean existsByClientIdAndOrgIdAndOrderNo(UUID clientId, UUID orgId, String orderNo);
+    @Query("""
+            SELECT COUNT(o) > 0 FROM Order o
+            WHERE o.clientId = :clientId
+              AND ((:orgId IS NULL AND o.orgId IS NULL) OR o.orgId = :orgId)
+              AND o.orderNo = :orderNo
+            """)
+    boolean existsByClientIdAndOrgIdAndOrderNo(@Param("clientId") UUID clientId, @Param("orgId") UUID orgId, @Param("orderNo") String orderNo);
 
     @EntityGraph(attributePaths = "lines")
     Optional<Order> findBySourceOperationIdAndClientId(String sourceOperationId, UUID clientId);

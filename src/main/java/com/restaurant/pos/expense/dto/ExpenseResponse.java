@@ -47,4 +47,7 @@ public class ExpenseResponse {
 
     @Schema(description = "Organizational branch identifier")
     private UUID orgId;
+
+    @Schema(description = "Expense scope: GLOBAL for organization-level records, BRANCH for branch records")
+    private String scope;
 }

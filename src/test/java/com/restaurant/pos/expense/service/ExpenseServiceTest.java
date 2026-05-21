@@ -104,7 +104,7 @@ class ExpenseServiceTest {
         UUID branchId = UUID.randomUUID();
         Instant expenseDate = Instant.parse("2026-05-13T18:29:00Z");
         String idempotencyKey = "expense-create-key";
-        String cacheKey = orgId + ":" + idempotencyKey;
+        String cacheKey = clientId + ":" + branchId + ":" + idempotencyKey;
 
         ExpenseCategory category = ExpenseCategory.builder()
                 .id(categoryId)
@@ -122,13 +122,13 @@ class ExpenseServiceTest {
                 .build();
 
         when(idempotencyStore.get(cacheKey)).thenReturn(null);
-        when(categoryRepository.findByIdAndClientIdAndOrgIdAndCreatedBy(categoryId, clientId, orgId, profileOwner))
+        when(categoryRepository.findByIdAndClientIdAndOrgIdAndCreatedBy(categoryId, clientId, branchId, profileOwner))
                 .thenReturn(Optional.of(category));
         when(currencyRepository.findByClientIdAndIsDefaultTrue(clientId)).thenReturn(List.of());
 
-        when(sequenceService.generateNextSequence(DocumentType.EXPENSE)).thenReturn("EXP-001");
-        when(sequenceService.generateNextSequence(DocumentType.EXPENSE_RECEIPT)).thenReturn("EXR-001");
-        when(sequenceService.generateNextSequence(DocumentType.OUTBOUND_PAYMENT)).thenReturn("PAY-001");
+        when(sequenceService.generateNextSequence(DocumentType.EXPENSE, branchId)).thenReturn("EXP-001");
+        when(sequenceService.generateNextSequence(DocumentType.EXPENSE_RECEIPT, branchId)).thenReturn("EXR-001");
+        when(sequenceService.generateNextSequence(DocumentType.OUTBOUND_PAYMENT, branchId)).thenReturn("PAY-001");
 
         UUID expenseId = UUID.randomUUID();
         UUID invoiceId = UUID.randomUUID();
@@ -179,12 +179,89 @@ class ExpenseServiceTest {
         verify(accountingPostingService).postPayment(eq(null), paymentCaptor.capture());
         assertThat(invoiceCaptor.getValue().getId()).isEqualTo(invoiceId);
         assertThat(invoiceCaptor.getValue().getExpenseId()).isEqualTo(expenseId);
+        assertThat(invoiceCaptor.getValue().getOrgId()).isEqualTo(branchId);
         assertThat(invoiceCaptor.getValue().getInvoiceType().name()).isEqualTo("EXPENSE_RECEIPT");
         assertThat(paymentCaptor.getValue().getId()).isEqualTo(paymentId);
         assertThat(paymentCaptor.getValue().getExpenseId()).isEqualTo(expenseId);
         assertThat(paymentCaptor.getValue().getInvoiceId()).isEqualTo(invoiceId);
+        assertThat(paymentCaptor.getValue().getOrgId()).isEqualTo(branchId);
         assertThat(paymentCaptor.getValue().getPaymentType().name()).isEqualTo("OUTBOUND");
 
+        verify(idempotencyStore).put(cacheKey, response);
+    }
+
+    @Test
+    void createGlobalExpenseSavesFinancialChainWithNullOrg() {
+        TenantContext.setCurrentOrg(null);
+        UUID categoryId = UUID.randomUUID();
+        Instant expenseDate = Instant.parse("2026-05-22T02:43:00Z");
+        String idempotencyKey = "global-expense-key";
+        String cacheKey = clientId + ":GLOBAL:" + idempotencyKey;
+
+        ExpenseCategory category = ExpenseCategory.builder()
+                .id(categoryId)
+                .name("Maintenance")
+                .isactive("Y")
+                .build();
+
+        CreateExpenseRequest request = CreateExpenseRequest.builder()
+                .categoryId(categoryId)
+                .scope("GLOBAL")
+                .expenseDate(expenseDate)
+                .amount(new BigDecimal("1000.00"))
+                .paymentMethod("UPI")
+                .description("Organization maintenance")
+                .build();
+
+        when(idempotencyStore.get(cacheKey)).thenReturn(null);
+        when(categoryRepository.findByIdAndClientIdAndOrgIdAndCreatedBy(categoryId, clientId, null, profileOwner))
+                .thenReturn(Optional.of(category));
+        when(currencyRepository.findByClientIdAndIsDefaultTrue(clientId)).thenReturn(List.of());
+        when(sequenceService.generateNextSequence(DocumentType.EXPENSE, null)).thenReturn("EX-2026-0000001-ORG");
+        when(sequenceService.generateNextSequence(DocumentType.EXPENSE_RECEIPT, null)).thenReturn("ER-2026-0000001-ORG");
+        when(sequenceService.generateNextSequence(DocumentType.OUTBOUND_PAYMENT, null)).thenReturn("PAY-2026-0000001-ORG");
+
+        UUID expenseId = UUID.randomUUID();
+        UUID invoiceId = UUID.randomUUID();
+        UUID paymentId = UUID.randomUUID();
+
+        when(expenseRepository.save(any(Expense.class))).thenAnswer(invocation -> {
+            Expense e = invocation.getArgument(0);
+            Expense saved = e.toBuilder().id(expenseId).build();
+            saved.setClientId(e.getClientId());
+            saved.setOrgId(e.getOrgId());
+            return saved;
+        });
+        when(invoiceRepository.save(any(Invoice.class))).thenAnswer(invocation -> {
+            Invoice inv = invocation.getArgument(0);
+            Invoice saved = inv.toBuilder().id(invoiceId).build();
+            saved.setClientId(inv.getClientId());
+            saved.setOrgId(inv.getOrgId());
+            return saved;
+        });
+        when(paymentRepository.save(any(Payment.class))).thenAnswer(invocation -> {
+            Payment p = invocation.getArgument(0);
+            Payment saved = p.toBuilder().id(paymentId).build();
+            saved.setClientId(p.getClientId());
+            saved.setOrgId(p.getOrgId());
+            return saved;
+        });
+
+        ExpenseResponse response = expenseService.createExpense(idempotencyKey, request);
+
+        assertThat(response.getOrgId()).isNull();
+        assertThat(response.getScope()).isEqualTo("GLOBAL");
+
+        ArgumentCaptor<Expense> expenseCaptor = ArgumentCaptor.forClass(Expense.class);
+        verify(expenseRepository).save(expenseCaptor.capture());
+        assertThat(expenseCaptor.getValue().getOrgId()).isNull();
+
+        ArgumentCaptor<Invoice> invoiceCaptor = ArgumentCaptor.forClass(Invoice.class);
+        ArgumentCaptor<Payment> paymentCaptor = ArgumentCaptor.forClass(Payment.class);
+        verify(accountingPostingService).postInvoice(eq(null), invoiceCaptor.capture());
+        verify(accountingPostingService).postPayment(eq(null), paymentCaptor.capture());
+        assertThat(invoiceCaptor.getValue().getOrgId()).isNull();
+        assertThat(paymentCaptor.getValue().getOrgId()).isNull();
         verify(idempotencyStore).put(cacheKey, response);
     }
 
@@ -192,7 +269,7 @@ class ExpenseServiceTest {
     void createExpenseRejectsCategoryOwnedByAnotherProfile() {
         UUID categoryId = UUID.randomUUID();
         String idempotencyKey = "wrong-profile-category-key";
-        String cacheKey = orgId + ":" + idempotencyKey;
+        String cacheKey = clientId + ":" + orgId + ":" + idempotencyKey;
 
         CreateExpenseRequest request = CreateExpenseRequest.builder()
                 .categoryId(categoryId)

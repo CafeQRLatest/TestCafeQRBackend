@@ -61,9 +61,6 @@ public class AccountingDefaultsService {
     public List<AccountingAccount> ensureDefaultAccounts() {
         UUID clientId = requireClient();
         UUID orgId = TenantContext.getCurrentOrg();
-        if (orgId == null) {
-            return List.of();
-        }
         Map<String, AccountingAccount> accountsByKey = new LinkedHashMap<>();
 
         for (AccountTemplate template : ACCOUNT_TEMPLATES) {

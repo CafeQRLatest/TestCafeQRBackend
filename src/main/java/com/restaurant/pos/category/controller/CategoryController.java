@@ -37,11 +37,14 @@ public class CategoryController {
             summary = "Fetch expense categories",
             description = "Returns all expense categories available for the current authenticated profile, including active/inactive records ordered by sort priority."
     )
-    public ResponseEntity<ApiResponse<List<CategoryResponse>>> getCategories() {
+    public ResponseEntity<ApiResponse<List<CategoryResponse>>> getCategories(
+            @RequestParam(value = "scope", required = false) String scope,
+            @RequestParam(value = "branchId", required = false) UUID branchId
+    ) {
 
-        log.info("Fetching expense categories for current organization");
+        log.info("Fetching expense categories | scope={} | branchId={}", scope, branchId);
 
-        List<CategoryResponse> response = categoryService.getCategories();
+        List<CategoryResponse> response = categoryService.getCategories(scope, branchId);
 
         return ResponseEntity.ok(
                 ApiResponse.success(response)

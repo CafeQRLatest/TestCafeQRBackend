@@ -61,7 +61,7 @@ public class AccountingService {
         UUID clientId = requireTenant();
         UUID orgId = TenantContext.getCurrentOrg();
         List<AccountingAccount> accounts;
-        if (SecurityUtils.isSuperAdmin() || orgId == null) {
+        if (orgId == null) {
             accounts = accountRepository.findByClientIdOrderByCodeAsc(clientId);
         } else {
             accounts = accountRepository.findByClientIdAndOrgIdOrderByCodeAsc(clientId, orgId);
@@ -195,7 +195,7 @@ public class AccountingService {
         if (partyType == null || partyId == null) {
             throw new BusinessException("Party type and party id are required");
         }
-        if (SecurityUtils.isSuperAdmin() || orgId == null) {
+        if (orgId == null) {
             return partyLedgerEntryRepository.findByClientIdAndPartyTypeAndPartyIdOrderByEntryDateDesc(clientId, partyType, partyId);
         }
         return partyLedgerEntryRepository.findByClientIdAndOrgIdAndPartyTypeAndPartyIdOrderByEntryDateDesc(clientId, orgId, partyType, partyId);
@@ -591,7 +591,7 @@ public class AccountingService {
         return orderRepository.findAll((root, query, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
             predicates.add(cb.equal(root.get("clientId"), clientId));
-            if (!SecurityUtils.isSuperAdmin() && orgId != null) {
+            if (orgId != null) {
                 predicates.add(cb.equal(root.get("orgId"), orgId));
             }
             predicates.add(cb.equal(root.get("orderType"), OrderType.SALE));
@@ -608,7 +608,7 @@ public class AccountingService {
         invoiceRepository.findAll((root, query, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
             predicates.add(cb.equal(root.get("clientId"), clientId));
-            if (!SecurityUtils.isSuperAdmin() && orgId != null) {
+            if (orgId != null) {
                 predicates.add(cb.equal(root.get("orgId"), orgId));
             }
             predicates.add(cb.greaterThanOrEqualTo(root.get("invoiceDate"), range.from));
@@ -632,7 +632,7 @@ public class AccountingService {
 
     private List<Payment> findPaymentsInPeriodIncludingOrderPeriod(UUID clientId, UUID orgId, DateRange range, Collection<Order> orders) {
         Map<UUID, Payment> paymentsById = new LinkedHashMap<>();
-        paymentRepository.findActivePaymentsInPeriod(clientId, SecurityUtils.isSuperAdmin() ? null : orgId, range.from, range.to).stream()
+        paymentRepository.findActivePaymentsInPeriod(clientId, orgId, range.from, range.to).stream()
                 .filter(payment -> isScopedPayment(payment, clientId, orgId))
                 .filter(this::isActivePayment)
                 .forEach(payment -> paymentsById.put(payment.getId(), payment));
@@ -649,13 +649,13 @@ public class AccountingService {
     private boolean isScopedInvoice(Invoice invoice, UUID clientId, UUID orgId) {
         return invoice != null
                 && clientId.equals(invoice.getClientId())
-                && (SecurityUtils.isSuperAdmin() || orgId == null || orgId.equals(invoice.getOrgId()));
+                && (orgId == null || orgId.equals(invoice.getOrgId()));
     }
 
     private boolean isScopedPayment(Payment payment, UUID clientId, UUID orgId) {
         return payment != null
                 && clientId.equals(payment.getClientId())
-                && (SecurityUtils.isSuperAdmin() || orgId == null || orgId.equals(payment.getOrgId()));
+                && (orgId == null || orgId.equals(payment.getOrgId()));
     }
 
     private boolean isActiveInvoice(Invoice invoice) {
@@ -687,7 +687,7 @@ public class AccountingService {
         return (root, query, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
             predicates.add(cb.equal(root.get("clientId"), clientId));
-            if (!SecurityUtils.isSuperAdmin() && orgId != null) {
+            if (orgId != null) {
                 predicates.add(cb.equal(root.get("orgId"), orgId));
             }
             if (from != null) {
@@ -815,7 +815,7 @@ public class AccountingService {
     private AccountingAccount getScopedAccount(UUID id) {
         UUID clientId = requireTenant();
         UUID orgId = TenantContext.getCurrentOrg();
-        if (SecurityUtils.isSuperAdmin() || orgId == null) {
+        if (orgId == null) {
             return accountRepository.findByIdAndClientId(id, clientId)
                     .orElseThrow(() -> new ResourceNotFoundException("Accounting account not found"));
         }
@@ -833,7 +833,7 @@ public class AccountingService {
         }
         Map<UUID, AccountingAccount> accountsById = accountRepository.findAllById(accountIds).stream()
                 .filter(account -> clientId.equals(account.getClientId()))
-                .filter(account -> SecurityUtils.isSuperAdmin() || orgId == null || orgId.equals(account.getOrgId()))
+                .filter(account -> Objects.equals(orgId, account.getOrgId()))
                 .collect(Collectors.toMap(AccountingAccount::getId, Function.identity()));
         if (accountsById.size() != accountIds.size()) {
             throw new BusinessException("One or more journal accounts are invalid for this branch");
@@ -960,6 +960,16 @@ public class AccountingService {
     }
 
     private UUID resolveOrg(UUID requestedOrgId) {
+        if (requestedOrgId != null) {
+            return requestedOrgId;
+        }
+        UUID currentOrgId = TenantContext.getCurrentOrg();
+        if (currentOrgId != null) {
+            return currentOrgId;
+        }
+        if (SecurityUtils.isSuperAdmin() || SecurityUtils.hasRole("ADMIN")) {
+            return null;
+        }
         return branchContext.requireWriteOrgId(requestedOrgId);
     }
 

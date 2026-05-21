@@ -27,6 +27,7 @@ public class ExpenseMapper {
                 .paymentMethod(method)
                 .active("Y".equals(expense.getIsactive()))
                 .orgId(expense.getOrgId())
+                .scope(expense.getOrgId() == null ? "GLOBAL" : "BRANCH")
                 .build();
     }
 }

@@ -45,6 +45,16 @@ public class DocumentSequenceService {
     public String generateNextSequence(DocumentType type) {
         UUID clientId = TenantContext.getCurrentTenant();
         UUID orgId = getEffectiveOrgId();
+        return generateNextSequence(clientId, orgId, type);
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public String generateNextSequence(DocumentType type, UUID orgId) {
+        UUID clientId = TenantContext.getCurrentTenant();
+        return generateNextSequence(clientId, orgId, type);
+    }
+
+    private String generateNextSequence(UUID clientId, UUID orgId, DocumentType type) {
 
         // 1. Pessimistic lock fetches the row, blocking other threads
         DocumentSequence sequence = sequenceRepository.findAndLockByDocumentType(clientId, orgId, type)
@@ -129,9 +139,11 @@ public class DocumentSequenceService {
     private String resolvePlaceholders(String value, UUID orgId, UUID clientId) {
         if (value == null) return "";
         String year = String.valueOf(LocalDateTime.now().getYear());
-        String branchCode = organizationRepository.findByIdAndClientId(orgId, clientId)
-                .map(Organization::getBranchCode)
-                .orElse("HQ");
+        String branchCode = orgId == null
+                ? "ORG"
+                : organizationRepository.findByIdAndClientId(orgId, clientId)
+                        .map(Organization::getBranchCode)
+                        .orElse("HQ");
         return value.replace("{YYYY}", year).replace("{BRANCH_CODE}", branchCode);
     }
 

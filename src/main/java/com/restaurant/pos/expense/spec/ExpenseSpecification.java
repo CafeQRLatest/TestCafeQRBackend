@@ -26,11 +26,31 @@ public class ExpenseSpecification {
             predicates.add(cb.equal(root.get("clientId"), clientId));
             // Note: OrderType.EXPENSE filter is handled automatically by JPA inheritance (@DiscriminatorValue)
 
-            // Multi-Branch Security Logic
-            if (!SecurityUtils.isSuperAdmin() && orgId != null) {
+            // Scope handling:
+            // ALL    -> no org predicate (global + all branches) for organization admins only.
+            // GLOBAL -> only true organization-level expenses where org_id is null.
+            // BRANCH -> one branch, either explicit branchId or current branch context.
+            boolean canReadAllScopes = SecurityUtils.isSuperAdmin() || SecurityUtils.hasRole("ADMIN");
+            String requestedScope = criteria.getScope() != null ? criteria.getScope().trim().toUpperCase() : "";
+            if (!canReadAllScopes && orgId != null) {
                 predicates.add(cb.equal(root.get("orgId"), orgId));
-            } else if (criteria.getBranchId() != null) {
-                predicates.add(cb.equal(root.get("orgId"), criteria.getBranchId()));
+            } else if ("GLOBAL".equals(requestedScope)) {
+                if (canReadAllScopes) {
+                    predicates.add(cb.isNull(root.get("orgId")));
+                } else if (orgId != null) {
+                    predicates.add(cb.equal(root.get("orgId"), orgId));
+                } else {
+                    predicates.add(cb.disjunction());
+                }
+            } else if ("BRANCH".equals(requestedScope) || criteria.getBranchId() != null) {
+                UUID targetOrgId = criteria.getBranchId() != null ? criteria.getBranchId() : orgId;
+                if (targetOrgId != null) {
+                    predicates.add(cb.equal(root.get("orgId"), targetOrgId));
+                } else if (!canReadAllScopes) {
+                    predicates.add(cb.disjunction());
+                }
+            } else if (!canReadAllScopes && orgId == null) {
+                predicates.add(cb.disjunction());
             }
 
             // Date Range

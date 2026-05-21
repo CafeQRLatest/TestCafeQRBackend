@@ -5,6 +5,8 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.*;
 import lombok.*;
 
+import java.util.UUID;
+
 /**
  * Enterprise-grade Request DTO for Category Creation.
  */
@@ -27,4 +29,10 @@ public class CreateCategoryRequest {
     @Schema(description = "Display sort order for UI positioning", example = "1")
     @Builder.Default
     private Integer sortOrder = 0;
+
+    @Schema(description = "Category scope: GLOBAL for organization-level, BRANCH for a specific branch", example = "BRANCH")
+    private String scope;
+
+    @Schema(description = "Branch ID when scope is BRANCH")
+    private UUID branchId;
 }

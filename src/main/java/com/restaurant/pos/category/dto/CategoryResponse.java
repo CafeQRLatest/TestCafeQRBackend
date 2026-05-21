@@ -32,6 +32,12 @@ public class CategoryResponse {
     @Schema(description = "Indicates if the category is currently available for operational use", example = "true")
     private Boolean active;
 
+    @Schema(description = "Branch ID for branch categories; null for organization categories")
+    private UUID orgId;
+
+    @Schema(description = "Category scope: GLOBAL or BRANCH")
+    private String scope;
+
     @Schema(description = "ISO-8601 timestamp of record creation")
     private LocalDateTime createdAt;
 

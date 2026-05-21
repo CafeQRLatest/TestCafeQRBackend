@@ -36,18 +36,22 @@ public class CategoryService {
 
     @Cacheable(
             value = "expenseCategories",
-            key = "#root.methodName + '_' + T(com.restaurant.pos.common.tenant.TenantContext).getCurrentOrg() + '_' + T(com.restaurant.pos.common.util.SecurityUtils).getCurrentUserEmail()"
+            key = "#root.methodName + '_' + (#scope ?: 'DEFAULT') + '_' + (#branchId ?: 'NONE') + '_' + T(com.restaurant.pos.common.tenant.TenantContext).getCurrentOrg() + '_' + T(com.restaurant.pos.common.util.SecurityUtils).getCurrentUserEmail()"
     )
     @Transactional(readOnly = true)
-    public List<CategoryResponse> getCategories() {
+    public List<CategoryResponse> getCategories(String scope, UUID branchId) {
         UUID clientId = TenantContext.getCurrentTenant();
-        UUID orgId = TenantContext.getCurrentOrg();
+        CategoryScope resolvedScope = resolveReadScope(scope, branchId);
         String profileOwner = currentProfileOwner();
         
-        log.info("Fetching expense categories | clientId={} | orgId={} | profileOwner={}", clientId, orgId, profileOwner);
+        log.info("Fetching expense categories | clientId={} | scope={} | orgId={} | profileOwner={}",
+                clientId, resolvedScope.scope(), resolvedScope.orgId(), profileOwner);
+
+        List<ExpenseCategory> categories = resolvedScope.all()
+                ? categoryRepository.findByClientIdAndCreatedByOrderBySortOrderAsc(clientId, profileOwner)
+                : categoryRepository.findByClientIdAndOrgIdAndCreatedByOrderBySortOrderAsc(clientId, resolvedScope.orgId(), profileOwner);
         
-        return categoryRepository.findByClientIdAndOrgIdAndCreatedByOrderBySortOrderAsc(clientId, orgId, profileOwner)
-                .stream()
+        return categories.stream()
                 .map(categoryMapper::toResponse)
                 .collect(Collectors.toList());
     }
@@ -56,10 +60,12 @@ public class CategoryService {
     @CacheEvict(value = "expenseCategories", allEntries = true)
     public CategoryResponse createCategory(CreateCategoryRequest request) {
         UUID clientId = TenantContext.getCurrentTenant();
-        UUID orgId = TenantContext.getCurrentOrg();
+        CategoryScope targetScope = resolveWriteScope(request.getScope(), request.getBranchId());
+        UUID orgId = targetScope.orgId();
         String profileOwner = currentProfileOwner();
         
-        log.info("Creating category '{}' | orgId={} | profileOwner={}", request.getName(), orgId, profileOwner);
+        log.info("Creating category '{}' | scope={} | orgId={} | profileOwner={}",
+                request.getName(), targetScope.scope(), orgId, profileOwner);
 
         if (categoryRepository.existsByNameIgnoreCaseAndClientIdAndOrgIdAndCreatedBy(request.getName(), clientId, orgId, profileOwner)) {
             throw new DuplicateResourceException(
@@ -129,8 +135,11 @@ public class CategoryService {
         if (clientId != null && category.getClientId() != null && !clientId.equals(category.getClientId())) {
             throw new AccessDeniedException("Unauthorized access to tenant-specific category.");
         }
-        if (orgId != null && category.getOrgId() != null && !orgId.equals(category.getOrgId())) {
+        if (!canManageAllScopes() && orgId != null && !orgId.equals(category.getOrgId())) {
             throw new AccessDeniedException("Unauthorized access to branch-specific category.");
+        }
+        if (!canManageAllScopes() && orgId == null && category.getOrgId() == null) {
+            throw new AccessDeniedException("Unauthorized access to organization category.");
         }
         if (profileOwner != null && category.getCreatedBy() != null && !profileOwner.equalsIgnoreCase(category.getCreatedBy())) {
             throw new AccessDeniedException("Unauthorized access to profile-specific category.");
@@ -140,11 +149,82 @@ public class CategoryService {
         }
     }
 
+    private CategoryScope resolveReadScope(String requestedScope, UUID branchId) {
+        UUID currentOrgId = TenantContext.getCurrentOrg();
+        String scope = normalizeScope(requestedScope, branchId, currentOrgId);
+        if ("ALL".equals(scope)) {
+            if (canManageAllScopes()) {
+                return new CategoryScope("ALL", null, true);
+            }
+            if (currentOrgId != null) {
+                return new CategoryScope("BRANCH", currentOrgId, false);
+            }
+            throw new AccessDeniedException("A branch must be selected before viewing expense categories.");
+        }
+        if ("GLOBAL".equals(scope)) {
+            if (!canManageAllScopes()) {
+                throw new AccessDeniedException("Only organization admins can view organization-level expense categories.");
+            }
+            return new CategoryScope("GLOBAL", null, false);
+        }
+        UUID targetOrgId = branchId != null ? branchId : currentOrgId;
+        if (targetOrgId == null) {
+            throw new AccessDeniedException("A branch must be selected before viewing branch expense categories.");
+        }
+        if (!canManageAllScopes() && !targetOrgId.equals(currentOrgId)) {
+            throw new AccessDeniedException("Unauthorized access to another branch's expense categories.");
+        }
+        return new CategoryScope("BRANCH", targetOrgId, false);
+    }
+
+    private CategoryScope resolveWriteScope(String requestedScope, UUID branchId) {
+        UUID currentOrgId = TenantContext.getCurrentOrg();
+        String scope = normalizeScope(requestedScope, branchId, currentOrgId);
+        if ("ALL".equals(scope)) {
+            throw new AccessDeniedException("Select Organization or a branch before creating an expense category.");
+        }
+        if ("GLOBAL".equals(scope)) {
+            if (!canManageAllScopes()) {
+                throw new AccessDeniedException("Only organization admins can create organization-level expense categories.");
+            }
+            return new CategoryScope("GLOBAL", null, false);
+        }
+        UUID targetOrgId = branchId != null ? branchId : currentOrgId;
+        if (targetOrgId == null) {
+            throw new AccessDeniedException("A branch must be selected before creating an expense category.");
+        }
+        if (!canManageAllScopes() && !targetOrgId.equals(currentOrgId)) {
+            throw new AccessDeniedException("Unauthorized access to another branch's expense categories.");
+        }
+        return new CategoryScope("BRANCH", targetOrgId, false);
+    }
+
+    private String normalizeScope(String requestedScope, UUID branchId, UUID currentOrgId) {
+        if (requestedScope != null && !requestedScope.isBlank()) {
+            String scope = requestedScope.trim().toUpperCase();
+            return switch (scope) {
+                case "ALL", "GLOBAL", "BRANCH" -> scope;
+                default -> throw new AccessDeniedException("Invalid expense category scope.");
+            };
+        }
+        if (branchId != null || currentOrgId != null) {
+            return "BRANCH";
+        }
+        return canManageAllScopes() ? "ALL" : "BRANCH";
+    }
+
+    private boolean canManageAllScopes() {
+        return SecurityUtils.isSuperAdmin() || SecurityUtils.hasRole("ADMIN");
+    }
+
     private String currentProfileOwner() {
         String owner = SecurityUtils.getCurrentUserEmail();
         if (owner == null || owner.isBlank()) {
             throw new AccessDeniedException("Authenticated profile is required for expense categories.");
         }
         return owner.trim();
+    }
+
+    private record CategoryScope(String scope, UUID orgId, boolean all) {
     }
 }

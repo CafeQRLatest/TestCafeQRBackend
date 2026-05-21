@@ -15,7 +15,14 @@ public interface PaymentRepository extends JpaRepository<Payment, UUID> {
     long countByClientId(UUID clientId);
     List<com.restaurant.pos.order.domain.Payment> findByOrderId(UUID orderId);
     List<Payment> findByExpenseId(UUID expenseId);
-    List<Payment> findByClientIdAndOrgIdAndPaymentDateBetweenOrderByPaymentDateAsc(UUID clientId, UUID orgId, LocalDateTime from, LocalDateTime to);
+    @Query("""
+            SELECT p FROM Payment p
+            WHERE p.clientId = :clientId
+              AND (:orgId IS NULL OR p.orgId = :orgId)
+              AND p.paymentDate BETWEEN :from AND :to
+            ORDER BY p.paymentDate ASC
+            """)
+    List<Payment> findByClientIdAndOrgIdAndPaymentDateBetweenOrderByPaymentDateAsc(@Param("clientId") UUID clientId, @Param("orgId") UUID orgId, @Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
     @Query("""
             SELECT p FROM Payment p
             WHERE p.clientId = :clientId
@@ -32,5 +39,11 @@ public interface PaymentRepository extends JpaRepository<Payment, UUID> {
             @Param("from") LocalDateTime from,
             @Param("to") LocalDateTime to
     );
-    boolean existsByClientIdAndOrgIdAndReferenceNo(UUID clientId, UUID orgId, String referenceNo);
+    @Query("""
+            SELECT COUNT(p) > 0 FROM Payment p
+            WHERE p.clientId = :clientId
+              AND ((:orgId IS NULL AND p.orgId IS NULL) OR p.orgId = :orgId)
+              AND p.referenceNo = :referenceNo
+            """)
+    boolean existsByClientIdAndOrgIdAndReferenceNo(@Param("clientId") UUID clientId, @Param("orgId") UUID orgId, @Param("referenceNo") String referenceNo);
 }

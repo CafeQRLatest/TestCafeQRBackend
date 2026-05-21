@@ -3,6 +3,8 @@ package com.restaurant.pos.invoice.repository;
 import com.restaurant.pos.invoice.domain.Invoice;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.util.Optional;
@@ -23,9 +25,22 @@ public interface InvoiceRepository extends JpaRepository<Invoice, UUID>, JpaSpec
     Optional<Invoice> findByInvoiceNoAndClientId(String invoiceNo, UUID clientId);
     Optional<Invoice> findByInvoiceNoAndClientIdAndOrgId(String invoiceNo, UUID clientId, UUID orgId);
 
-    List<Invoice> findByClientIdAndOrgIdAndInvoiceDateBetweenOrderByInvoiceDateAsc(UUID clientId, UUID orgId, LocalDateTime from, LocalDateTime to);
+    @Query("""
+            SELECT i FROM Invoice i
+            WHERE i.clientId = :clientId
+              AND (:orgId IS NULL OR i.orgId = :orgId)
+              AND i.invoiceDate BETWEEN :from AND :to
+            ORDER BY i.invoiceDate ASC
+            """)
+    List<Invoice> findByClientIdAndOrgIdAndInvoiceDateBetweenOrderByInvoiceDateAsc(@Param("clientId") UUID clientId, @Param("orgId") UUID orgId, @Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
 
-    boolean existsByClientIdAndOrgIdAndInvoiceNo(UUID clientId, UUID orgId, String invoiceNo);
+    @Query("""
+            SELECT COUNT(i) > 0 FROM Invoice i
+            WHERE i.clientId = :clientId
+              AND ((:orgId IS NULL AND i.orgId IS NULL) OR i.orgId = :orgId)
+              AND i.invoiceNo = :invoiceNo
+            """)
+    boolean existsByClientIdAndOrgIdAndInvoiceNo(@Param("clientId") UUID clientId, @Param("orgId") UUID orgId, @Param("invoiceNo") String invoiceNo);
     
     long countByClientId(UUID clientId);
 }

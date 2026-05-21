@@ -34,6 +34,8 @@ public class CategoryMapper {
                 .name(entity.getName())
                 .sortOrder(entity.getSortOrder())
                 .active("Y".equalsIgnoreCase(entity.getIsactive()))
+                .orgId(entity.getOrgId())
+                .scope(entity.getOrgId() == null ? "GLOBAL" : "BRANCH")
                 .createdAt(entity.getCreatedAt())
                 .updatedAt(entity.getUpdatedAt())
                 .build();

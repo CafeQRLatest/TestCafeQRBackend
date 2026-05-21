@@ -39,6 +39,9 @@ public class ExpenseSearchCriteria {
     @Schema(description = "Filter results by organizational branch ID")
     private UUID branchId;
 
+    @Schema(description = "Scope filter: ALL, GLOBAL, or BRANCH", example = "ALL")
+    private String scope;
+
     @Schema(description = "Filter results by status (ACTIVE/VOID)", example = "ACTIVE")
     private String status;
 }

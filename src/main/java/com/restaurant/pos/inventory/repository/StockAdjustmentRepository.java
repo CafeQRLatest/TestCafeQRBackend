@@ -2,6 +2,8 @@ package com.restaurant.pos.inventory.repository;
 
 import com.restaurant.pos.inventory.domain.StockAdjustment;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.time.LocalDateTime;
@@ -16,7 +18,14 @@ public interface StockAdjustmentRepository extends JpaRepository<StockAdjustment
     
     List<StockAdjustment> findByClientIdAndOrgIdOrderByAdjustmentDateDesc(UUID clientId, UUID orgId);
 
-    List<StockAdjustment> findByClientIdAndOrgIdAndAdjustmentDateBetweenOrderByAdjustmentDateAsc(UUID clientId, UUID orgId, LocalDateTime from, LocalDateTime to);
+    @Query("""
+            SELECT a FROM StockAdjustment a
+            WHERE a.clientId = :clientId
+              AND (:orgId IS NULL OR a.orgId = :orgId)
+              AND a.adjustmentDate BETWEEN :from AND :to
+            ORDER BY a.adjustmentDate ASC
+            """)
+    List<StockAdjustment> findByClientIdAndOrgIdAndAdjustmentDateBetweenOrderByAdjustmentDateAsc(@Param("clientId") UUID clientId, @Param("orgId") UUID orgId, @Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
     
     Optional<StockAdjustment> findByIdAndClientId(UUID id, UUID clientId);
     
