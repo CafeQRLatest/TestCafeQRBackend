@@ -54,22 +54,39 @@ FROM (
 ) sub
 WHERE p.client_id = sub.client_id AND p.org_id IS NULL;
 
--- 5. Deduplicate and merge accounting accounts
+-- 5. Deduplicate and merge accounting accounts (safe two-pass approach)
+--    The unique constraint is (client_id, org_id, code).
+--    Pass 1: Match null-org accounts by code (the actual constraint column).
+--    Pass 2: Match remaining null-org accounts by system_key.
+--    This avoids the OR-based join producing multiple matches per null_id.
+
+-- Pass 1: Code-based duplicates (these are the ones that would violate the constraint)
 CREATE TEMP TABLE duplicate_accounts AS
-SELECT 
+SELECT DISTINCT ON (aa_null.id)
     aa_null.id AS null_id,
     aa_target.id AS target_id
 FROM accounting_accounts aa_null
 JOIN client_default_orgs cdo ON aa_null.client_id = cdo.client_id
 JOIN accounting_accounts aa_target ON aa_target.client_id = aa_null.client_id
     AND aa_target.org_id = cdo.default_org_id
-    AND (
-        aa_target.code = aa_null.code 
-        OR (aa_target.system_key IS NOT NULL AND aa_target.system_key = aa_null.system_key)
-    )
+    AND aa_target.code = aa_null.code
 WHERE aa_null.org_id IS NULL;
 
--- Redirect references to duplicate accounting accounts
+-- Pass 2: system_key-based duplicates (only for accounts NOT already matched by code)
+INSERT INTO duplicate_accounts (null_id, target_id)
+SELECT DISTINCT ON (aa_null.id)
+    aa_null.id AS null_id,
+    aa_target.id AS target_id
+FROM accounting_accounts aa_null
+JOIN client_default_orgs cdo ON aa_null.client_id = cdo.client_id
+JOIN accounting_accounts aa_target ON aa_target.client_id = aa_null.client_id
+    AND aa_target.org_id = cdo.default_org_id
+    AND aa_target.system_key IS NOT NULL
+    AND aa_target.system_key = aa_null.system_key
+WHERE aa_null.org_id IS NULL
+  AND aa_null.id NOT IN (SELECT null_id FROM duplicate_accounts);
+
+-- Redirect references from duplicate null-org accounts to their org-scoped targets
 UPDATE journal_lines jl
 SET account_id = da.target_id
 FROM duplicate_accounts da
@@ -95,11 +112,25 @@ SET account_id = da.target_id
 FROM duplicate_accounts da
 WHERE ec.account_id = da.null_id;
 
--- Delete duplicate null-org accounting accounts
+-- Delete duplicate null-org accounting accounts (references already redirected)
 DELETE FROM accounting_accounts
 WHERE id IN (SELECT null_id FROM duplicate_accounts);
 
--- Update remaining non-duplicate null-org accounting accounts
+-- Safety: For remaining null-org accounts whose code would collide with an existing
+-- org-scoped account, append '-LEGACY' suffix to avoid unique constraint violation.
+UPDATE accounting_accounts aa_straggler
+SET code = aa_straggler.code || '-LEGACY'
+FROM client_default_orgs cdo
+WHERE aa_straggler.client_id = cdo.client_id
+  AND aa_straggler.org_id IS NULL
+  AND EXISTS (
+      SELECT 1 FROM accounting_accounts aa_existing
+      WHERE aa_existing.client_id = aa_straggler.client_id
+        AND aa_existing.org_id = cdo.default_org_id
+        AND aa_existing.code = aa_straggler.code
+  );
+
+-- Now safe to update remaining non-duplicate null-org accounts
 UPDATE accounting_accounts aa
 SET org_id = cdo.default_org_id
 FROM client_default_orgs cdo

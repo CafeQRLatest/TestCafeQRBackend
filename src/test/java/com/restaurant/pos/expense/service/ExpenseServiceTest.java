@@ -194,4 +194,25 @@ class ExpenseServiceTest {
                 .isInstanceOf(BusinessException.class)
                 .hasMessage("Invalid expense category");
     }
+
+    @Test
+    void getExpensesTranslatesOrderDateToExpenseDate() {
+        com.restaurant.pos.expense.dto.ExpenseSearchCriteria criteria = com.restaurant.pos.expense.dto.ExpenseSearchCriteria.builder().build();
+        org.springframework.data.domain.Pageable pageable = org.springframework.data.domain.PageRequest.of(0, 10, org.springframework.data.domain.Sort.by(org.springframework.data.domain.Sort.Direction.DESC, "orderDate"));
+
+        when(expenseRepository.findAll(any(org.springframework.data.jpa.domain.Specification.class), any(org.springframework.data.domain.Pageable.class)))
+                .thenReturn(org.springframework.data.domain.Page.empty());
+
+        expenseService.getExpenses(criteria, pageable);
+
+        ArgumentCaptor<org.springframework.data.domain.Pageable> pageableCaptor = ArgumentCaptor.forClass(org.springframework.data.domain.Pageable.class);
+        verify(expenseRepository).findAll(any(org.springframework.data.jpa.domain.Specification.class), pageableCaptor.capture());
+
+        org.springframework.data.domain.Pageable capturedPageable = pageableCaptor.getValue();
+        org.springframework.data.domain.Sort.Order order = capturedPageable.getSort().getOrderFor("expenseDate");
+        assertThat(order).isNotNull();
+        assertThat(order.getProperty()).isEqualTo("expenseDate");
+        assertThat(order.getDirection()).isEqualTo(org.springframework.data.domain.Sort.Direction.DESC);
+        assertThat(capturedPageable.getSort().getOrderFor("orderDate")).isNull();
+    }
 }
