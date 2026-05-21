@@ -5,14 +5,17 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.stereotype.Repository;
 
+import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 /**
  * Enterprise-grade Repository for Expense entities.
- * Inherits from the unified order infrastructure but provides 
- * a domain-specific interface for financial auditing.
+ * Dedicated to the expenses table.
  */
 @Repository
 public interface ExpenseRepository extends JpaRepository<Expense, UUID>, JpaSpecificationExecutor<Expense> {
-    // Expense-specific query methods can be added here
+    List<Expense> findByClientIdAndOrgIdAndExpenseDateBetweenOrderByExpenseDateAsc(UUID clientId, UUID orgId, Instant from, Instant to);
+    boolean existsByClientIdAndOrgIdAndExpenseNo(UUID clientId, UUID orgId, String expenseNo);
 }
+

@@ -11,6 +11,7 @@ import com.restaurant.pos.sequence.domain.DocumentType;
 import com.restaurant.pos.sequence.repository.DocumentSequenceRepository;
 import com.restaurant.pos.client.repository.OrganizationRepository;
 import com.restaurant.pos.client.domain.Organization;
+import com.restaurant.pos.expense.repository.ExpenseRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -31,6 +32,7 @@ public class DocumentSequenceService {
     private final OrderRepository orderRepository;
     private final InvoiceRepository invoiceRepository;
     private final PaymentRepository paymentRepository;
+    private final ExpenseRepository expenseRepository;
     private final BranchContextService branchContext;
 
     /**
@@ -141,8 +143,10 @@ public class DocumentSequenceService {
 
     private boolean documentNumberExists(DocumentType type, UUID clientId, UUID orgId, String documentNo) {
         return switch (type) {
-            case SALE_ORDER, QUOTATION, PURCHASE_ORDER, DELIVERY_CHALLAN, EXPENSE ->
+            case SALE_ORDER, QUOTATION, PURCHASE_ORDER, DELIVERY_CHALLAN ->
                     orderRepository.existsByClientIdAndOrgIdAndOrderNo(clientId, orgId, documentNo);
+            case EXPENSE ->
+                    expenseRepository.existsByClientIdAndOrgIdAndExpenseNo(clientId, orgId, documentNo);
             case CUSTOMER_INVOICE, VENDOR_BILL, PURCHASE_BILL, EXPENSE_RECEIPT, CREDIT_NOTE, DEBIT_NOTE ->
                     invoiceRepository.existsByClientIdAndOrgIdAndInvoiceNo(clientId, orgId, documentNo);
             case INBOUND_PAYMENT, OUTBOUND_PAYMENT, PAYMENT_IN, PAYMENT_OUT ->

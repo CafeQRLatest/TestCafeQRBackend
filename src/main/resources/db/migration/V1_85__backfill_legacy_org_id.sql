@@ -208,10 +208,6 @@ UPDATE payments SET expense_category_id = dec.target_id
 FROM duplicate_expense_categories dec
 WHERE expense_category_id = dec.null_id;
 
-UPDATE expenses SET category_id = dec.target_id
-FROM duplicate_expense_categories dec
-WHERE category_id = dec.null_id;
-
 DELETE FROM expense_categories
 WHERE id IN (SELECT null_id FROM duplicate_expense_categories);
 
@@ -219,26 +215,6 @@ UPDATE expense_categories ec
 SET org_id = cdo.default_org_id
 FROM client_default_orgs cdo
 WHERE ec.client_id = cdo.client_id AND ec.org_id IS NULL;
-
--- 11. Expenses (backfill org_id)
--- First resolve idempotency key conflicts if any
-UPDATE expenses e_null
-SET idempotency_key = e_null.idempotency_key || '-LEGACY'
-FROM client_default_orgs cdo
-WHERE e_null.client_id = cdo.client_id
-  AND e_null.org_id IS NULL
-  AND e_null.idempotency_key IS NOT NULL
-  AND EXISTS (
-      SELECT 1 FROM expenses e_target
-      WHERE e_target.client_id = e_null.client_id
-        AND e_target.org_id = cdo.default_org_id
-        AND e_target.idempotency_key = e_null.idempotency_key
-  );
-
-UPDATE expenses e
-SET org_id = cdo.default_org_id
-FROM client_default_orgs cdo
-WHERE e.client_id = cdo.client_id AND e.org_id IS NULL;
 
 -- 12. Users (staff without branch assignment)
 UPDATE users u

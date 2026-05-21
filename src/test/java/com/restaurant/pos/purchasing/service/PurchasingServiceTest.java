@@ -34,7 +34,8 @@ class PurchasingServiceTest {
                 customerRepository,
                 mock(VendorRepository.class),
                 mock(CurrencyRepository.class),
-                mock(PricelistRepository.class)
+                mock(PricelistRepository.class),
+                new com.restaurant.pos.common.service.BranchContextService()
         );
         clientId = UUID.randomUUID();
         TenantContext.setCurrentTenant(clientId);

@@ -14,6 +14,7 @@ import java.util.UUID;
 public interface PaymentRepository extends JpaRepository<Payment, UUID> {
     long countByClientId(UUID clientId);
     List<com.restaurant.pos.order.domain.Payment> findByOrderId(UUID orderId);
+    List<Payment> findByExpenseId(UUID expenseId);
     List<Payment> findByClientIdAndOrgIdAndPaymentDateBetweenOrderByPaymentDateAsc(UUID clientId, UUID orgId, LocalDateTime from, LocalDateTime to);
     @Query("""
             SELECT p FROM Payment p

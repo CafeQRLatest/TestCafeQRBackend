@@ -12,17 +12,17 @@ public class ExpenseMapper {
 
     public ExpenseResponse toExpenseResponse(Expense expense, String categoryName) {
         
-        String method = (expense.getReference() != null && !expense.getReference().isBlank()) 
-                ? expense.getReference() 
+        String method = (expense.getPaymentMethod() != null && !expense.getPaymentMethod().isBlank()) 
+                ? expense.getPaymentMethod() 
                 : "CASH";
 
         return ExpenseResponse.builder()
                 .id(expense.getId())
-                .referenceNumber(expense.getOrderNo())
-                .categoryId(expense.getExpenseCategoryId())
+                .referenceNumber(expense.getExpenseNo())
+                .categoryId(expense.getCategoryId())
                 .categoryName(categoryName)
-                .expenseDate(expense.getOrderDate())
-                .amount(expense.getGrandTotal())
+                .expenseDate(expense.getExpenseDate())
+                .amount(expense.getAmount())
                 .description(expense.getDescription())
                 .paymentMethod(method)
                 .active("Y".equals(expense.getIsactive()))

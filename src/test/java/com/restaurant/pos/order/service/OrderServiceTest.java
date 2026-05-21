@@ -67,7 +67,8 @@ class OrderServiceTest {
                 mock(PrintJobService.class),
                 mock(ProductRepository.class),
                 customerRepository,
-                new ObjectMapper()
+                new ObjectMapper(),
+                new com.restaurant.pos.common.service.BranchContextService()
         );
 
         clientId = UUID.randomUUID();

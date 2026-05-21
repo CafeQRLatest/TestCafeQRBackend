@@ -20,6 +20,8 @@ import com.restaurant.pos.order.repository.PaymentRepository;
 import com.restaurant.pos.order.repository.PaymentSplitRepository;
 import com.restaurant.pos.product.domain.Product;
 import com.restaurant.pos.product.repository.ProductRepository;
+import com.restaurant.pos.expense.domain.Expense;
+import com.restaurant.pos.expense.repository.ExpenseRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -60,6 +62,7 @@ public class AccountingPostingService {
     private final ProductRepository productRepository;
     private final ExpenseCategoryRepository expenseCategoryRepository;
     private final StockAdjustmentRepository stockAdjustmentRepository;
+    private final ExpenseRepository expenseRepository;
     private final org.springframework.transaction.PlatformTransactionManager transactionManager;
 
     public PostingOutcome postInvoice(Order order, Invoice invoice) {
@@ -69,11 +72,23 @@ public class AccountingPostingService {
         UUID invoiceId = invoice.getId();
         String sourceType = invoiceSourceType(invoice);
         // Derive orgId from the source entities — critical for Super Admin "All Branches" mode
-        UUID sourceOrgId = invoice.getOrgId() != null ? invoice.getOrgId() : (order != null ? order.getOrgId() : null);
+        UUID sourceOrgId = invoice.getOrgId();
+        if (sourceOrgId == null) {
+            if (invoice.getExpenseId() != null) {
+                sourceOrgId = expenseRepository.findById(invoice.getExpenseId()).map(Expense::getOrgId).orElse(null);
+            } else if (order != null) {
+                sourceOrgId = order.getOrgId();
+            }
+        }
         return postAfterCommitOrNow(sourceType, invoiceId, sourceOrgId, () -> {
             Invoice currentInvoice = invoiceRepository.findById(invoiceId).orElse(invoice);
-            Order currentOrder = resolveOrder(currentInvoice.getOrderId()).orElse(order);
-            return buildInvoiceJournal(currentOrder, currentInvoice);
+            if (currentInvoice.getExpenseId() != null) {
+                Expense expense = expenseRepository.findById(currentInvoice.getExpenseId()).orElse(null);
+                return buildInvoiceJournal(null, expense, currentInvoice);
+            } else {
+                Order currentOrder = resolveOrder(currentInvoice.getOrderId()).orElse(order);
+                return buildInvoiceJournal(currentOrder, null, currentInvoice);
+            }
         });
     }
 
@@ -83,11 +98,23 @@ public class AccountingPostingService {
         }
         UUID paymentId = payment.getId();
         String sourceType = paymentSourceType(payment);
-        UUID sourceOrgId = payment.getOrgId() != null ? payment.getOrgId() : (order != null ? order.getOrgId() : null);
+        UUID sourceOrgId = payment.getOrgId();
+        if (sourceOrgId == null) {
+            if (payment.getExpenseId() != null) {
+                sourceOrgId = expenseRepository.findById(payment.getExpenseId()).map(Expense::getOrgId).orElse(null);
+            } else if (order != null) {
+                sourceOrgId = order.getOrgId();
+            }
+        }
         return postAfterCommitOrNow(sourceType, paymentId, sourceOrgId, () -> {
             Payment currentPayment = paymentRepository.findById(paymentId).orElse(payment);
-            Order currentOrder = resolveOrder(currentPayment.getOrderId()).orElse(order);
-            return buildPaymentJournal(currentOrder, currentPayment);
+            if (currentPayment.getExpenseId() != null) {
+                Expense expense = expenseRepository.findById(currentPayment.getExpenseId()).orElse(null);
+                return buildPaymentJournal(null, expense, currentPayment);
+            } else {
+                Order currentOrder = resolveOrder(currentPayment.getOrderId()).orElse(order);
+                return buildPaymentJournal(currentOrder, null, currentPayment);
+            }
         });
     }
 
@@ -183,10 +210,17 @@ public class AccountingPostingService {
 
         List<Order> ordersInBusinessPeriod = List.of();
         if (sources.contains("INVOICE") || sources.contains("PAYMENT") || sources.contains("COGS")
-                || sources.contains("EXPENSE") || sources.contains("PURCHASE")) {
+                || sources.contains("PURCHASE")) {
             Instant fromInstant = range.from.atZone(IST).toInstant();
             Instant toInstant = range.to.atZone(IST).toInstant();
             ordersInBusinessPeriod = orderRepository.findByClientIdAndOrgIdAndOrderDateBetweenOrderByOrderDateAsc(clientId, orgId, fromInstant, toInstant);
+        }
+
+        List<Expense> expensesInBusinessPeriod = List.of();
+        if (sources.contains("INVOICE") || sources.contains("PAYMENT") || sources.contains("EXPENSE")) {
+            Instant fromInstant = range.from.atZone(IST).toInstant();
+            Instant toInstant = range.to.atZone(IST).toInstant();
+            expensesInBusinessPeriod = expenseRepository.findByClientIdAndOrgIdAndExpenseDateBetweenOrderByExpenseDateAsc(clientId, orgId, fromInstant, toInstant);
         }
 
         if (sources.contains("INVOICE")) {
@@ -203,6 +237,13 @@ public class AccountingPostingService {
                     }
                 });
             }
+            for (Expense expense : expensesInBusinessPeriod) {
+                invoiceRepository.findByExpenseId(expense.getId()).forEach(invoice -> {
+                    if (invoice.getId() != null && scannedInvoiceIds.add(invoice.getId())) {
+                        countInvoiceBackfill(response, dryRun, invoice);
+                    }
+                });
+            }
         } else {
             if (sources.contains("EXPENSE")) {
                 Set<UUID> scannedInvoiceIds = new HashSet<>();
@@ -213,14 +254,12 @@ public class AccountingPostingService {
                         }
                     }
                 }
-                for (Order order : ordersInBusinessPeriod) {
-                    if (order.getOrderType() == OrderType.EXPENSE) {
-                        invoiceRepository.findByOrderId(order.getId()).forEach(invoice -> {
-                            if (invoice.getId() != null && scannedInvoiceIds.add(invoice.getId())) {
-                                countInvoiceBackfill(response, dryRun, invoice);
-                            }
-                        });
-                    }
+                for (Expense expense : expensesInBusinessPeriod) {
+                    invoiceRepository.findByExpenseId(expense.getId()).forEach(invoice -> {
+                        if (invoice.getId() != null && scannedInvoiceIds.add(invoice.getId())) {
+                            countInvoiceBackfill(response, dryRun, invoice);
+                        }
+                    });
                 }
             }
             if (sources.contains("PURCHASE")) {
@@ -257,27 +296,31 @@ public class AccountingPostingService {
                     }
                 });
             }
+            for (Expense expense : expensesInBusinessPeriod) {
+                paymentRepository.findByExpenseId(expense.getId()).forEach(payment -> {
+                    if (payment.getId() != null && scannedPaymentIds.add(payment.getId())) {
+                        countPaymentBackfill(response, dryRun, payment);
+                    }
+                });
+            }
         } else {
             if (sources.contains("EXPENSE")) {
                 Set<UUID> scannedPaymentIds = new HashSet<>();
                 for (Payment payment : paymentRepository.findByClientIdAndOrgIdAndPaymentDateBetweenOrderByPaymentDateAsc(clientId, orgId, range.from, range.to)) {
                     if (payment.getPaymentType() == PaymentType.OUTBOUND) {
-                        Optional<Order> order = resolveOrder(payment.getOrderId());
-                        if (order.isPresent() && order.get().getOrderType() == OrderType.EXPENSE) {
+                        if (payment.getExpenseId() != null) {
                             if (payment.getId() != null && scannedPaymentIds.add(payment.getId())) {
                                 countPaymentBackfill(response, dryRun, payment);
                             }
                         }
                     }
                 }
-                for (Order order : ordersInBusinessPeriod) {
-                    if (order.getOrderType() == OrderType.EXPENSE) {
-                        paymentRepository.findByOrderId(order.getId()).forEach(payment -> {
-                            if (payment.getId() != null && scannedPaymentIds.add(payment.getId())) {
-                                countPaymentBackfill(response, dryRun, payment);
-                            }
-                        });
-                    }
+                for (Expense expense : expensesInBusinessPeriod) {
+                    paymentRepository.findByExpenseId(expense.getId()).forEach(payment -> {
+                        if (payment.getId() != null && scannedPaymentIds.add(payment.getId())) {
+                            countPaymentBackfill(response, dryRun, payment);
+                        }
+                    });
                 }
             }
             if (sources.contains("PURCHASE")) {
@@ -398,17 +441,31 @@ public class AccountingPostingService {
     }
 
     private void countInvoiceBackfill(AccountingBackfillResponse response, boolean dryRun, Invoice invoice) {
-        Optional<Order> order = resolveOrder(invoice.getOrderId());
-        countOutcome(response, dryRun, invoiceSourceType(invoice), invoice.getId(),
-                sourceDocumentDate(order.orElse(null), invoice.getInvoiceDate()),
-                () -> postInvoice(order.orElse(null), invoice));
+        if (invoice.getExpenseId() != null) {
+            Optional<Expense> expense = expenseRepository.findById(invoice.getExpenseId());
+            countOutcome(response, dryRun, invoiceSourceType(invoice), invoice.getId(),
+                    sourceDocumentDate(null, expense.orElse(null), invoice.getInvoiceDate()),
+                    () -> postInvoice(null, invoice));
+        } else {
+            Optional<Order> order = resolveOrder(invoice.getOrderId());
+            countOutcome(response, dryRun, invoiceSourceType(invoice), invoice.getId(),
+                    sourceDocumentDate(order.orElse(null), null, invoice.getInvoiceDate()),
+                    () -> postInvoice(order.orElse(null), invoice));
+        }
     }
 
     private void countPaymentBackfill(AccountingBackfillResponse response, boolean dryRun, Payment payment) {
-        Optional<Order> order = resolveOrder(payment.getOrderId());
-        countOutcome(response, dryRun, paymentSourceType(payment), payment.getId(),
-                sourceDocumentDate(order.orElse(null), payment.getPaymentDate()),
-                () -> postPayment(order.orElse(null), payment));
+        if (payment.getExpenseId() != null) {
+            Optional<Expense> expense = expenseRepository.findById(payment.getExpenseId());
+            countOutcome(response, dryRun, paymentSourceType(payment), payment.getId(),
+                    sourceDocumentDate(null, expense.orElse(null), payment.getPaymentDate()),
+                    () -> postPayment(null, payment));
+        } else {
+            Optional<Order> order = resolveOrder(payment.getOrderId());
+            countOutcome(response, dryRun, paymentSourceType(payment), payment.getId(),
+                    sourceDocumentDate(order.orElse(null), null, payment.getPaymentDate()),
+                    () -> postPayment(order.orElse(null), payment));
+        }
     }
 
     private void countOutcome(AccountingBackfillResponse response, boolean dryRun, String sourceType, UUID sourceId, Supplier<PostingOutcome> poster) {
@@ -542,7 +599,7 @@ public class AccountingPostingService {
         return safePost(sourceType, sourceId, sourceOrgId, builder);
     }
 
-    private Optional<JournalEntry> buildInvoiceJournal(Order order, Invoice invoice) {
+    private Optional<JournalEntry> buildInvoiceJournal(Order order, Expense expense, Invoice invoice) {
         BigDecimal total = money(invoice.getTotalAmount());
         if (total.compareTo(BigDecimal.ZERO) <= 0) {
             return Optional.empty();
@@ -579,7 +636,7 @@ public class AccountingPostingService {
             addLine(lines, defaultsService.resolveAccount(AccountingDefaultsService.ACCOUNTS_PAYABLE), BigDecimal.ZERO, total,
                     PartyType.VENDOR, invoice.getVendorId(), "Vendor payable");
         } else {
-            AccountingAccount expenseAccount = resolveExpenseAccount(invoice, order);
+            AccountingAccount expenseAccount = resolveExpenseAccount(invoice, order, expense);
             addLine(lines, expenseAccount, base, BigDecimal.ZERO, null, null, "Expense");
             if (tax.compareTo(BigDecimal.ZERO) > 0) {
                 addLine(lines, defaultsService.resolveAccount(AccountingDefaultsService.INPUT_TAX), tax, BigDecimal.ZERO,
@@ -589,13 +646,15 @@ public class AccountingPostingService {
                     null, null, "Expense payable");
         }
 
-        UUID orgId = invoice.getOrgId() != null ? invoice.getOrgId() : (order != null ? order.getOrgId() : null);
-        return journal(invoiceSourceType(invoice), invoice.getId(), sourceDocumentDate(order, invoice.getInvoiceDate()), invoice.getTerminalId(),
-                order != null ? order.getWarehouseId() : null, order != null ? order.getCurrencyId() : null,
+        UUID orgId = invoice.getOrgId() != null ? invoice.getOrgId() : (order != null ? order.getOrgId() : (expense != null ? expense.getOrgId() : null));
+        UUID currencyId = order != null ? order.getCurrencyId() : (expense != null ? expense.getCurrencyId() : null);
+        LocalDateTime docDate = sourceDocumentDate(order, expense, invoice.getInvoiceDate());
+        return journal(invoiceSourceType(invoice), invoice.getId(), docDate, invoice.getTerminalId(),
+                order != null ? order.getWarehouseId() : null, currencyId,
                 orgId, "Auto posted invoice " + invoice.getInvoiceNo(), lines);
     }
 
-    private Optional<JournalEntry> buildPaymentJournal(Order order, Payment payment) {
+    private Optional<JournalEntry> buildPaymentJournal(Order order, Expense expense, Payment payment) {
         BigDecimal amount = money(payment.getAmountPaid());
         if (amount.compareTo(BigDecimal.ZERO) <= 0) {
             return Optional.empty();
@@ -632,9 +691,11 @@ public class AccountingPostingService {
                     PartyType.VENDOR, order != null ? order.getVendorId() : null, "Payable settled");
         }
 
-        UUID orgId = payment.getOrgId() != null ? payment.getOrgId() : (order != null ? order.getOrgId() : null);
-        return journal(paymentSourceType(payment), payment.getId(), sourceDocumentDate(order, payment.getPaymentDate()), payment.getTerminalId(),
-                order != null ? order.getWarehouseId() : null, order != null ? order.getCurrencyId() : null,
+        UUID orgId = payment.getOrgId() != null ? payment.getOrgId() : (order != null ? order.getOrgId() : (expense != null ? expense.getOrgId() : null));
+        UUID currencyId = order != null ? order.getCurrencyId() : (expense != null ? expense.getCurrencyId() : null);
+        LocalDateTime docDate = sourceDocumentDate(order, expense, payment.getPaymentDate());
+        return journal(paymentSourceType(payment), payment.getId(), docDate, payment.getTerminalId(),
+                order != null ? order.getWarehouseId() : null, currencyId,
                 orgId, "Auto posted payment " + payment.getReferenceNo(), lines);
     }
 
@@ -759,10 +820,13 @@ public class AccountingPostingService {
                 .build());
     }
 
-    private AccountingAccount resolveExpenseAccount(Invoice invoice, Order order) {
-        UUID categoryId = invoice.getExpenseCategoryId() != null
-                ? invoice.getExpenseCategoryId()
-                : order != null ? order.getExpenseCategoryId() : null;
+    private AccountingAccount resolveExpenseAccount(Invoice invoice, Order order, Expense expense) {
+        UUID categoryId = invoice.getExpenseCategoryId();
+        if (categoryId == null) {
+            if (expense != null) {
+                categoryId = expense.getCategoryId();
+            }
+        }
         if (categoryId != null) {
             Optional<ExpenseCategory> category = expenseCategoryRepository.findById(categoryId);
             if (category.isPresent() && category.get().getAccountId() != null) {
@@ -883,9 +947,12 @@ public class AccountingPostingService {
         return LocalDateTime.ofInstant(instant, IST);
     }
 
-    private LocalDateTime sourceDocumentDate(Order order, LocalDateTime fallbackDate) {
+    private LocalDateTime sourceDocumentDate(Order order, Expense expense, LocalDateTime fallbackDate) {
         if (order != null && order.getOrderDate() != null) {
             return orderDate(order);
+        }
+        if (expense != null && expense.getExpenseDate() != null) {
+            return LocalDateTime.ofInstant(expense.getExpenseDate(), IST);
         }
         return fallbackDate != null ? fallbackDate : LocalDateTime.now();
     }

@@ -11,7 +11,7 @@ import java.util.UUID;
 
 @Data
 @Entity
-@Builder
+@Builder(toBuilder = true)
 @NoArgsConstructor
 @AllArgsConstructor
 @EqualsAndHashCode(callSuper = true)
@@ -55,6 +55,9 @@ public class Invoice extends BaseEntity {
 
     @Column(name = "order_id")
     private UUID orderId;
+
+    @Column(name = "expense_id")
+    private UUID expenseId;
 
     @Column(name = "customer_id")
     private UUID customerId;

@@ -1,41 +1,84 @@
 package com.restaurant.pos.expense.domain;
 
-import com.restaurant.pos.category.domain.ExpenseCategory;
-import com.restaurant.pos.order.domain.Order;
-import com.restaurant.pos.order.domain.OrderType;
-import jakarta.persistence.DiscriminatorValue;
-import jakarta.persistence.Entity;
-import lombok.Getter;
-import lombok.NoArgsConstructor;
-import lombok.Setter;
-import lombok.ToString;
+import com.restaurant.pos.common.entity.BaseEntity;
+import jakarta.persistence.*;
+import lombok.*;
+
+import java.math.BigDecimal;
+import java.time.Instant;
+import java.util.UUID;
 
 /**
  * Enterprise-grade Domain Entity for Expenses.
- * Uses Single Table Inheritance to map Expense-specific logic 
- * onto the unified 'orders' table.
+ * Dedicated to the stand-alone 'expenses' table.
  */
+@Data
 @Entity
-@Getter
-@Setter
-@ToString(callSuper = true)
+@Builder(toBuilder = true)
 @NoArgsConstructor
-@DiscriminatorValue("EXPENSE")
-public class Expense extends Order {
+@AllArgsConstructor
+@EqualsAndHashCode(callSuper = true)
+@Table(name = "expenses")
+public class Expense extends BaseEntity {
 
-    /**
-     * Custom initialization for Expense domain.
-     */
-    public Expense(ExpenseCategory category) {
-        super();
-        this.setOrderType(OrderType.EXPENSE);
-        this.setOrderStatus("COMPLETED");
-        this.setPaymentStatus("PAID");
-        if (category != null) {
-            this.setExpenseCategoryId(category.getId());
-        }
+    @Id
+    @Builder.Default
+    private UUID id = UUID.randomUUID();
+
+    @Column(name = "expense_no", nullable = false)
+    private String expenseNo;
+
+    @Column(name = "category_id")
+    private UUID categoryId;
+
+    @Column(name = "terminal_id")
+    private UUID terminalId;
+
+    @Column(name = "expense_date", nullable = false)
+    @Builder.Default
+    private Instant expenseDate = Instant.now();
+
+    @Builder.Default
+    @Column(name = "amount", precision = 15, scale = 2, nullable = false)
+    private BigDecimal amount = BigDecimal.ZERO;
+
+    @Column(columnDefinition = "TEXT")
+    private String description;
+
+    @Column(name = "payment_method", length = 50)
+    private String paymentMethod;
+
+    @Column(length = 20)
+    @Builder.Default
+    private String status = "COMPLETED";
+
+    @Column(name = "doc_status", length = 20)
+    @Builder.Default
+    private String docStatus = "COMPLETED";
+
+    @Column(name = "payment_status", length = 20)
+    @Builder.Default
+    private String paymentStatus = "PAID";
+
+    @Column(name = "original_expense_id")
+    private UUID originalExpenseId;
+
+    @Column(name = "revision_number")
+    @Builder.Default
+    private Integer revisionNumber = 0;
+
+    @Column(name = "currency_id")
+    private UUID currencyId;
+
+    @Builder.Default
+    @Column(name = "isactive", length = 1)
+    private String isactive = "Y";
+
+    public boolean isActive() {
+        return "Y".equals(this.isactive);
     }
-    
-    // You can add expense-specific domain logic here in the future
-    // e.g. public boolean isTaxDeductible() { ... }
+
+    public void deactivate() {
+        this.isactive = "N";
+    }
 }

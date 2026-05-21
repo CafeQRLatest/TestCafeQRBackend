@@ -48,6 +48,7 @@ class AccountingPostingServiceTest {
                 mock(ProductRepository.class),
                 mock(ExpenseCategoryRepository.class),
                 mock(StockAdjustmentRepository.class),
+                mock(com.restaurant.pos.expense.repository.ExpenseRepository.class),
                 mock(PlatformTransactionManager.class)
         );
 

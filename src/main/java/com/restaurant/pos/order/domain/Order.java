@@ -9,6 +9,8 @@ import lombok.*;
 import org.hibernate.annotations.Formula;
 
 import java.math.BigDecimal;
+
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -34,8 +36,7 @@ import java.util.UUID;
 )
 @com.fasterxml.jackson.annotation.JsonSubTypes({
     @com.fasterxml.jackson.annotation.JsonSubTypes.Type(value = Order.class, name = "SALE"),
-    @com.fasterxml.jackson.annotation.JsonSubTypes.Type(value = com.restaurant.pos.purchasing.domain.PurchaseOrder.class, name = "PURCHASE"),
-    @com.fasterxml.jackson.annotation.JsonSubTypes.Type(value = com.restaurant.pos.expense.domain.Expense.class, name = "EXPENSE")
+    @com.fasterxml.jackson.annotation.JsonSubTypes.Type(value = com.restaurant.pos.purchasing.domain.PurchaseOrder.class, name = "PURCHASE")
 })
 public class Order extends BaseEntity {
 
@@ -170,9 +171,6 @@ public class Order extends BaseEntity {
 
     @Column(name = "original_order_id")
     private UUID originalOrderId;
-
-    @Column(name = "expense_category_id")
-    private UUID expenseCategoryId;
 
     @Column(name = "revision_number")
     @Builder.Default

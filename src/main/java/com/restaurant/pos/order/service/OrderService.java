@@ -914,8 +914,6 @@ public class OrderService {
         OrderType preservedType = oldOrder.getOrderType();
         if (preservedType == OrderType.PURCHASE) {
             newOrder = new com.restaurant.pos.purchasing.domain.PurchaseOrder();
-        } else if (preservedType == OrderType.EXPENSE) {
-            newOrder = new com.restaurant.pos.expense.domain.Expense();
         } else {
             newOrder = new Order();
         }
@@ -965,9 +963,6 @@ public class OrderService {
         newOrder.setTotalDiscountAmount(updates.getTotalDiscountAmount() != null ? updates.getTotalDiscountAmount() : oldOrder.getTotalDiscountAmount());
         newOrder.setGrandTotal(updates.getGrandTotal() != null ? updates.getGrandTotal() : oldOrder.getGrandTotal());
         newOrder.setDescription(updates.getDescription() != null ? updates.getDescription() : oldOrder.getDescription());
-
-        // Expense category (for EXPENSE type)
-        newOrder.setExpenseCategoryId(updates.getExpenseCategoryId() != null ? updates.getExpenseCategoryId() : oldOrder.getExpenseCategoryId());
 
         // Tenant fields
         newOrder.setClientId(oldOrder.getClientId());

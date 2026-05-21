@@ -35,24 +35,23 @@ public class ExpenseSpecification {
 
             // Date Range
             if (criteria.getFromDate() != null) {
-                predicates.add(cb.greaterThanOrEqualTo(root.get("orderDate"), criteria.getFromDate()));
+                predicates.add(cb.greaterThanOrEqualTo(root.get("expenseDate"), criteria.getFromDate()));
             }
             if (criteria.getToDate() != null) {
-                predicates.add(cb.lessThanOrEqualTo(root.get("orderDate"), criteria.getToDate()));
+                predicates.add(cb.lessThanOrEqualTo(root.get("expenseDate"), criteria.getToDate()));
             }
 
             // Categorization
             if (criteria.getCategoryId() != null) {
-                predicates.add(cb.equal(root.get("expenseCategoryId"), criteria.getCategoryId()));
+                predicates.add(cb.equal(root.get("categoryId"), criteria.getCategoryId()));
             }
 
-            // Payment Method — for Expense entities the payment method is stored in
-            // the 'reference' column (set by ExpenseService.buildExpenseEntity).
+            // Payment Method
             if (criteria.getPaymentMethod() != null && !criteria.getPaymentMethod().isBlank()) {
-                predicates.add(cb.equal(root.get("reference"), criteria.getPaymentMethod()));
+                predicates.add(cb.equal(root.get("paymentMethod"), criteria.getPaymentMethod()));
             }
 
-            // Fuzzy Search (Order No or Description)
+            // Fuzzy Search (Expense No or Description)
             if (criteria.getSearchTerm() != null && !criteria.getSearchTerm().isBlank()) {
                 String safe = criteria.getSearchTerm()
                         .replace("%", "\\%")
@@ -60,7 +59,7 @@ public class ExpenseSpecification {
                         .trim();
                 String pattern = "%" + safe.toLowerCase() + "%";
                 predicates.add(cb.or(
-                    cb.like(cb.lower(root.get("orderNo")), pattern),
+                    cb.like(cb.lower(root.get("expenseNo")), pattern),
                     cb.like(cb.lower(root.get("description")), pattern)
                 ));
             }
@@ -70,14 +69,14 @@ public class ExpenseSpecification {
                 // VOID History: Show only records marked as inactive or explicitly voided
                 predicates.add(cb.or(
                     cb.equal(root.get("isactive"), ExpenseStatus.INACTIVE_FLAG),
-                    cb.equal(root.get("orderStatus"), ExpenseStatus.VOID)
+                    cb.equal(root.get("status"), ExpenseStatus.VOID)
                 ));
             } else {
                 // ACTIVE: Show only records that are both isactive='Y' AND not status 'VOID'
                 // This is the default if status is null, empty, or "ACTIVE"
                 predicates.add(cb.and(
                     cb.equal(root.get("isactive"), ExpenseStatus.ACTIVE_FLAG),
-                    cb.notEqual(root.get("orderStatus"), ExpenseStatus.VOID)
+                    cb.notEqual(root.get("status"), ExpenseStatus.VOID)
                 ));
             }
 
