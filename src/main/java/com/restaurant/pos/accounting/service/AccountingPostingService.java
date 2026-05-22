@@ -645,7 +645,7 @@ public class AccountingPostingService {
         if (type != InvoiceType.CUSTOMER_INVOICE || isVoidStatus(invoice.getStatus()) || isVoidStatus(invoice.getDocStatus())) {
             return false;
         }
-        BigDecimal discount = money(order.getTotalDiscountAmount()).max(BigDecimal.ZERO);
+        BigDecimal discount = effectiveInvoiceDiscount(order);
         if (discount.compareTo(BigDecimal.ZERO) <= 0) {
             return false;
         }
@@ -658,7 +658,7 @@ public class AccountingPostingService {
     private boolean invoiceJournalMatchesOrder(JournalEntry entry, Order order, Invoice invoice) {
         BigDecimal total = money(invoice.getTotalAmount());
         BigDecimal tax = clampTax(order != null ? order.getTotalTaxAmount() : BigDecimal.ZERO, total);
-        BigDecimal discount = money(order != null ? order.getTotalDiscountAmount() : BigDecimal.ZERO).max(BigDecimal.ZERO);
+        BigDecimal discount = effectiveInvoiceDiscount(order);
         BigDecimal grossBeforeDiscount = total.subtract(tax).add(discount);
 
         return journalAmount(entry, AccountingDefaultsService.ACCOUNTS_RECEIVABLE, true).compareTo(total) == 0
@@ -809,7 +809,7 @@ public class AccountingPostingService {
                     oldEntry.setStatus(JournalStatus.VOID);
                     oldEntry.setIsactive("N");
                     oldEntry.setDescription(appendSystemNote(oldEntry.getDescription(), "Replaced: " + nullToDash(reason)));
-                    journalEntryRepository.save(oldEntry);
+                    journalEntryRepository.saveAndFlush(oldEntry);
                 }
 
                 Optional<JournalEntry> maybeEntry = builder.get();
@@ -901,7 +901,7 @@ public class AccountingPostingService {
 
         List<JournalLine> lines = new ArrayList<>();
         if (type == InvoiceType.CUSTOMER_INVOICE) {
-            BigDecimal discount = money(order != null ? order.getTotalDiscountAmount() : BigDecimal.ZERO).max(BigDecimal.ZERO);
+            BigDecimal discount = effectiveInvoiceDiscount(order);
             BigDecimal grossBeforeDiscount = base.add(discount);
             addLine(lines, defaultsService.resolveAccount(AccountingDefaultsService.ACCOUNTS_RECEIVABLE), total, BigDecimal.ZERO,
                     PartyType.CUSTOMER, invoice.getCustomerId(), "Customer invoice receivable");
@@ -1092,6 +1092,24 @@ public class AccountingPostingService {
         entry.setOrgId(orgId);
         lines.forEach(entry::attachLine);
         return Optional.of(entry);
+    }
+
+    private BigDecimal effectiveInvoiceDiscount(Order order) {
+        if (order == null) {
+            return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+        }
+        BigDecimal orderDiscount = money(order.getTotalDiscountAmount()).max(BigDecimal.ZERO);
+        if (orderDiscount.compareTo(BigDecimal.ZERO) > 0) {
+            return orderDiscount;
+        }
+        if (order.getLines() == null || order.getLines().isEmpty()) {
+            return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+        }
+        return order.getLines().stream()
+                .filter(Objects::nonNull)
+                .map(line -> money(line.getDiscountAmount()).max(BigDecimal.ZERO))
+                .reduce(BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP), BigDecimal::add)
+                .setScale(2, RoundingMode.HALF_UP);
     }
 
     private void addLine(List<JournalLine> lines, AccountingAccount account, BigDecimal debit, BigDecimal credit,

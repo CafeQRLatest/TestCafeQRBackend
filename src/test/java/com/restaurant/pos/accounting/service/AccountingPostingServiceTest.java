@@ -15,6 +15,7 @@ import com.restaurant.pos.invoice.domain.Invoice;
 import com.restaurant.pos.invoice.domain.InvoiceType;
 import com.restaurant.pos.invoice.repository.InvoiceRepository;
 import com.restaurant.pos.order.domain.Order;
+import com.restaurant.pos.order.domain.OrderLine;
 import com.restaurant.pos.order.domain.OrderType;
 import com.restaurant.pos.order.repository.OrderRepository;
 import com.restaurant.pos.order.repository.PaymentRepository;
@@ -119,13 +120,14 @@ class AccountingPostingServiceTest {
     }
 
     @Test
-    void replaceInvoiceJournalVoidsOldAutoPostedEntryAndPostsDiscountedJournal() {
+    void replaceInvoiceJournalUsesBranchScopeAndLineDiscountFallback() {
         UUID clientId = UUID.randomUUID();
         UUID orgId = UUID.randomUUID();
+        UUID viewingOrgId = UUID.randomUUID();
         UUID orderId = UUID.randomUUID();
         UUID invoiceId = UUID.randomUUID();
         TenantContext.setCurrentTenant(clientId);
-        TenantContext.setCurrentOrg(orgId);
+        TenantContext.setCurrentOrg(viewingOrgId);
 
         AccountingService accountingService = mock(AccountingService.class);
         AccountingDefaultsService defaultsService = mock(AccountingDefaultsService.class);
@@ -171,7 +173,10 @@ class AccountingPostingServiceTest {
                 .orderStatus("COMPLETED")
                 .grandTotal(new BigDecimal("68.00"))
                 .totalTaxAmount(new BigDecimal("18.00"))
-                .totalDiscountAmount(new BigDecimal("50.00"))
+                .totalDiscountAmount(BigDecimal.ZERO)
+                .lines(List.of(OrderLine.builder()
+                        .discountAmount(new BigDecimal("50.00"))
+                        .build()))
                 .build();
         order.setClientId(clientId);
         order.setOrgId(orgId);
@@ -217,9 +222,13 @@ class AccountingPostingServiceTest {
         assertThat(outcome).isEqualTo(AccountingPostingService.PostingOutcome.POSTED);
         assertThat(oldEntry.getStatus()).isEqualTo(JournalStatus.VOID);
         assertThat(oldEntry.getIsactive()).isEqualTo("N");
+        assertThat(TenantContext.getCurrentOrg()).isEqualTo(viewingOrgId);
         ArgumentCaptor<JournalEntry> journalCaptor = ArgumentCaptor.forClass(JournalEntry.class);
-        verify(accountingService).createJournalEntry(journalCaptor.capture());
+        InOrder repostOrder = inOrder(journalEntryRepository, accountingService);
+        repostOrder.verify(journalEntryRepository).saveAndFlush(oldEntry);
+        repostOrder.verify(accountingService).createJournalEntry(journalCaptor.capture());
         JournalEntry corrected = journalCaptor.getValue();
+        assertThat(corrected.getOrgId()).isEqualTo(orgId);
         assertThat(corrected.getSourceType()).isEqualTo("CUSTOMER_INVOICE");
         assertThat(corrected.getSourceId()).isEqualTo(invoiceId);
         assertThat(debit(corrected, receivable)).isEqualByComparingTo("68.00");
