@@ -1,5 +1,6 @@
 package com.restaurant.pos.common.tenant;
 
+import com.restaurant.pos.common.util.SecurityUtils;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
@@ -31,10 +32,12 @@ public class TenantInterceptor implements HandlerInterceptor {
         UUID orgId = parseUuid(orgIdStr);
         UUID terminalId = parseUuid(terminalIdStr);
         UUID userId = parseUuid(userIdStr);
+        boolean clearOrgContext = isGlobalOrgSelection(orgIdStr) && SecurityUtils.isSuperAdmin();
 
         // ONLY set if header is provided. This prevents wiping data set by JWT filter
         if (clientId != null) TenantContext.setCurrentTenant(clientId);
         if (orgId != null) TenantContext.setCurrentOrg(orgId);
+        else if (clearOrgContext) TenantContext.setCurrentOrg(null);
         if (terminalId != null) TenantContext.setCurrentTerminal(terminalId);
 
         // Update UserContext only for provided headers
@@ -42,6 +45,7 @@ public class TenantInterceptor implements HandlerInterceptor {
         if (userId != null) context.setUserId(userId);
         if (clientId != null) context.setClientId(clientId);
         if (orgId != null) context.setOrgId(orgId);
+        else if (clearOrgContext) context.setOrgId(null);
         if (terminalId != null) context.setTerminalId(terminalId);
         
         String email = request.getHeader(EMAIL_HEADER);
@@ -51,6 +55,10 @@ public class TenantInterceptor implements HandlerInterceptor {
         if (role != null) context.setRole(role);
         
         return true;
+    }
+
+    private boolean isGlobalOrgSelection(String orgIdStr) {
+        return orgIdStr != null && "0".equals(orgIdStr.trim());
     }
 
     private UUID parseUuid(String uuidStr) {

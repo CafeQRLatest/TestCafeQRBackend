@@ -62,7 +62,7 @@ class CategoryServiceTest {
                 "profile-a@example.com"
         )).thenReturn(List.of(ownCategory));
 
-        List<CategoryResponse> categories = categoryService.getCategories();
+        List<CategoryResponse> categories = categoryService.getCategories(null, null);
 
         assertThat(categories).hasSize(1);
         assertThat(categories.get(0).getName()).isEqualTo("Wages");
