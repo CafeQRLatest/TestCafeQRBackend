@@ -4,9 +4,12 @@ import com.restaurant.pos.accounting.service.AccountingPostingService;
 import com.restaurant.pos.accounting.service.AccountingService;
 import com.restaurant.pos.accounting.dto.AccountingSummaryDto;
 import com.restaurant.pos.common.tenant.TenantContext;
+import com.restaurant.pos.invoice.domain.Invoice;
 import com.restaurant.pos.invoice.repository.InvoiceRepository;
 import com.restaurant.pos.order.domain.Order;
 import com.restaurant.pos.order.domain.OrderType;
+import com.restaurant.pos.order.domain.Payment;
+import com.restaurant.pos.order.domain.PaymentType;
 import com.restaurant.pos.order.dto.report.OrderReportDto;
 import com.restaurant.pos.order.dto.report.ProfitLossDto;
 import com.restaurant.pos.order.repository.OrderRepository;
@@ -26,18 +29,23 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class ReportServiceTest {
 
     private OrderRepository orderRepository;
+    private InvoiceRepository invoiceRepository;
+    private PaymentRepository paymentRepository;
     private CustomerRepository customerRepository;
+    private AccountingPostingService accountingPostingService;
     private AccountingService accountingService;
     private ReportService reportService;
     private UUID clientId;
@@ -45,15 +53,18 @@ class ReportServiceTest {
     @BeforeEach
     void setUp() {
         orderRepository = mock(OrderRepository.class);
+        invoiceRepository = mock(InvoiceRepository.class);
+        paymentRepository = mock(PaymentRepository.class);
         customerRepository = mock(CustomerRepository.class);
+        accountingPostingService = mock(AccountingPostingService.class);
         accountingService = mock(AccountingService.class);
         reportService = new ReportService(
                 orderRepository,
-                mock(InvoiceRepository.class),
-                mock(PaymentRepository.class),
+                invoiceRepository,
+                paymentRepository,
                 mock(PaymentSplitRepository.class),
                 customerRepository,
-                mock(AccountingPostingService.class),
+                accountingPostingService,
                 accountingService
         );
         clientId = UUID.randomUUID();
@@ -130,5 +141,73 @@ class ReportServiceTest {
         assertThat(pnl.getNetProfit()).isEqualByComparingTo("1225.50");
         assertThat(pnl.getCashCollectedAfterExpenses()).isEqualByComparingTo("1747.30");
         assertThat(pnl.getBasis()).isEqualTo("ACCOUNTING_JOURNALS");
+    }
+
+    @Test
+    void voidInvoiceVoidsPaidSalePaymentAndReversesFullAccountingChain() {
+        UUID orgId = UUID.randomUUID();
+        UUID orderId = UUID.randomUUID();
+        UUID invoiceId = UUID.randomUUID();
+        UUID paymentId = UUID.randomUUID();
+
+        Order order = Order.builder()
+                .id(orderId)
+                .orderNo("SO-1")
+                .orderType(OrderType.SALE)
+                .orderStatus("COMPLETED")
+                .paymentStatus("PAID")
+                .build();
+        order.setClientId(clientId);
+        order.setOrgId(orgId);
+
+        Invoice invoice = Invoice.builder()
+                .id(invoiceId)
+                .orderId(orderId)
+                .invoiceNo("INV-1")
+                .status("PAID")
+                .docStatus("COMPLETED")
+                .isPaid(true)
+                .totalAmount(new BigDecimal("118.00"))
+                .amountDue(BigDecimal.ZERO)
+                .build();
+        invoice.setClientId(clientId);
+        invoice.setOrgId(orgId);
+
+        Payment payment = Payment.builder()
+                .id(paymentId)
+                .orderId(orderId)
+                .paymentType(PaymentType.INBOUND)
+                .paymentMethod("CASH")
+                .amountPaid(new BigDecimal("118.00"))
+                .status("COMPLETED")
+                .docStatus("COMPLETED")
+                .isactive("Y")
+                .build();
+        payment.setClientId(clientId);
+        payment.setOrgId(orgId);
+
+        when(invoiceRepository.findByIdAndClientId(invoiceId, clientId)).thenReturn(Optional.of(invoice));
+        when(invoiceRepository.findById(invoiceId)).thenReturn(Optional.of(invoice));
+        when(invoiceRepository.findByOrderId(orderId)).thenReturn(List.of(invoice));
+        when(invoiceRepository.save(any(Invoice.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(paymentRepository.findByOrderId(orderId)).thenReturn(List.of(payment));
+        when(paymentRepository.save(any(Payment.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        Invoice voided = reportService.voidInvoice(invoiceId, "Wrong sale");
+
+        assertThat(voided.getStatus()).isEqualTo("VOID");
+        assertThat(voided.getDocStatus()).isEqualTo("VOIDED");
+        assertThat(voided.getIsPaid()).isFalse();
+        assertThat(voided.getAmountDue()).isEqualByComparingTo("0.00");
+        assertThat(order.getOrderStatus()).isEqualTo("CANCELLED");
+        assertThat(order.getPaymentStatus()).isEqualTo("VOID");
+        assertThat(payment.getStatus()).isEqualTo("VOID");
+        assertThat(payment.getDocStatus()).isEqualTo("VOIDED");
+        assertThat(payment.getIsactive()).isEqualTo("N");
+        verify(accountingPostingService).reverseInvoice(invoice, "Invoice voided");
+        verify(accountingPostingService).reversePayment(payment, "Invoice voided");
+        verify(accountingPostingService).reverseSaleCogs(order, "Invoice voided");
     }
 }

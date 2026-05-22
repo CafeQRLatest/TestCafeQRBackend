@@ -129,6 +129,10 @@ public class AccountingPostingService {
                 () -> buildSaleCogsJournal(resolveOrder(orderId).orElse(order)));
     }
 
+    public PostingOutcome reverseSaleCogs(Order order, String reason) {
+        return order == null ? PostingOutcome.SKIPPED : reverseSourceInScope("SALE_COGS", order.getId(), reason, order.getOrgId());
+    }
+
     public PostingOutcome postStockAdjustment(StockAdjustment adjustment) {
         if (adjustment == null || adjustment.getId() == null || !"COMPLETED".equalsIgnoreCase(adjustment.getStatus())) {
             return PostingOutcome.SKIPPED;
@@ -367,7 +371,7 @@ public class AccountingPostingService {
         if (sources.contains("COGS")) {
             for (Order order : ordersInBusinessPeriod) {
                 if (order.getOrderType() == OrderType.SALE) {
-                    countOutcome(response, dryRun, "SALE_COGS", order.getId(), () -> postSaleCogs(order));
+                    countSaleCogsBackfill(response, dryRun, order);
                 }
             }
         }
@@ -480,6 +484,10 @@ public class AccountingPostingService {
                     () -> postInvoice(null, invoice));
         } else {
             Optional<Order> order = resolveOrder(invoice.getOrderId());
+            if (shouldRepairVoidedSaleInvoice(order.orElse(null), invoice)) {
+                countVoidedSaleInvoiceRepair(response, dryRun, invoice);
+                return;
+            }
             countOutcome(response, dryRun, invoiceSourceType(invoice), invoice.getId(),
                     sourceDocumentDate(order.orElse(null), null, invoice.getInvoiceDate()),
                     () -> postInvoice(order.orElse(null), invoice));
@@ -494,10 +502,22 @@ public class AccountingPostingService {
                     () -> postPayment(null, payment));
         } else {
             Optional<Order> order = resolveOrder(payment.getOrderId());
+            if (shouldRepairVoidedSalePayment(order.orElse(null), payment)) {
+                countVoidedSalePaymentRepair(response, dryRun, payment);
+                return;
+            }
             countOutcome(response, dryRun, paymentSourceType(payment), payment.getId(),
                     sourceDocumentDate(order.orElse(null), null, payment.getPaymentDate()),
                     () -> postPayment(order.orElse(null), payment));
         }
+    }
+
+    private void countSaleCogsBackfill(AccountingBackfillResponse response, boolean dryRun, Order order) {
+        if (isVoidedSaleOrder(order)) {
+            countVoidedSaleCogsRepair(response, dryRun, order);
+            return;
+        }
+        countOutcome(response, dryRun, "SALE_COGS", order.getId(), () -> postSaleCogs(order));
     }
 
     private void countOutcome(AccountingBackfillResponse response, boolean dryRun, String sourceType, UUID sourceId, Supplier<PostingOutcome> poster) {
@@ -520,6 +540,50 @@ public class AccountingPostingService {
             return;
         }
         PostingOutcome outcome = poster.get();
+        recordOutcome(response, sourceType, sourceId, outcome);
+    }
+
+    private void countVoidedSaleInvoiceRepair(AccountingBackfillResponse response, boolean dryRun, Invoice invoice) {
+        response.setScanned(response.getScanned() + 1);
+        if (dryRun) {
+            response.setReversed(response.getReversed() + 1);
+            return;
+        }
+        PostingOutcome outcome = reverseInvoice(invoice, "Voided sale repaired");
+        if (isActiveInvoice(invoice)) {
+            invoice.setStatus("VOID");
+            invoice.setDocStatus("VOIDED");
+            invoice.setIsPaid(false);
+            invoice.setAmountDue(BigDecimal.ZERO);
+            invoiceRepository.save(invoice);
+        }
+        recordOutcome(response, invoiceSourceType(invoice), invoice.getId(), outcome);
+    }
+
+    private void countVoidedSalePaymentRepair(AccountingBackfillResponse response, boolean dryRun, Payment payment) {
+        response.setScanned(response.getScanned() + 1);
+        if (dryRun) {
+            response.setReversed(response.getReversed() + 1);
+            return;
+        }
+        PostingOutcome outcome = reversePayment(payment, "Voided sale repaired");
+        payment.setStatus("VOID");
+        payment.setDocStatus("VOIDED");
+        payment.setIsactive("N");
+        paymentRepository.save(payment);
+        recordOutcome(response, paymentSourceType(payment), payment.getId(), outcome);
+    }
+
+    private void countVoidedSaleCogsRepair(AccountingBackfillResponse response, boolean dryRun, Order order) {
+        response.setScanned(response.getScanned() + 1);
+        if (dryRun) {
+            response.setReversed(response.getReversed() + 1);
+            return;
+        }
+        recordOutcome(response, "SALE_COGS", order.getId(), reverseSaleCogs(order, "Voided sale repaired"));
+    }
+
+    private void recordOutcome(AccountingBackfillResponse response, String sourceType, UUID sourceId, PostingOutcome outcome) {
         if (outcome == PostingOutcome.POSTED) {
             response.setPosted(response.getPosted() + 1);
         } else if (outcome == PostingOutcome.SKIPPED) {
@@ -530,6 +594,45 @@ public class AccountingPostingService {
             response.setFailed(response.getFailed() + 1);
             response.getFailures().add(sourceType + ":" + sourceId);
         }
+    }
+
+    private boolean shouldRepairVoidedSaleInvoice(Order order, Invoice invoice) {
+        return invoice != null
+                && isSaleOrder(order)
+                && (isVoidedSaleOrder(order) || isVoidStatus(invoice.getStatus()) || isVoidStatus(invoice.getDocStatus()));
+    }
+
+    private boolean shouldRepairVoidedSalePayment(Order order, Payment payment) {
+        return isVoidedSaleOrder(order) && isActivePayment(payment);
+    }
+
+    private boolean isVoidedSaleOrder(Order order) {
+        return isSaleOrder(order)
+                && (isVoidStatus(order.getOrderStatus())
+                || "CANCELLED".equalsIgnoreCase(order.getOrderStatus())
+                || isVoidStatus(order.getPaymentStatus()));
+    }
+
+    private boolean isSaleOrder(Order order) {
+        return order != null && (order.getOrderType() == null || order.getOrderType() == OrderType.SALE);
+    }
+
+    private boolean isActiveInvoice(Invoice invoice) {
+        return invoice != null
+                && !"N".equalsIgnoreCase(invoice.getIsactive())
+                && !isVoidStatus(invoice.getStatus())
+                && !isVoidStatus(invoice.getDocStatus());
+    }
+
+    private boolean isActivePayment(Payment payment) {
+        return payment != null
+                && !"N".equalsIgnoreCase(payment.getIsactive())
+                && !isVoidStatus(payment.getStatus())
+                && !isVoidStatus(payment.getDocStatus());
+    }
+
+    private boolean isVoidStatus(String status) {
+        return "VOID".equalsIgnoreCase(status) || "VOIDED".equalsIgnoreCase(status);
     }
 
     /**

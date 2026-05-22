@@ -1175,20 +1175,21 @@ public class OrderService {
 
         String reason = request != null ? request.getReason() : null;
         order.setOrderStatus("CANCELLED");
+        if (isSaleOrder(order)) {
+            order.setPaymentStatus("VOID");
+        }
         if (reason != null && !reason.isBlank()) {
             order.setDescription(appendDescription(order.getDescription(), "Cancel reason: " + reason.trim()));
         }
 
         Order saved = orderRepository.save(order);
-        invoiceRepository.findByOrderId(saved.getId()).forEach(invoice -> {
-            if (!Boolean.TRUE.equals(invoice.getIsPaid())) {
-                accountingPostingService.reverseInvoice(invoice, "Order cancelled");
-                invoice.setStatus("VOID");
-                invoice.setDocStatus("VOID");
-                invoice.setAmountDue(BigDecimal.ZERO);
-                invoiceRepository.save(invoice);
-            }
-        });
+        if (isSaleOrder(saved)) {
+            voidLinkedInvoices(saved, "Order cancelled");
+            voidLinkedPayments(saved, "Order cancelled");
+            accountingPostingService.reverseSaleCogs(saved, "Order cancelled");
+        } else {
+            voidUnpaidLinkedInvoices(saved, "Order cancelled");
+        }
 
         handleTableStatus(saved);
         return hydrateOrder(saved);
@@ -1474,9 +1475,65 @@ public class OrderService {
             throw new IllegalStateException("Cannot " + action + " a " + status.toLowerCase() + " order");
         }
         if (!"settle".equalsIgnoreCase(action)
+                && !"cancel".equalsIgnoreCase(action)
                 && ("COMPLETED".equalsIgnoreCase(status) || "PAID".equalsIgnoreCase(order.getPaymentStatus()))) {
             throw new IllegalStateException("Cannot " + action + " a completed order");
         }
+    }
+
+    private void voidLinkedInvoices(Order order, String reason) {
+        invoiceRepository.findByOrderId(order.getId()).forEach(invoice -> {
+            if (!isVoidStatus(invoice.getStatus()) && !isVoidStatus(invoice.getDocStatus())) {
+                accountingPostingService.reverseInvoice(invoice, reason);
+            }
+            invoice.setStatus("VOID");
+            invoice.setDocStatus("VOIDED");
+            invoice.setIsPaid(false);
+            invoice.setAmountDue(BigDecimal.ZERO);
+            invoiceRepository.save(invoice);
+        });
+    }
+
+    private void voidUnpaidLinkedInvoices(Order order, String reason) {
+        invoiceRepository.findByOrderId(order.getId()).forEach(invoice -> {
+            if (!Boolean.TRUE.equals(invoice.getIsPaid())) {
+                if (!isVoidStatus(invoice.getStatus()) && !isVoidStatus(invoice.getDocStatus())) {
+                    accountingPostingService.reverseInvoice(invoice, reason);
+                }
+                invoice.setStatus("VOID");
+                invoice.setDocStatus("VOIDED");
+                invoice.setIsPaid(false);
+                invoice.setAmountDue(BigDecimal.ZERO);
+                invoiceRepository.save(invoice);
+            }
+        });
+    }
+
+    private void voidLinkedPayments(Order order, String reason) {
+        paymentRepository.findByOrderId(order.getId()).forEach(payment -> {
+            if (isActivePayment(payment)) {
+                accountingPostingService.reversePayment(payment, reason);
+            }
+            payment.setStatus("VOID");
+            payment.setDocStatus("VOIDED");
+            payment.setIsactive("N");
+            paymentRepository.save(payment);
+        });
+    }
+
+    private boolean isActivePayment(Payment payment) {
+        return payment != null
+                && !"N".equalsIgnoreCase(payment.getIsactive())
+                && !isVoidStatus(payment.getStatus())
+                && !isVoidStatus(payment.getDocStatus());
+    }
+
+    private boolean isSaleOrder(Order order) {
+        return order != null && (order.getOrderType() == null || order.getOrderType() == OrderType.SALE);
+    }
+
+    private boolean isVoidStatus(String status) {
+        return "VOID".equalsIgnoreCase(status) || "VOIDED".equalsIgnoreCase(status);
     }
 
     private String normalizePaymentMethod(String paymentMethod) {

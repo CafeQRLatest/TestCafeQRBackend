@@ -471,21 +471,16 @@ public class ReportService {
             throw new IllegalStateException("Invoice is already voided");
         }
 
-        accountingPostingService.reverseInvoice(invoice, "Invoice voided");
-        invoice.setStatus("VOID");
-        invoice.setDocStatus("VOIDED");
-        if (reason != null && !reason.isBlank()) {
-            invoice.setDescription("void: " + reason + (invoice.getDescription() != null ? " | " + invoice.getDescription() : ""));
-        }
-
         if (invoice.getOrderId() != null) {
-            orderRepository.findById(invoice.getOrderId()).ifPresent(order -> {
-                order.setOrderStatus("CANCELLED");
-                order.setDescription("Voided via invoice: " + (reason != null ? reason : "No reason provided"));
-                orderRepository.save(order);
-            });
+            Optional<Order> linkedOrder = orderRepository.findById(invoice.getOrderId());
+            if (linkedOrder.isPresent() && isSaleOrder(linkedOrder.get())) {
+                voidSaleFinancialChain(linkedOrder.get(), reason);
+                return invoiceRepository.findById(invoiceId).orElse(invoice);
+            }
         }
 
+        accountingPostingService.reverseInvoice(invoice, "Invoice voided");
+        markInvoiceVoided(invoice, reason);
         return invoiceRepository.save(invoice);
     }
 
@@ -642,6 +637,54 @@ public class ReportService {
         return payments.stream()
                 .max(Comparator.comparing(this::paymentSortDate))
                 .orElse(null);
+    }
+
+    private void voidSaleFinancialChain(Order order, String reason) {
+        order.setOrderStatus("CANCELLED");
+        order.setPaymentStatus("VOID");
+        order.setDescription("Voided via invoice: " + (reason != null ? reason : "No reason provided"));
+        orderRepository.save(order);
+
+        invoiceRepository.findByOrderId(order.getId()).forEach(linkedInvoice -> {
+            if (!isVoidStatus(linkedInvoice.getStatus()) && !isVoidStatus(linkedInvoice.getDocStatus())) {
+                accountingPostingService.reverseInvoice(linkedInvoice, "Invoice voided");
+            }
+            markInvoiceVoided(linkedInvoice, reason);
+            invoiceRepository.save(linkedInvoice);
+        });
+
+        paymentRepository.findByOrderId(order.getId()).forEach(payment -> {
+            if (isActivePayment(payment)) {
+                accountingPostingService.reversePayment(payment, "Invoice voided");
+            }
+            payment.setStatus("VOID");
+            payment.setDocStatus("VOIDED");
+            payment.setIsactive("N");
+            paymentRepository.save(payment);
+        });
+
+        accountingPostingService.reverseSaleCogs(order, "Invoice voided");
+    }
+
+    private void markInvoiceVoided(Invoice invoice, String reason) {
+        invoice.setStatus("VOID");
+        invoice.setDocStatus("VOIDED");
+        invoice.setIsPaid(false);
+        invoice.setAmountDue(BigDecimal.ZERO);
+        if (reason != null && !reason.isBlank()) {
+            invoice.setDescription("void: " + reason + (invoice.getDescription() != null ? " | " + invoice.getDescription() : ""));
+        }
+    }
+
+    private boolean isActivePayment(Payment payment) {
+        return payment != null
+                && !"N".equalsIgnoreCase(payment.getIsactive())
+                && !isVoidStatus(payment.getStatus())
+                && !isVoidStatus(payment.getDocStatus());
+    }
+
+    private boolean isSaleOrder(Order order) {
+        return order != null && (order.getOrderType() == null || order.getOrderType() == OrderType.SALE);
     }
 
     private boolean matchesSalesInvoiceFilter(SalesInvoiceReportDto row, String filterType) {
