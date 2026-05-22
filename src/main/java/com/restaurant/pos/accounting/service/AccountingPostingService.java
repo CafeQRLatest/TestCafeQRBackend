@@ -26,6 +26,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -181,7 +182,10 @@ public class AccountingPostingService {
     public List<AccountingPostingErrorDto> getPostingErrors() {
         UUID clientId = requireClient();
         UUID orgId = TenantContext.getCurrentOrg();
-        return postingJobRepository.findByClientIdAndOrgIdAndStatusOrderByUpdatedAtDesc(clientId, orgId, "FAILED").stream()
+        List<AccountingPostingJob> jobs = orgId == null
+                ? postingJobRepository.findByClientIdAndStatusOrderByUpdatedAtDesc(clientId, "FAILED")
+                : postingJobRepository.findByClientIdAndOrgIdAndStatusOrderByUpdatedAtDesc(clientId, orgId, "FAILED");
+        return jobs.stream()
                 .map(job -> AccountingPostingErrorDto.builder()
                         .id(job.getId())
                         .sourceType(job.getSourceType())
@@ -198,13 +202,14 @@ public class AccountingPostingService {
     public AccountingPostingJob retryPosting(UUID jobId) {
         AccountingPostingJob job = postingJobRepository.findById(jobId)
                 .orElseThrow(() -> new ResourceNotFoundException("Accounting posting job not found"));
-        if (!requireClient().equals(job.getClientId()) || !Objects.equals(TenantContext.getCurrentOrg(), job.getOrgId())) {
+        UUID currentOrgId = TenantContext.getCurrentOrg();
+        if (!requireClient().equals(job.getClientId()) || (currentOrgId != null && !Objects.equals(currentOrgId, job.getOrgId()))) {
             throw new ResourceNotFoundException("Accounting posting job not found");
         }
         job.setStatus("PENDING");
         job.setLastError(null);
         postingJobRepository.save(job);
-        retrySource(job.getSourceType(), job.getSourceId());
+        retrySourceInScope(job);
         return postingJobRepository.findById(jobId).orElse(job);
     }
 
@@ -451,6 +456,20 @@ public class AccountingPostingService {
         if ("STOCK_ADJUSTMENT".equals(sourceType)) {
             stockAdjustmentRepository.findById(sourceId).ifPresent(this::postStockAdjustment);
         }
+    }
+
+    private void retrySourceInScope(AccountingPostingJob job) {
+        UUID previousOrgId = TenantContext.getCurrentOrg();
+        if (job.getOrgId() != null && !Objects.equals(previousOrgId, job.getOrgId())) {
+            TenantContext.setCurrentOrg(job.getOrgId());
+            try {
+                retrySource(job.getSourceType(), job.getSourceId());
+            } finally {
+                TenantContext.setCurrentOrg(previousOrgId);
+            }
+            return;
+        }
+        retrySource(job.getSourceType(), job.getSourceId());
     }
 
     private void countInvoiceBackfill(AccountingBackfillResponse response, boolean dryRun, Invoice invoice) {
@@ -1081,6 +1100,7 @@ public class AccountingPostingService {
     private <T> T inTransaction(Supplier<T> action) {
         org.springframework.transaction.support.TransactionTemplate template =
                 new org.springframework.transaction.support.TransactionTemplate(transactionManager);
+        template.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         return template.execute(status -> action.get());
     }
 

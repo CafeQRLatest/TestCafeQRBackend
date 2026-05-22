@@ -19,6 +19,8 @@ public interface AccountingPostingJobRepository extends JpaRepository<Accounting
 
     List<AccountingPostingJob> findByClientIdAndOrgIdAndStatusOrderByUpdatedAtDesc(UUID clientId, UUID orgId, String status);
 
+    List<AccountingPostingJob> findByClientIdAndStatusOrderByUpdatedAtDesc(UUID clientId, String status);
+
     List<AccountingPostingJob> findByClientIdAndOrgId(UUID clientId, UUID orgId);
 
     @Modifying
