@@ -676,13 +676,6 @@ public class ReportService {
         }
     }
 
-    private boolean isActivePayment(Payment payment) {
-        return payment != null
-                && !"N".equalsIgnoreCase(payment.getIsactive())
-                && !isVoidStatus(payment.getStatus())
-                && !isVoidStatus(payment.getDocStatus());
-    }
-
     private boolean isSaleOrder(Order order) {
         return order != null && (order.getOrderType() == null || order.getOrderType() == OrderType.SALE);
     }
