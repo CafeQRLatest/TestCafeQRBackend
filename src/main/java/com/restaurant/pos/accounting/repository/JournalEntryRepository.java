@@ -1,12 +1,14 @@
 package com.restaurant.pos.accounting.repository;
 
 import com.restaurant.pos.accounting.domain.JournalEntry;
+import com.restaurant.pos.accounting.domain.JournalStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -24,6 +26,24 @@ public interface JournalEntryRepository extends JpaRepository<JournalEntry, UUID
     boolean existsByClientIdAndOrgIdAndSourceTypeAndSourceId(UUID clientId, UUID orgId, String sourceType, UUID sourceId);
 
     boolean existsByClientIdAndSourceTypeAndSourceId(UUID clientId, String sourceType, UUID sourceId);
+
+    @Query("""
+            SELECT DISTINCT j FROM JournalEntry j
+            LEFT JOIN FETCH j.lines
+            WHERE j.clientId = :clientId
+              AND (:orgId IS NULL OR j.orgId = :orgId)
+              AND j.sourceType = :sourceType
+              AND j.sourceId = :sourceId
+              AND j.status = :status
+              AND COALESCE(UPPER(j.isactive), 'Y') <> 'N'
+            ORDER BY j.entryDate DESC
+            """)
+    List<JournalEntry> findActiveBySource(
+            @Param("clientId") UUID clientId,
+            @Param("orgId") UUID orgId,
+            @Param("sourceType") String sourceType,
+            @Param("sourceId") UUID sourceId,
+            @Param("status") JournalStatus status);
 
     @Modifying
     @Query(value = "DELETE FROM journal_lines WHERE journal_entry_id IN (SELECT id FROM journal_entries WHERE client_id = :clientId AND org_id = :orgId)", nativeQuery = true)

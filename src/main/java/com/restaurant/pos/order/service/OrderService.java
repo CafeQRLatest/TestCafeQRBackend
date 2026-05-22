@@ -1112,14 +1112,10 @@ public class OrderService {
             List<Invoice> existingInvoices = invoiceRepository.findByOrderId(saved.getId());
             for (Invoice existingInv : existingInvoices) {
                 if (!"VOID".equalsIgnoreCase(existingInv.getStatus())) {
-                    // Reverse old accounting entry for this invoice
-                    accountingPostingService.reverseInvoice(existingInv, "Invoice amount corrected after discount/roundoff");
-                    // Update invoice amount to match discounted order total
                     existingInv.setTotalAmount(saved.getGrandTotal());
                     existingInv.setAmountDue(saved.getGrandTotal());
                     invoiceRepository.save(existingInv);
-                    // Re-post with corrected amount
-                    accountingPostingService.postInvoice(saved, existingInv);
+                    accountingPostingService.replaceInvoiceJournal(saved, existingInv, "Invoice amount corrected after discount/roundoff");
                 }
             }
         }

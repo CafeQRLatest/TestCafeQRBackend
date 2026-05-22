@@ -11,6 +11,7 @@ import com.restaurant.pos.order.domain.OrderType;
 import com.restaurant.pos.order.domain.Payment;
 import com.restaurant.pos.order.domain.PaymentType;
 import com.restaurant.pos.order.dto.OrderCancelRequest;
+import com.restaurant.pos.order.dto.OrderSettleRequest;
 import com.restaurant.pos.order.repository.OrderRepository;
 import com.restaurant.pos.order.repository.PaymentRepository;
 import com.restaurant.pos.order.repository.PaymentSplitRepository;
@@ -29,6 +30,7 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -37,6 +39,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -142,6 +145,58 @@ class OrderServiceTest {
             assertThat(link.getOrderId()).isEqualTo(orderId);
             assertThat(link.getIsPrimary()).isFalse();
         });
+    }
+
+    @Test
+    void settleOrderWithDiscountReplacesInvoiceJournalForCorrectedInvoiceAmount() {
+        UUID orderId = UUID.randomUUID();
+        UUID invoiceId = UUID.randomUUID();
+
+        Order order = Order.builder()
+                .id(orderId)
+                .orderNo("SO-1")
+                .orderType(OrderType.SALE)
+                .orderStatus("BILLED")
+                .paymentStatus("PENDING")
+                .grandTotal(new BigDecimal("118.00"))
+                .totalTaxAmount(new BigDecimal("18.00"))
+                .build();
+        order.setClientId(clientId);
+        order.setOrgId(orgId);
+
+        Invoice invoice = Invoice.builder()
+                .id(invoiceId)
+                .orderId(orderId)
+                .invoiceNo("INV-1")
+                .status("UNPAID")
+                .docStatus("COMPLETED")
+                .isPaid(false)
+                .totalAmount(new BigDecimal("118.00"))
+                .amountDue(new BigDecimal("118.00"))
+                .build();
+        invoice.setClientId(clientId);
+        invoice.setOrgId(orgId);
+
+        when(orderRepository.findByIdAndClientIdAndOrgId(orderId, clientId, orgId)).thenReturn(Optional.of(order));
+        when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(invoiceRepository.findByOrderId(orderId)).thenReturn(List.of(invoice));
+        when(invoiceRepository.save(any(Invoice.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(sequenceService.generateNextSequence(DocumentType.INBOUND_PAYMENT)).thenReturn("PAY-1");
+        when(paymentRepository.save(any(Payment.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(customerRepository.findByClientIdAndOrderLink(eq(clientId), any(), any())).thenReturn(List.of());
+
+        OrderSettleRequest request = new OrderSettleRequest();
+        request.setPaymentMethod("CASH");
+        request.setDiscountAmount(new BigDecimal("50.00"));
+        request.setAmountPaid(new BigDecimal("68.00"));
+
+        Order settled = orderService.settleOrder(orderId, request);
+
+        assertThat(settled.getGrandTotal()).isEqualByComparingTo("68.00");
+        assertThat(settled.getTotalDiscountAmount()).isEqualByComparingTo("50.00");
+        assertThat(invoice.getTotalAmount()).isEqualByComparingTo("68.00");
+        verify(accountingPostingService).replaceInvoiceJournal(order, invoice, "Invoice amount corrected after discount/roundoff");
+        verify(accountingPostingService, never()).reverseInvoice(eq(invoice), eq("Invoice amount corrected after discount/roundoff"));
     }
 
     @Test

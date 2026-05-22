@@ -93,6 +93,27 @@ public class AccountingPostingService {
         });
     }
 
+    public PostingOutcome replaceInvoiceJournal(Order order, Invoice invoice, String reason) {
+        if (invoice == null || invoice.getId() == null || isVoid(invoice.getStatus()) || isInactive(invoice.getIsactive())) {
+            return PostingOutcome.SKIPPED;
+        }
+        UUID invoiceId = invoice.getId();
+        String sourceType = invoiceSourceType(invoice);
+        UUID sourceOrgId = invoice.getOrgId();
+        if (sourceOrgId == null && order != null) {
+            sourceOrgId = order.getOrgId();
+        }
+        return replaceAfterCommitOrNow(sourceType, invoiceId, sourceOrgId, reason, () -> {
+            Invoice currentInvoice = invoiceRepository.findById(invoiceId).orElse(invoice);
+            if (currentInvoice.getExpenseId() != null) {
+                Expense expense = expenseRepository.findById(currentInvoice.getExpenseId()).orElse(null);
+                return buildInvoiceJournal(null, expense, currentInvoice);
+            }
+            Order currentOrder = resolveOrder(currentInvoice.getOrderId()).orElse(order);
+            return buildInvoiceJournal(currentOrder, null, currentInvoice);
+        });
+    }
+
     public PostingOutcome postPayment(Order order, Payment payment) {
         if (payment == null || payment.getId() == null || isVoid(payment.getStatus()) || isInactive(payment.getIsactive())) {
             return PostingOutcome.SKIPPED;
@@ -147,11 +168,7 @@ public class AccountingPostingService {
         if (sourceType == null || sourceId == null) {
             return PostingOutcome.SKIPPED;
         }
-        UUID clientId = requireClient();
-        UUID orgId = TenantContext.getCurrentOrg();
-        Optional<JournalEntry> original = journalEntryRepository
-                .findByClientIdAndOrgIdAndSourceTypeAndSourceId(clientId, orgId, sourceType, sourceId)
-                .filter(entry -> entry.getStatus() == JournalStatus.POSTED);
+        Optional<JournalEntry> original = findActiveSourceJournal(sourceType, sourceId);
         if (original.isEmpty()) {
             return PostingOutcome.SKIPPED;
         }
@@ -488,6 +505,10 @@ public class AccountingPostingService {
                 countVoidedSaleInvoiceRepair(response, dryRun, invoice);
                 return;
             }
+            if (shouldRepairDiscountedSaleInvoice(order.orElse(null), invoice)) {
+                countDiscountedSaleInvoiceRepair(response, dryRun, order.get(), invoice);
+                return;
+            }
             countOutcome(response, dryRun, invoiceSourceType(invoice), invoice.getId(),
                     sourceDocumentDate(order.orElse(null), null, invoice.getInvoiceDate()),
                     () -> postInvoice(order.orElse(null), invoice));
@@ -583,6 +604,16 @@ public class AccountingPostingService {
         recordOutcome(response, "SALE_COGS", order.getId(), reverseSaleCogs(order, "Voided sale repaired"));
     }
 
+    private void countDiscountedSaleInvoiceRepair(AccountingBackfillResponse response, boolean dryRun, Order order, Invoice invoice) {
+        response.setScanned(response.getScanned() + 1);
+        if (dryRun) {
+            response.setPosted(response.getPosted() + 1);
+            return;
+        }
+        recordOutcome(response, invoiceSourceType(invoice), invoice.getId(),
+                replaceInvoiceJournal(order, invoice, "Discounted sale repaired"));
+    }
+
     private void recordOutcome(AccountingBackfillResponse response, String sourceType, UUID sourceId, PostingOutcome outcome) {
         if (outcome == PostingOutcome.POSTED) {
             response.setPosted(response.getPosted() + 1);
@@ -604,6 +635,53 @@ public class AccountingPostingService {
 
     private boolean shouldRepairVoidedSalePayment(Order order, Payment payment) {
         return isVoidedSaleOrder(order) && isActivePayment(payment);
+    }
+
+    private boolean shouldRepairDiscountedSaleInvoice(Order order, Invoice invoice) {
+        if (order == null || invoice == null || !isSaleOrder(order) || isVoidedSaleOrder(order)) {
+            return false;
+        }
+        InvoiceType type = invoice.getInvoiceType() == null ? InvoiceType.CUSTOMER_INVOICE : invoice.getInvoiceType();
+        if (type != InvoiceType.CUSTOMER_INVOICE || isVoidStatus(invoice.getStatus()) || isVoidStatus(invoice.getDocStatus())) {
+            return false;
+        }
+        BigDecimal discount = money(order.getTotalDiscountAmount()).max(BigDecimal.ZERO);
+        if (discount.compareTo(BigDecimal.ZERO) <= 0) {
+            return false;
+        }
+        return findActiveSourceJournal(invoiceSourceType(invoice), invoice.getId())
+                .filter(entry -> Boolean.TRUE.equals(entry.getAutoPosted()))
+                .map(entry -> !invoiceJournalMatchesOrder(entry, order, invoice))
+                .orElse(false);
+    }
+
+    private boolean invoiceJournalMatchesOrder(JournalEntry entry, Order order, Invoice invoice) {
+        BigDecimal total = money(invoice.getTotalAmount());
+        BigDecimal tax = clampTax(order != null ? order.getTotalTaxAmount() : BigDecimal.ZERO, total);
+        BigDecimal discount = money(order != null ? order.getTotalDiscountAmount() : BigDecimal.ZERO).max(BigDecimal.ZERO);
+        BigDecimal grossBeforeDiscount = total.subtract(tax).add(discount);
+
+        return journalAmount(entry, AccountingDefaultsService.ACCOUNTS_RECEIVABLE, true).compareTo(total) == 0
+                && journalAmount(entry, AccountingDefaultsService.DISCOUNT_ALLOWED, true).compareTo(discount) == 0
+                && journalAmount(entry, AccountingDefaultsService.SALES_REVENUE, false).compareTo(grossBeforeDiscount) == 0
+                && journalAmount(entry, AccountingDefaultsService.OUTPUT_TAX, false).compareTo(tax) == 0;
+    }
+
+    private BigDecimal journalAmount(JournalEntry entry, String systemKey, boolean debit) {
+        if (entry == null || entry.getLines() == null) {
+            return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+        }
+        UUID clientId = requireClient();
+        UUID orgId = entry.getOrgId();
+        Optional<AccountingAccount> account = accountRepository.findByClientIdAndOrgIdAndSystemKeyIgnoreCase(clientId, orgId, systemKey);
+        if (account.isEmpty()) {
+            return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+        }
+        UUID accountId = account.get().getId();
+        return entry.getLines().stream()
+                .filter(line -> accountId.equals(line.getAccountId()))
+                .map(line -> debit ? money(line.getDebit()) : money(line.getCredit()))
+                .reduce(BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP), BigDecimal::add);
     }
 
     private boolean isVoidedSaleOrder(Order order) {
@@ -706,6 +784,52 @@ public class AccountingPostingService {
         }
     }
 
+    private PostingOutcome safeReplaceAutoPosted(String sourceType, UUID sourceId, UUID sourceOrgId, String reason,
+                                                 Supplier<Optional<JournalEntry>> builder) {
+        if (sourceId == null || sourceType == null) {
+            return PostingOutcome.SKIPPED;
+        }
+
+        UUID previousOrgId = TenantContext.getCurrentOrg();
+        boolean contextSwitched = false;
+        if (sourceOrgId != null && !Objects.equals(previousOrgId, sourceOrgId)) {
+            TenantContext.setCurrentOrg(sourceOrgId);
+            contextSwitched = true;
+        }
+        try {
+            return inTransaction(() -> {
+                UUID clientId = requireClient();
+                UUID orgId = TenantContext.getCurrentOrg();
+                Optional<JournalEntry> existing = findActiveSourceJournal(sourceType, sourceId);
+                if (existing.isPresent()) {
+                    JournalEntry oldEntry = existing.get();
+                    if (!Boolean.TRUE.equals(oldEntry.getAutoPosted())) {
+                        return PostingOutcome.SKIPPED;
+                    }
+                    oldEntry.setStatus(JournalStatus.VOID);
+                    oldEntry.setIsactive("N");
+                    oldEntry.setDescription(appendSystemNote(oldEntry.getDescription(), "Replaced: " + nullToDash(reason)));
+                    journalEntryRepository.save(oldEntry);
+                }
+
+                Optional<JournalEntry> maybeEntry = builder.get();
+                if (maybeEntry.isEmpty()) {
+                    return PostingOutcome.SKIPPED;
+                }
+                JournalEntry saved = accountingService.createJournalEntry(maybeEntry.get());
+                markJobPosted(clientId, orgId, sourceType, sourceId, saved.getId());
+                return PostingOutcome.POSTED;
+            });
+        } catch (Exception ex) {
+            log.error("Fatal transaction error during accounting repost | sourceType={} | sourceId={}", sourceType, sourceId, ex);
+            return PostingOutcome.FAILED;
+        } finally {
+            if (contextSwitched) {
+                TenantContext.setCurrentOrg(previousOrgId);
+            }
+        }
+    }
+
     private PostingOutcome postAfterCommitOrNow(String sourceType, UUID sourceId, UUID sourceOrgId, Supplier<Optional<JournalEntry>> builder) {
         if (TransactionSynchronizationManager.isSynchronizationActive()
                 && TransactionSynchronizationManager.isActualTransactionActive()) {
@@ -734,6 +858,36 @@ public class AccountingPostingService {
             return PostingOutcome.SKIPPED;
         }
         return safePost(sourceType, sourceId, sourceOrgId, builder);
+    }
+
+    private PostingOutcome replaceAfterCommitOrNow(String sourceType, UUID sourceId, UUID sourceOrgId, String reason,
+                                                   Supplier<Optional<JournalEntry>> builder) {
+        if (TransactionSynchronizationManager.isSynchronizationActive()
+                && TransactionSynchronizationManager.isActualTransactionActive()) {
+            UUID clientId = TenantContext.getCurrentTenant();
+            UUID orgId = TenantContext.getCurrentOrg();
+            UUID effectiveOrgId = sourceOrgId != null ? sourceOrgId : orgId;
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    UUID previousClientId = TenantContext.getCurrentTenant();
+                    UUID previousOrgId = TenantContext.getCurrentOrg();
+                    TenantContext.setCurrentTenant(clientId);
+                    TenantContext.setCurrentOrg(effectiveOrgId);
+                    try {
+                        safeReplaceAutoPosted(sourceType, sourceId, effectiveOrgId, reason, builder);
+                    } catch (Exception ex) {
+                        log.warn("Deferred accounting repost failed | sourceType={} | sourceId={} | message={}",
+                                sourceType, sourceId, ex.getMessage());
+                    } finally {
+                        TenantContext.setCurrentTenant(previousClientId);
+                        TenantContext.setCurrentOrg(previousOrgId);
+                    }
+                }
+            });
+            return PostingOutcome.SKIPPED;
+        }
+        return safeReplaceAutoPosted(sourceType, sourceId, sourceOrgId, reason, builder);
     }
 
     private Optional<JournalEntry> buildInvoiceJournal(Order order, Expense expense, Invoice invoice) {
@@ -992,24 +1146,25 @@ public class AccountingPostingService {
         if (sourceType == null || sourceId == null) {
             return false;
         }
+        return findActiveSourceJournal(sourceType, sourceId).isPresent();
+    }
+
+    private Optional<JournalEntry> findActiveSourceJournal(String sourceType, UUID sourceId) {
+        if (sourceType == null || sourceId == null) {
+            return Optional.empty();
+        }
         UUID clientId = requireClient();
         UUID orgId = TenantContext.getCurrentOrg();
-        // Use org-agnostic check when orgId is null to avoid IS NULL mismatch
-        if (orgId == null) {
-            return journalEntryRepository.existsByClientIdAndSourceTypeAndSourceId(clientId, sourceType, sourceId);
-        }
-        return journalEntryRepository.existsByClientIdAndOrgIdAndSourceTypeAndSourceId(clientId, orgId, sourceType, sourceId);
+        return journalEntryRepository.findActiveBySource(clientId, orgId, sourceType, sourceId, JournalStatus.POSTED)
+                .stream()
+                .findFirst();
     }
 
     private boolean realignAutoPostedJournalDate(String sourceType, UUID sourceId, LocalDateTime targetEntryDate) {
         if (sourceType == null || sourceId == null || targetEntryDate == null) {
             return false;
         }
-        UUID clientId = requireClient();
-        UUID orgId = TenantContext.getCurrentOrg();
-        Optional<JournalEntry> existing = orgId == null
-                ? journalEntryRepository.findFirstByClientIdAndSourceTypeAndSourceId(clientId, sourceType, sourceId)
-                : journalEntryRepository.findByClientIdAndOrgIdAndSourceTypeAndSourceId(clientId, orgId, sourceType, sourceId);
+        Optional<JournalEntry> existing = findActiveSourceJournal(sourceType, sourceId);
         if (existing.isEmpty() || !Boolean.TRUE.equals(existing.get().getAutoPosted())) {
             return false;
         }
@@ -1020,6 +1175,13 @@ public class AccountingPostingService {
         entry.setEntryDate(targetEntryDate);
         journalEntryRepository.save(entry);
         return true;
+    }
+
+    private String appendSystemNote(String description, String note) {
+        if (description == null || description.isBlank()) {
+            return note;
+        }
+        return description + " | " + note;
     }
 
     /** Find posting job, falling back to org-agnostic query when orgId is null */
