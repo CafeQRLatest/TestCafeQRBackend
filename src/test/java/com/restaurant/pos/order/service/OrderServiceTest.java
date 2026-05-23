@@ -266,7 +266,6 @@ class OrderServiceTest {
                 .paymentType(PaymentType.INBOUND)
                 .paymentMethod("CASH")
                 .amountPaid(new java.math.BigDecimal("118.00"))
-                .status("COMPLETED")
                 .docStatus("COMPLETED")
                 .isactive("Y")
                 .build();
@@ -292,7 +291,6 @@ class OrderServiceTest {
         assertThat(invoice.getDocStatus()).isEqualTo("VOIDED");
         assertThat(invoice.getIsPaid()).isFalse();
         assertThat(invoice.getAmountDue()).isEqualByComparingTo("0.00");
-        assertThat(payment.getStatus()).isEqualTo("VOID");
         assertThat(payment.getDocStatus()).isEqualTo("VOIDED");
         assertThat(payment.getIsactive()).isEqualTo("N");
         verify(accountingPostingService).reverseInvoice(invoice, "Order cancelled");

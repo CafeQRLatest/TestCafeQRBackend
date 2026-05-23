@@ -25,8 +25,7 @@ public class Payment extends BaseEntity {
     @Column(name = "payment_type", length = 20)
     private PaymentType paymentType; // INBOUND (Sales) or OUTBOUND (Purchase/Expense)
 
-    @Column(name = "document_kind", length = 50)
-    private String documentKind;
+
 
     @Column(name = "client_id")
     private UUID clientId;
@@ -67,8 +66,7 @@ public class Payment extends BaseEntity {
     @Column(name = "expense_id")
     private UUID expenseId;
 
-    @Column(name = "expense_category_id")
-    private UUID expenseCategoryId;
+
 
     @Column(name = "payment_date")
     @Builder.Default
@@ -90,9 +88,7 @@ public class Payment extends BaseEntity {
     @Column(columnDefinition = "TEXT")
     private String description;
 
-    @Column(length = 20)
-    @Builder.Default
-    private String status = "COMPLETED";
+
 
     @Column(name = "doc_status", length = 20)
     @Builder.Default

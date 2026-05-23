@@ -50,4 +50,7 @@ public class ExpenseResponse {
 
     @Schema(description = "Expense scope: GLOBAL for organization-level records, BRANCH for branch records")
     private String scope;
+
+    @Schema(description = "User who last updated the record", example = "admin")
+    private String updatedBy;
 }

@@ -50,9 +50,9 @@ public abstract class AuditableEntity {
 
     private String resolveCurrentUser() {
         try {
-            var auth = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
-            if (auth != null && auth.isAuthenticated() && auth.getPrincipal() != null) {
-                return auth.getName();
+            java.util.UUID userId = com.restaurant.pos.common.util.SecurityUtils.getCurrentUserId();
+            if (userId != null) {
+                return userId.toString();
             }
         } catch (Exception ignored) {
             // Fall through to SYSTEM

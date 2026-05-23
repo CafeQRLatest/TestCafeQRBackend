@@ -50,6 +50,9 @@ class ExpenseServiceTest {
     private PaymentRepository paymentRepository;
     private IdempotencyStore idempotencyStore;
     private AccountingPostingService accountingPostingService;
+    private com.restaurant.pos.auth.repository.UserRepository userRepository;
+    private com.restaurant.pos.client.repository.ClientRepository clientRepository;
+    private com.restaurant.pos.invoice.service.InvoiceService invoiceService;
     private ExpenseService expenseService;
 
     private UUID clientId;
@@ -66,6 +69,9 @@ class ExpenseServiceTest {
         paymentRepository = mock(PaymentRepository.class);
         idempotencyStore = mock(IdempotencyStore.class);
         accountingPostingService = mock(AccountingPostingService.class);
+        userRepository = mock(com.restaurant.pos.auth.repository.UserRepository.class);
+        clientRepository = mock(com.restaurant.pos.client.repository.ClientRepository.class);
+        invoiceService = mock(com.restaurant.pos.invoice.service.InvoiceService.class);
 
         expenseService = new ExpenseService(
                 categoryRepository,
@@ -76,6 +82,9 @@ class ExpenseServiceTest {
                 currencyRepository,
                 invoiceRepository,
                 paymentRepository,
+                userRepository,
+                clientRepository,
+                invoiceService,
                 idempotencyStore
         );
 

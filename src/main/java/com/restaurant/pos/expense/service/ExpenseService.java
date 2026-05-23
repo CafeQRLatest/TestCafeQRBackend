@@ -20,7 +20,11 @@ import com.restaurant.pos.expense.repository.ExpenseRepository;
 import com.restaurant.pos.expense.spec.ExpenseSpecification;
 import com.restaurant.pos.invoice.domain.Invoice;
 import com.restaurant.pos.invoice.domain.InvoiceType;
+import com.restaurant.pos.invoice.domain.InvoiceLine;
 import com.restaurant.pos.invoice.repository.InvoiceRepository;
+import com.restaurant.pos.invoice.service.InvoiceService;
+import com.restaurant.pos.auth.repository.UserRepository;
+import com.restaurant.pos.client.repository.ClientRepository;
 import com.restaurant.pos.order.domain.Payment;
 import com.restaurant.pos.order.domain.PaymentType;
 import com.restaurant.pos.order.repository.PaymentRepository;
@@ -53,7 +57,6 @@ import java.util.stream.Collectors;
 /**
  * Service for managing expense transactions.
  * Fully utilizing the dedicated Expense domain entity and repository
- * for FAANG-level modularity.
  */
 @Slf4j
 @Service
@@ -61,7 +64,6 @@ import java.util.stream.Collectors;
 public class ExpenseService {
 
     private static final int EXPENSE_WRITE_TIMEOUT_SECONDS = 30;
-    private static final ZoneId BUSINESS_ZONE = ZoneId.of("Asia/Kolkata");
 
     private final ExpenseCategoryRepository categoryRepository;
     private final ExpenseRepository expenseRepository;
@@ -71,6 +73,9 @@ public class ExpenseService {
     private final CurrencyRepository currencyRepository;
     private final InvoiceRepository invoiceRepository;
     private final PaymentRepository paymentRepository;
+    private final UserRepository userRepository;
+    private final ClientRepository clientRepository;
+    private final InvoiceService invoiceService;
 
     private final IdempotencyStore idempotencyStore;
 
@@ -84,9 +89,8 @@ public class ExpenseService {
      */
     private static final Map<String, String> SORT_FIELD_MAP = Map.of(
             "expenseDate", "expenseDate",
-            "orderDate",   "expenseDate",
-            "amount",      "amount"
-    );
+            "orderDate", "expenseDate",
+            "amount", "amount");
 
     private Pageable translatePageable(Pageable pageable) {
         List<Sort.Order> translated = pageable.getSort().stream()
@@ -110,7 +114,8 @@ public class ExpenseService {
         boolean hasIdempotencyKey = idempotencyKey != null && !idempotencyKey.isBlank();
         ExpenseWriteScope targetScope = resolveExpenseWriteScope(request);
 
-        // Idempotency check — prevents duplicate Expense+Invoice+Payment triplets on retries
+        // Idempotency check — prevents duplicate Expense+Invoice+Payment triplets on
+        // retries
         String cacheKey = TenantContext.getCurrentTenant() + ":" + targetScope.cacheKeyPart() + ":" + idempotencyKey;
         ExpenseResponse cached = idempotencyStore.get(cacheKey);
         if (cached != null) {
@@ -140,8 +145,7 @@ public class ExpenseService {
                     request.getAmount(),
                     request.getPaymentMethod(),
                     hasIdempotencyKey,
-                    EXPENSE_WRITE_TIMEOUT_SECONDS
-            );
+                    EXPENSE_WRITE_TIMEOUT_SECONDS);
 
             // Save the standalone Expense entity
             Expense savedExpense = expenseRepository.save(expense);
@@ -152,67 +156,18 @@ public class ExpenseService {
                     savedExpense.getExpenseNo(),
                     category.getId(),
                     savedExpense.getOrgId(),
-                    hasIdempotencyKey
-            );
+                    hasIdempotencyKey);
 
-            // Generate unique sequence number for the invoice
-            String invoiceNo = sequenceService.generateNextSequence(DocumentType.EXPENSE_RECEIPT, targetScope.orgId());
-
-            // Construct and save the associated Invoice (with expenseId set and orderId = null)
-            Invoice invoice = Invoice.builder()
-                    .invoiceType(InvoiceType.EXPENSE_RECEIPT)
-                    .documentKind(DocumentType.EXPENSE_RECEIPT.name())
-                    .terminalId(savedExpense.getTerminalId())
-                    .expenseId(savedExpense.getId())
-                    .expenseCategoryId(category.getId())
-                    .invoiceNo(invoiceNo)
-                    .invoiceDate(toLocalDateTime(savedExpense.getExpenseDate()))
-                    .totalAmount(savedExpense.getAmount())
-                    .amountDue(BigDecimal.ZERO) // PAID immediately
-                    .status("PAID")
-                    .docStatus("COMPLETED")
-                    .isPaid(true)
-                    .isCredit(false)
-                    .description(savedExpense.getDescription())
-                    .isactive("Y")
-                    .build();
-            invoice.setClientId(savedExpense.getClientId());
-            invoice.setOrgId(savedExpense.getOrgId());
-
-            Invoice savedInvoice = invoiceRepository.save(invoice);
-
-            // Generate unique sequence number for the payment
-            String paymentNo = sequenceService.generateNextSequence(DocumentType.OUTBOUND_PAYMENT, targetScope.orgId());
-
-            // Construct and save the associated Payment (with expenseId set and orderId = null)
-            String normalizedMethod = normalizePaymentMethod(savedExpense.getPaymentMethod());
-            Payment payment = Payment.builder()
-                    .paymentType(PaymentType.OUTBOUND)
-                    .documentKind(DocumentType.OUTBOUND_PAYMENT.name())
-                    .terminalId(savedExpense.getTerminalId())
-                    .invoiceId(savedInvoice.getId())
-                    .expenseId(savedExpense.getId())
-                    .expenseCategoryId(category.getId())
-                    .paymentDate(toLocalDateTime(savedExpense.getExpenseDate()))
-                    .paymentMethod(normalizedMethod)
-                    .amountPaid(savedExpense.getAmount())
-                    .changeGiven(BigDecimal.ZERO)
-                    .referenceNo(paymentNo)
-                    .description(savedExpense.getDescription())
-                    .status("COMPLETED")
-                    .docStatus("COMPLETED")
-                    .isactive("Y")
-                    .build();
-            payment.setClientId(savedExpense.getClientId());
-            payment.setOrgId(savedExpense.getOrgId());
-
-            Payment savedPayment = paymentRepository.save(payment);
+            // Construct and save the associated Invoice & Payment
+            Invoice savedInvoice = createExpenseInvoice(savedExpense, category, targetScope);
+            Payment savedPayment = createExpensePayment(savedExpense, savedInvoice, category, targetScope);
 
             // Post to Accounting Posting Service (null for order)
             accountingPostingService.postInvoice(null, savedInvoice);
             accountingPostingService.postPayment(null, savedPayment);
 
-            ExpenseResponse response = expenseMapper.toExpenseResponse(savedExpense, category.getName());
+            String updaterName = resolveUserDisplayName(savedExpense.getUpdatedBy());
+            ExpenseResponse response = expenseMapper.toExpenseResponse(savedExpense, category.getName(), updaterName);
 
             idempotencyStore.put(cacheKey, response);
 
@@ -224,8 +179,7 @@ public class ExpenseService {
                     savedExpense.getOrgId(),
                     response.getAmount(),
                     elapsedMillis(startedAtNanos),
-                    hasIdempotencyKey
-            );
+                    hasIdempotencyKey);
 
             return response;
         } catch (RuntimeException ex) {
@@ -237,10 +191,69 @@ public class ExpenseService {
                     request.getPaymentMethod(),
                     elapsedMillis(startedAtNanos),
                     hasIdempotencyKey,
-                    ex
-            );
+                    ex);
             throw ex;
         }
+    }
+
+    private Invoice createExpenseInvoice(Expense savedExpense, ExpenseCategory category,
+            ExpenseWriteScope targetScope) {
+        String invoiceNo = sequenceService.generateNextSequence(DocumentType.EXPENSE_RECEIPT, targetScope.orgId());
+        Invoice invoice = Invoice.builder()
+                .invoiceType(InvoiceType.EXPENSE_RECEIPT)
+                .terminalId(savedExpense.getTerminalId())
+                .expenseId(savedExpense.getId())
+                .invoiceNo(invoiceNo)
+                .invoiceDate(toLocalDateTime(savedExpense.getExpenseDate()))
+                .totalAmount(savedExpense.getAmount())
+                .amountDue(BigDecimal.ZERO) // PAID immediately
+                .status("PAID")
+                .docStatus("COMPLETED")
+                .isPaid(true)
+                .isCredit(false)
+                .description(savedExpense.getDescription())
+                .isactive("Y")
+                .build();
+        invoice.setClientId(savedExpense.getClientId());
+        invoice.setOrgId(savedExpense.getOrgId());
+        invoice.setCreatedBy(savedExpense.getCreatedBy());
+        invoice.setUpdatedBy(savedExpense.getUpdatedBy());
+
+        InvoiceLine il = InvoiceLine.builder()
+                .quantity(BigDecimal.ONE)
+                .unitPrice(savedExpense.getAmount())
+                .lineTotal(savedExpense.getAmount())
+                .productName(category != null ? category.getName() : "Expense")
+                .isactive("Y")
+                .build();
+        invoice.addLine(il);
+
+        return invoiceService.createInvoice(invoice);
+    }
+
+    private Payment createExpensePayment(Expense savedExpense, Invoice savedInvoice, ExpenseCategory category,
+            ExpenseWriteScope targetScope) {
+        String paymentNo = sequenceService.generateNextSequence(DocumentType.OUTBOUND_PAYMENT, targetScope.orgId());
+        String normalizedMethod = normalizePaymentMethod(savedExpense.getPaymentMethod());
+        Payment payment = Payment.builder()
+                .paymentType(PaymentType.OUTBOUND)
+                .terminalId(savedExpense.getTerminalId())
+                .invoiceId(savedInvoice.getId())
+                .expenseId(savedExpense.getId())
+                .paymentDate(toLocalDateTime(savedExpense.getExpenseDate()))
+                .paymentMethod(normalizedMethod)
+                .amountPaid(savedExpense.getAmount())
+                .changeGiven(BigDecimal.ZERO)
+                .referenceNo(paymentNo)
+                .description(savedExpense.getDescription())
+                .docStatus("COMPLETED")
+                .isactive("Y")
+                .build();
+        payment.setClientId(savedExpense.getClientId());
+        payment.setOrgId(savedExpense.getOrgId());
+        payment.setCreatedBy(savedExpense.getCreatedBy());
+        payment.setUpdatedBy(savedExpense.getUpdatedBy());
+        return paymentRepository.save(payment);
     }
 
     /**
@@ -272,7 +285,6 @@ public class ExpenseService {
         String voidSuffix = "_VOID_" + revision;
         oldExpense.setExpenseNo(originalExpenseNo + voidSuffix);
         oldExpense.setStatus("VOID");
-        oldExpense.setDocStatus("VOID");
         oldExpense.deactivate();
         expenseRepository.saveAndFlush(oldExpense);
 
@@ -304,30 +316,7 @@ public class ExpenseService {
 
         Expense savedNew = expenseRepository.save(newExpense);
 
-        // Generate invoice number for new invoice
-        String newInvoiceNo = sequenceService.generateNextSequence(DocumentType.EXPENSE_RECEIPT, targetScope.orgId());
-
-        Invoice newInvoice = Invoice.builder()
-                .invoiceType(InvoiceType.EXPENSE_RECEIPT)
-                .documentKind(DocumentType.EXPENSE_RECEIPT.name())
-                .terminalId(savedNew.getTerminalId())
-                .expenseId(savedNew.getId())
-                .expenseCategoryId(category.getId())
-                .invoiceNo(newInvoiceNo)
-                .invoiceDate(toLocalDateTime(savedNew.getExpenseDate()))
-                .totalAmount(savedNew.getAmount())
-                .amountDue(BigDecimal.ZERO)
-                .status("PAID")
-                .docStatus("COMPLETED")
-                .isPaid(true)
-                .isCredit(false)
-                .description(savedNew.getDescription())
-                .isactive("Y")
-                .build();
-        newInvoice.setClientId(savedNew.getClientId());
-        newInvoice.setOrgId(savedNew.getOrgId());
-
-        Invoice savedNewInvoice = invoiceRepository.save(newInvoice);
+        Invoice savedNewInvoice = createExpenseInvoice(savedNew, category, targetScope);
 
         if (!oldPayments.isEmpty()) {
             if (!paymentChainChanged) {
@@ -335,7 +324,6 @@ public class ExpenseService {
                 Payment oldPayment = oldPayments.get(0);
                 oldPayment.setExpenseId(savedNew.getId());
                 oldPayment.setInvoiceId(savedNewInvoice.getId());
-                oldPayment.setExpenseCategoryId(category.getId());
                 oldPayment.setOrgId(savedNew.getOrgId());
                 paymentRepository.saveAndFlush(oldPayment);
 
@@ -349,7 +337,6 @@ public class ExpenseService {
                 // VOID all old payments (batched)
                 oldPayments.forEach(pay -> {
                     accountingPostingService.reversePayment(pay, "Expense revised");
-                    pay.setStatus("VOID");
                     pay.setDocStatus("VOID");
                     pay.setIsactive("N");
                     pay.setReferenceNo(pay.getReferenceNo() + "_VOID_" + revision);
@@ -358,65 +345,22 @@ public class ExpenseService {
                 paymentRepository.flush();
 
                 // Create new payment
-                String newPaymentNo = sequenceService.generateNextSequence(DocumentType.OUTBOUND_PAYMENT, targetScope.orgId());
-                String normalizedMethod = normalizePaymentMethod(savedNew.getPaymentMethod());
-                Payment newPayment = Payment.builder()
-                        .paymentType(PaymentType.OUTBOUND)
-                        .documentKind(DocumentType.OUTBOUND_PAYMENT.name())
-                        .terminalId(savedNew.getTerminalId())
-                        .invoiceId(savedNewInvoice.getId())
-                        .expenseId(savedNew.getId())
-                        .expenseCategoryId(category.getId())
-                        .paymentDate(toLocalDateTime(savedNew.getExpenseDate()))
-                        .paymentMethod(normalizedMethod)
-                        .amountPaid(savedNew.getAmount())
-                        .changeGiven(BigDecimal.ZERO)
-                        .referenceNo(newPaymentNo)
-                        .description(savedNew.getDescription())
-                        .status("COMPLETED")
-                        .docStatus("COMPLETED")
-                        .isactive("Y")
-                        .build();
-                newPayment.setClientId(savedNew.getClientId());
-                newPayment.setOrgId(savedNew.getOrgId());
-
-                Payment savedNewPayment = paymentRepository.save(newPayment);
+                Payment savedNewPayment = createExpensePayment(savedNew, savedNewInvoice, category, targetScope);
 
                 accountingPostingService.postInvoice(null, savedNewInvoice);
                 accountingPostingService.postPayment(null, savedNewPayment);
             }
         } else {
             // Create new payment
-            String newPaymentNo = sequenceService.generateNextSequence(DocumentType.OUTBOUND_PAYMENT, targetScope.orgId());
-            String normalizedMethod = normalizePaymentMethod(savedNew.getPaymentMethod());
-            Payment newPayment = Payment.builder()
-                    .paymentType(PaymentType.OUTBOUND)
-                    .documentKind(DocumentType.OUTBOUND_PAYMENT.name())
-                    .terminalId(savedNew.getTerminalId())
-                    .invoiceId(savedNewInvoice.getId())
-                    .expenseId(savedNew.getId())
-                    .expenseCategoryId(category.getId())
-                    .paymentDate(toLocalDateTime(savedNew.getExpenseDate()))
-                    .paymentMethod(normalizedMethod)
-                    .amountPaid(savedNew.getAmount())
-                    .changeGiven(BigDecimal.ZERO)
-                    .referenceNo(newPaymentNo)
-                    .description(savedNew.getDescription())
-                    .status("COMPLETED")
-                    .docStatus("COMPLETED")
-                    .isactive("Y")
-                    .build();
-            newPayment.setClientId(savedNew.getClientId());
-            newPayment.setOrgId(savedNew.getOrgId());
-
-            Payment savedNewPayment = paymentRepository.save(newPayment);
+            Payment savedNewPayment = createExpensePayment(savedNew, savedNewInvoice, category, targetScope);
 
             accountingPostingService.postInvoice(null, savedNewInvoice);
             accountingPostingService.postPayment(null, savedNewPayment);
         }
 
         log.info("Expense revision finalized | oldId={} | newId={} | rev={}", id, savedNew.getId(), revision + 1);
-        return expenseMapper.toExpenseResponse(savedNew, category.getName());
+        String updaterName = resolveUserDisplayName(savedNew.getUpdatedBy());
+        return expenseMapper.toExpenseResponse(savedNew, category.getName(), updaterName);
     }
 
     /**
@@ -440,7 +384,6 @@ public class ExpenseService {
         // 1. Void the Expense
         expense.setExpenseNo(expense.getExpenseNo() + "_VOID_" + revision);
         expense.setStatus("VOID");
-        expense.setDocStatus("VOID");
         expense.deactivate();
         expenseRepository.save(expense);
 
@@ -463,7 +406,6 @@ public class ExpenseService {
         paymentsToVoid.forEach(pay -> {
             accountingPostingService.reversePayment(pay, "Expense voided");
             pay.setReferenceNo(pay.getReferenceNo() + "_VOID_" + revision);
-            pay.setStatus("VOID");
             pay.setDocStatus("VOID");
             pay.setIsactive("N");
             paymentIds.add(pay.getId());
@@ -492,12 +434,15 @@ public class ExpenseService {
         ExpenseCategory category = categoryRepository.findById(expense.getCategoryId())
                 .orElse(null);
 
-        return expenseMapper.toExpenseResponse(expense, category != null ? category.getName() : "Uncategorized");
+        String updaterName = resolveUserDisplayName(expense.getUpdatedBy());
+        return expenseMapper.toExpenseResponse(expense, category != null ? category.getName() : "Uncategorized",
+                updaterName);
     }
 
     /**
      * Fetches paginated and filtered expense records.
-     * Only fetches category names for IDs present on the current page (no full-table scan).
+     * Only fetches category names for IDs present on the current page (no
+     * full-table scan).
      */
     @Transactional(readOnly = true)
     public Page<ExpenseResponse> getExpenses(ExpenseSearchCriteria criteria, Pageable pageable) {
@@ -517,12 +462,36 @@ public class ExpenseService {
         Map<UUID, String> categoryNames = categoryRepository.findAllById(neededCategoryIds).stream()
                 .collect(Collectors.toMap(ExpenseCategory::getId, ExpenseCategory::getName, (a, b) -> a));
 
-        return expensePage.map(expense ->
-            expenseMapper.toExpenseResponse(
-                expense,
-                categoryNames.getOrDefault(expense.getCategoryId(), "Uncategorized")
-            )
-        );
+        Set<UUID> neededUserIds = expensePage.getContent().stream()
+                .map(Expense::getUpdatedBy)
+                .filter(Objects::nonNull)
+                .map(uidStr -> {
+                    try {
+                        return UUID.fromString(uidStr);
+                    } catch (Exception e) {
+                        return null;
+                    }
+                })
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+
+        Map<String, String> userNames = neededUserIds
+                .isEmpty() ? Map.of()
+                        : userRepository.findAllById(neededUserIds).stream()
+                                .collect(Collectors.toMap(
+                                        u -> u.getId().toString(),
+                                        u -> u.getFirstName() + (u.getLastName() != null && !u.getLastName().isBlank()
+                                                ? " " + u.getLastName()
+                                                : "")));
+
+        return expensePage.map(expense -> {
+            String updatedByVal = expense.getUpdatedBy();
+            String updaterName = userNames.getOrDefault(updatedByVal, updatedByVal);
+            return expenseMapper.toExpenseResponse(
+                    expense,
+                    categoryNames.getOrDefault(expense.getCategoryId(), "Uncategorized"),
+                    updaterName);
+        });
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -532,9 +501,12 @@ public class ExpenseService {
     /**
      * Builds an Expense entity from any request implementing ExpenseBaseRequest.
      */
-    private Expense buildExpenseEntity(ExpenseBaseRequest request, ExpenseCategory category, ExpenseWriteScope targetScope) {
+    private Expense buildExpenseEntity(ExpenseBaseRequest request, ExpenseCategory category,
+            ExpenseWriteScope targetScope) {
         Instant expenseDate = (request.getExpenseDate() != null) ? request.getExpenseDate() : Instant.now();
-        String paymentMethod = (request.getPaymentMethod() != null && !request.getPaymentMethod().isBlank()) ? request.getPaymentMethod() : "CASH";
+        String paymentMethod = (request.getPaymentMethod() != null && !request.getPaymentMethod().isBlank())
+                ? request.getPaymentMethod()
+                : "CASH";
 
         Expense expense = Expense.builder()
                 .categoryId(category.getId())
@@ -543,7 +515,6 @@ public class ExpenseService {
                 .amount(request.getAmount() != null ? request.getAmount() : BigDecimal.ZERO)
                 .description(request.getDescription())
                 .status("COMPLETED")
-                .docStatus("COMPLETED")
                 .paymentStatus("PAID")
                 .isactive("Y")
                 .revisionNumber(0)
@@ -565,7 +536,39 @@ public class ExpenseService {
         if (instant == null) {
             return LocalDateTime.now();
         }
-        return LocalDateTime.ofInstant(instant, BUSINESS_ZONE);
+        return LocalDateTime.ofInstant(instant, resolveClientZoneId());
+    }
+
+    private ZoneId resolveClientZoneId() {
+        try {
+            UUID clientId = TenantContext.getCurrentTenant();
+            if (clientId != null) {
+                return clientRepository.findById(clientId)
+                        .map(com.restaurant.pos.client.domain.Client::getTimezone)
+                        .map(tz -> {
+                            try {
+                                if (tz.startsWith("UTC")) {
+                                    String offset = tz.substring(3).trim();
+                                    if (offset.isEmpty()) {
+                                        return ZoneId.of("UTC");
+                                    }
+                                    if (!offset.startsWith("+") && !offset.startsWith("-")) {
+                                        offset = "+" + offset;
+                                    }
+                                    return ZoneId.of(offset);
+                                }
+                                return ZoneId.of(tz);
+                            } catch (Exception e) {
+                                log.warn("Invalid timezone string in client settings: {}", tz);
+                                return ZoneId.of("Asia/Kolkata");
+                            }
+                        })
+                        .orElse(ZoneId.of("Asia/Kolkata"));
+            }
+        } catch (Exception e) {
+            log.warn("Error resolving client timezone, falling back to Asia/Kolkata", e);
+        }
+        return ZoneId.of("Asia/Kolkata");
     }
 
     private String normalizePaymentMethod(String paymentMethod) {
@@ -584,11 +587,10 @@ public class ExpenseService {
     private ExpenseCategory getOwnedExpenseCategory(UUID categoryId, UUID targetOrgId) {
         String profileOwner = currentProfileOwner();
         return categoryRepository.findByIdAndClientIdAndOrgIdAndCreatedBy(
-                        categoryId,
-                        TenantContext.getCurrentTenant(),
-                        targetOrgId,
-                        profileOwner
-                )
+                categoryId,
+                TenantContext.getCurrentTenant(),
+                targetOrgId,
+                profileOwner)
                 .orElseThrow(() -> new BusinessException("Invalid expense category"));
     }
 
@@ -651,6 +653,21 @@ public class ExpenseService {
             throw new BusinessException("Authenticated profile is required for expense categories");
         }
         return owner.trim();
+    }
+
+    private String resolveUserDisplayName(String uidStr) {
+        if (uidStr == null || uidStr.isBlank() || "SYSTEM".equalsIgnoreCase(uidStr)) {
+            return "SYSTEM";
+        }
+        try {
+            UUID userId = UUID.fromString(uidStr);
+            return userRepository.findById(userId)
+                    .map(u -> u.getFirstName()
+                            + (u.getLastName() != null && !u.getLastName().isBlank() ? " " + u.getLastName() : ""))
+                    .orElse(uidStr);
+        } catch (Exception e) {
+            return uidStr;
+        }
     }
 
     private record ExpenseWriteScope(UUID orgId, String scope) {

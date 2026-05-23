@@ -26,8 +26,7 @@ public class Invoice extends BaseEntity {
     @Column(name = "invoice_type", length = 30)
     private InvoiceType invoiceType; // CUSTOMER_INVOICE, VENDOR_BILL, EXPENSE_RECEIPT
 
-    @Column(name = "document_kind", length = 50)
-    private String documentKind;
+
 
     @Column(name = "terminal_id")
     private UUID terminalId;
@@ -94,8 +93,7 @@ public class Invoice extends BaseEntity {
     @Column(name = "original_invoice_id")
     private UUID originalInvoiceId;
 
-    @Column(name = "expense_category_id")
-    private UUID expenseCategoryId;
+
 
     @Column(name = "total_amount", precision = 15, scale = 2, nullable = false)
     private BigDecimal totalAmount;
@@ -113,4 +111,13 @@ public class Invoice extends BaseEntity {
     @JsonProperty("isActive")
     @Column(name = "isactive", length = 1)
     private String isactive = "Y";
+
+    @OneToMany(mappedBy = "invoice", cascade = CascadeType.ALL, orphanRemoval = true)
+    @Builder.Default
+    private java.util.List<InvoiceLine> lines = new java.util.ArrayList<>();
+
+    public void addLine(InvoiceLine line) {
+        lines.add(line);
+        line.setInvoice(this);
+    }
 }

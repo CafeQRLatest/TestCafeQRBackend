@@ -694,7 +694,6 @@ public class ReportService {
             if (isActivePayment(payment)) {
                 accountingPostingService.reversePayment(payment, "Invoice voided");
             }
-            payment.setStatus("VOID");
             payment.setDocStatus("VOIDED");
             payment.setIsactive("N");
             paymentRepository.save(payment);
@@ -821,13 +820,9 @@ public class ReportService {
     }
 
     private boolean isActivePayment(Payment payment) {
-        if (payment == null) {
-            return false;
-        }
-        if ("N".equalsIgnoreCase(payment.getIsactive())) {
-            return false;
-        }
-        return !isVoidStatus(payment.getStatus()) && !isVoidStatus(payment.getDocStatus());
+        return payment != null
+                && !"N".equalsIgnoreCase(payment.getIsactive())
+                && !isVoidStatus(payment.getDocStatus());
     }
 
     private void addPaymentBreakdownBucket(Map<String, BigDecimal[]> payMethodMap, String paymentMethod, BigDecimal amount) {

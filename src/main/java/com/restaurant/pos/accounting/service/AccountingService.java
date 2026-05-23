@@ -669,8 +669,6 @@ public class AccountingService {
     private boolean isActivePayment(Payment payment) {
         return payment != null
                 && !"N".equalsIgnoreCase(payment.getIsactive())
-                && !"VOID".equalsIgnoreCase(payment.getStatus())
-                && !"VOIDED".equalsIgnoreCase(payment.getStatus())
                 && !"VOID".equalsIgnoreCase(payment.getDocStatus())
                 && !"VOIDED".equalsIgnoreCase(payment.getDocStatus());
     }

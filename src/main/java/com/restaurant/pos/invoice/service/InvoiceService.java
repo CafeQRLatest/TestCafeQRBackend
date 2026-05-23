@@ -3,6 +3,7 @@ package com.restaurant.pos.invoice.service;
 import com.restaurant.pos.common.exception.ResourceNotFoundException;
 import com.restaurant.pos.common.tenant.TenantContext;
 import com.restaurant.pos.invoice.domain.Invoice;
+import com.restaurant.pos.invoice.domain.InvoiceLine;
 import com.restaurant.pos.invoice.repository.InvoiceRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -40,8 +41,10 @@ public class InvoiceService {
 
     @Transactional
     public Invoice createInvoice(Invoice invoice) {
-        invoice.setClientId(TenantContext.getCurrentTenant());
-        if (!SecurityUtils.isSuperAdmin() || invoice.getOrgId() == null) {
+        if (invoice.getClientId() == null) {
+            invoice.setClientId(TenantContext.getCurrentTenant());
+        }
+        if (invoice.getOrgId() == null && !SecurityUtils.isSuperAdmin()) {
             invoice.setOrgId(TenantContext.getCurrentOrg());
         }
 
@@ -62,6 +65,14 @@ public class InvoiceService {
                  return existing.get();
              }
         }
+
+        // Safeguard: Sync bidirectional parent-child relationships for lines
+        if (invoice.getLines() != null) {
+            for (InvoiceLine line : invoice.getLines()) {
+                line.setInvoice(invoice);
+            }
+        }
+
         return invoiceRepository.save(invoice);
     }
 }

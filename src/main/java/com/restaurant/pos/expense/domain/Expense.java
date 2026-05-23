@@ -48,13 +48,9 @@ public class Expense extends BaseEntity {
     @Column(name = "payment_method", length = 50)
     private String paymentMethod;
 
-    @Column(length = 20)
-    @Builder.Default
-    private String status = "COMPLETED";
-
     @Column(name = "doc_status", length = 20)
     @Builder.Default
-    private String docStatus = "COMPLETED";
+    private String status = "COMPLETED";
 
     @Column(name = "payment_status", length = 20)
     @Builder.Default

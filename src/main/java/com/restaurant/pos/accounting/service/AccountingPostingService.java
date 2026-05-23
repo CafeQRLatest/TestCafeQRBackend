@@ -115,7 +115,7 @@ public class AccountingPostingService {
     }
 
     public PostingOutcome postPayment(Order order, Payment payment) {
-        if (payment == null || payment.getId() == null || isVoid(payment.getStatus()) || isInactive(payment.getIsactive())) {
+        if (payment == null || payment.getId() == null || isVoid(payment.getDocStatus()) || isInactive(payment.getIsactive())) {
             return PostingOutcome.SKIPPED;
         }
         UUID paymentId = payment.getId();
@@ -588,7 +588,6 @@ public class AccountingPostingService {
             return;
         }
         PostingOutcome outcome = reversePayment(payment, "Voided sale repaired");
-        payment.setStatus("VOID");
         payment.setDocStatus("VOIDED");
         payment.setIsactive("N");
         paymentRepository.save(payment);
@@ -705,7 +704,6 @@ public class AccountingPostingService {
     private boolean isActivePayment(Payment payment) {
         return payment != null
                 && !"N".equalsIgnoreCase(payment.getIsactive())
-                && !isVoidStatus(payment.getStatus())
                 && !isVoidStatus(payment.getDocStatus());
     }
 
@@ -1124,11 +1122,11 @@ public class AccountingPostingService {
     }
 
     private AccountingAccount resolveExpenseAccount(Invoice invoice, Order order, Expense expense) {
-        UUID categoryId = invoice.getExpenseCategoryId();
-        if (categoryId == null) {
-            if (expense != null) {
-                categoryId = expense.getCategoryId();
-            }
+        UUID categoryId = null;
+        if (expense != null) {
+            categoryId = expense.getCategoryId();
+        } else if (invoice != null && invoice.getExpenseId() != null) {
+            categoryId = expenseRepository.findById(invoice.getExpenseId()).map(Expense::getCategoryId).orElse(null);
         }
         if (categoryId != null) {
             Optional<ExpenseCategory> category = expenseCategoryRepository.findById(categoryId);

@@ -10,6 +10,7 @@ import com.restaurant.pos.common.tenant.TenantContext;
 import com.restaurant.pos.inventory.service.InventoryService;
 import com.restaurant.pos.invoice.domain.Invoice;
 import com.restaurant.pos.invoice.domain.InvoiceType;
+import com.restaurant.pos.invoice.domain.InvoiceLine;
 import com.restaurant.pos.order.domain.Order;
 import com.restaurant.pos.order.domain.OrderLine;
 import com.restaurant.pos.order.domain.OrderType;
@@ -930,7 +931,6 @@ public class OrderService {
             accountingPostingService.reversePayment(payment, "Order revised");
             payment.setReferenceNo((payment.getReferenceNo() != null ? payment.getReferenceNo() : "PAYMENT")
                     + "_VOID_" + (oldOrder.getRevisionNumber() != null ? oldOrder.getRevisionNumber() : 0));
-            payment.setStatus("VOID");
             payment.setDocStatus("VOID");
             payment.setIsactive("N");
             paymentRepository.save(payment);
@@ -1256,7 +1256,6 @@ public class OrderService {
 
         Invoice invoice = Invoice.builder()
             .invoiceType(invoiceType)
-            .documentKind(invoiceDocType.name())
             .terminalId(order.getTerminalId())
             .sourceDeviceId(order.getSourceDeviceId())
             .sourceTerminalId(order.getSourceTerminalId())
@@ -1280,6 +1279,30 @@ public class OrderService {
             
         invoice.setClientId(clientId);
         invoice.setOrgId(orgId);
+
+        if (order.getLines() != null) {
+            for (OrderLine ol : order.getLines()) {
+                InvoiceLine il = InvoiceLine.builder()
+                    .orderLineId(ol.getId())
+                    .productId(ol.getProductId())
+                    .variantId(ol.getVariantId())
+                    .productName(ol.getProductName())
+                    .categoryName(ol.getCategoryName())
+                    .isPackagedGood(ol.getIsPackagedGood())
+                    .quantity(ol.getQuantity())
+                    .unitOfMeasure(ol.getUnitOfMeasure())
+                    .unitPrice(ol.getUnitPrice())
+                    .taxRate(ol.getTaxRate())
+                    .taxAmount(ol.getTaxAmount())
+                    .discountAmount(ol.getDiscountAmount())
+                    .lineTotal(ol.getLineTotal())
+                    .isactive(ol.getIsactive())
+                    .createdBy(ol.getCreatedBy())
+                    .updatedBy(ol.getUpdatedBy())
+                    .build();
+                invoice.addLine(il);
+            }
+        }
 
         Invoice savedInvoice = invoiceRepository.save(invoice);
         accountingPostingService.postInvoice(order, savedInvoice);
@@ -1345,7 +1368,6 @@ public class OrderService {
         
         Payment payment = Payment.builder()
             .paymentType(paymentType)
-            .documentKind(paymentDocType.name())
             .terminalId(order.getTerminalId())
             .sourceDeviceId(order.getSourceDeviceId())
             .sourceTerminalId(order.getSourceTerminalId())
@@ -1361,7 +1383,6 @@ public class OrderService {
             .amountPaid(moneyValue(amountPaid))
             .referenceNo(payNo)
             .description(description)
-            .status("COMPLETED")
             .build();
             
         payment.setClientId(clientId);
@@ -1548,7 +1569,6 @@ public class OrderService {
             if (isActivePayment(payment)) {
                 accountingPostingService.reversePayment(payment, reason);
             }
-            payment.setStatus("VOID");
             payment.setDocStatus("VOIDED");
             payment.setIsactive("N");
             paymentRepository.save(payment);
@@ -1558,7 +1578,6 @@ public class OrderService {
     private boolean isActivePayment(Payment payment) {
         return payment != null
                 && !"N".equalsIgnoreCase(payment.getIsactive())
-                && !isVoidStatus(payment.getStatus())
                 && !isVoidStatus(payment.getDocStatus());
     }
 

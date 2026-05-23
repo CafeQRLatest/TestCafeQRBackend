@@ -28,6 +28,17 @@ public class ExpenseMapper {
                 .active("Y".equals(expense.getIsactive()))
                 .orgId(expense.getOrgId())
                 .scope(expense.getOrgId() == null ? "GLOBAL" : "BRANCH")
+                .updatedBy(expense.getUpdatedBy())
                 .build();
+    }
+
+    public ExpenseResponse toExpenseResponse(Expense expense, String categoryName, String updatedByName) {
+        ExpenseResponse response = toExpenseResponse(expense, categoryName);
+        if (updatedByName != null) {
+            return response.toBuilder()
+                    .updatedBy(updatedByName)
+                    .build();
+        }
+        return response;
     }
 }

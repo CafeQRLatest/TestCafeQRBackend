@@ -29,7 +29,6 @@ public interface PaymentRepository extends JpaRepository<Payment, UUID> {
               AND (:orgId IS NULL OR p.orgId = :orgId)
               AND p.paymentDate BETWEEN :from AND :to
               AND p.isactive = 'Y'
-              AND UPPER(COALESCE(p.status, 'COMPLETED')) NOT IN ('VOID', 'VOIDED')
               AND UPPER(COALESCE(p.docStatus, 'COMPLETED')) NOT IN ('VOID', 'VOIDED')
             ORDER BY p.paymentDate ASC
             """)
