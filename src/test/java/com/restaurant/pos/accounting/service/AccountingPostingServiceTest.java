@@ -2,6 +2,7 @@ package com.restaurant.pos.accounting.service;
 
 import com.restaurant.pos.accounting.domain.AccountType;
 import com.restaurant.pos.accounting.domain.AccountingAccount;
+import com.restaurant.pos.accounting.domain.AccountingPostingJob;
 import com.restaurant.pos.accounting.domain.JournalEntry;
 import com.restaurant.pos.accounting.domain.JournalLine;
 import com.restaurant.pos.accounting.domain.JournalStatus;
@@ -42,6 +43,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -209,8 +211,16 @@ class AccountingPostingServiceTest {
                 .thenReturn(List.of(oldEntry));
         when(invoiceRepository.findById(invoiceId)).thenReturn(Optional.of(invoice));
         when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
-        when(postingJobRepository.findByClientIdAndOrgIdAndSourceTypeAndSourceId(clientId, orgId, "CUSTOMER_INVOICE", invoiceId))
-                .thenReturn(Optional.empty());
+        AccountingPostingJob postingJob = AccountingPostingJob.builder()
+                .sourceType("CUSTOMER_INVOICE")
+                .sourceId(invoiceId)
+                .status("PENDING")
+                .attemptCount(0)
+                .build();
+        postingJob.setClientId(clientId);
+        postingJob.setOrgId(orgId);
+        when(postingJobRepository.findLockedBySource(clientId, orgId, "CUSTOMER_INVOICE", invoiceId))
+                .thenReturn(List.of(postingJob));
         when(accountingService.createJournalEntry(any(JournalEntry.class))).thenAnswer(invocation -> {
             JournalEntry entry = invocation.getArgument(0);
             entry.setId(UUID.randomUUID());
@@ -235,6 +245,74 @@ class AccountingPostingServiceTest {
         assertThat(debit(corrected, discount)).isEqualByComparingTo("50.00");
         assertThat(credit(corrected, revenue)).isEqualByComparingTo("100.00");
         assertThat(credit(corrected, tax)).isEqualByComparingTo("18.00");
+
+        TenantContext.clear();
+    }
+
+    @Test
+    void postSaleCogsReusesExistingPostingJobWithoutDuplicateInsert() {
+        UUID clientId = UUID.randomUUID();
+        UUID orgId = UUID.randomUUID();
+        UUID orderId = UUID.randomUUID();
+        TenantContext.setCurrentTenant(clientId);
+        TenantContext.setCurrentOrg(orgId);
+
+        AccountingPostingJob existingJob = AccountingPostingJob.builder()
+                .sourceType("SALE_COGS")
+                .sourceId(orderId)
+                .status("FAILED")
+                .attemptCount(2)
+                .lastError("previous failure")
+                .build();
+        existingJob.setClientId(clientId);
+        existingJob.setOrgId(orgId);
+
+        AccountingPostingJobRepository postingJobRepository = mock(AccountingPostingJobRepository.class);
+        JournalEntryRepository journalEntryRepository = mock(JournalEntryRepository.class);
+        OrderRepository orderRepository = mock(OrderRepository.class);
+        PlatformTransactionManager transactionManager = mock(PlatformTransactionManager.class);
+        when(transactionManager.getTransaction(any(TransactionDefinition.class))).thenReturn(new SimpleTransactionStatus());
+        when(journalEntryRepository.findActiveBySource(clientId, orgId, "SALE_COGS", orderId, JournalStatus.POSTED))
+                .thenReturn(List.of());
+        when(postingJobRepository.findLockedBySource(clientId, orgId, "SALE_COGS", orderId))
+                .thenReturn(List.of(existingJob));
+
+        Order order = Order.builder()
+                .id(orderId)
+                .orderType(OrderType.SALE)
+                .orderStatus("COMPLETED")
+                .orderNo("SO-COGS")
+                .lines(List.of())
+                .build();
+        order.setClientId(clientId);
+        order.setOrgId(orgId);
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+
+        AccountingPostingService service = new AccountingPostingService(
+                mock(AccountingService.class),
+                mock(AccountingDefaultsService.class),
+                mock(AccountingAccountRepository.class),
+                journalEntryRepository,
+                mock(PartyLedgerEntryRepository.class),
+                postingJobRepository,
+                orderRepository,
+                mock(InvoiceRepository.class),
+                mock(PaymentRepository.class),
+                mock(PaymentSplitRepository.class),
+                mock(ProductRepository.class),
+                mock(ExpenseCategoryRepository.class),
+                mock(StockAdjustmentRepository.class),
+                mock(com.restaurant.pos.expense.repository.ExpenseRepository.class),
+                transactionManager
+        );
+
+        AccountingPostingService.PostingOutcome outcome = service.postSaleCogs(order);
+
+        assertThat(outcome).isEqualTo(AccountingPostingService.PostingOutcome.SKIPPED);
+        assertThat(existingJob.getAttemptCount()).isEqualTo(3);
+        assertThat(existingJob.getStatus()).isEqualTo("SKIPPED");
+        assertThat(existingJob.getLastError()).isNull();
+        verify(postingJobRepository, never()).insertIfAbsent(any(), any(), any(), any(), any(), any());
 
         TenantContext.clear();
     }

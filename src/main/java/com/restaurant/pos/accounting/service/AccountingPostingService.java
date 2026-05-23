@@ -738,24 +738,18 @@ public class AccountingPostingService {
             return inTransaction(() -> {
                 UUID clientId = requireClient();
                 UUID orgId = TenantContext.getCurrentOrg();
+                AccountingPostingJob job = getOrCreatePostingJob(clientId, orgId, sourceType, sourceId);
+
                 if (alreadyPosted(sourceType, sourceId)) {
-                    markJobPosted(clientId, orgId, sourceType, sourceId, null);
+                    markJobPosted(job, null);
                     return PostingOutcome.SKIPPED;
                 }
 
-                AccountingPostingJob job = findPostingJob(clientId, orgId, sourceType, sourceId)
-                        .orElseGet(() -> {
-                            AccountingPostingJob created = AccountingPostingJob.builder()
-                                    .sourceType(sourceType)
-                                    .sourceId(sourceId)
-                                    .status("PENDING")
-                                    .attemptCount(0)
-                                    .build();
-                            created.setClientId(clientId);
-                            created.setOrgId(orgId);
-                            return created;
-                        });
                 job.setAttemptCount(job.getAttemptCount() == null ? 1 : job.getAttemptCount() + 1);
+                job.setStatus("PENDING");
+                job.setLastError(null);
+                job.setPostedAt(null);
+                job.setPostedJournalEntryId(null);
                 postingJobRepository.save(job);
 
                 try {
@@ -766,7 +760,7 @@ public class AccountingPostingService {
                     }
 
                     JournalEntry saved = accountingService.createJournalEntry(maybeEntry.get());
-                    markJobPosted(clientId, orgId, sourceType, sourceId, saved.getId());
+                    markJobPosted(job, saved.getId());
                     return sourceType.endsWith("_REV") ? PostingOutcome.REVERSED : PostingOutcome.POSTED;
                 } catch (Exception ex) {
                     log.warn("Accounting posting failed | sourceType={} | sourceId={} | message={}", sourceType, sourceId, ex.getMessage());
@@ -1210,17 +1204,24 @@ public class AccountingPostingService {
         return postingJobRepository.findFirstByClientIdAndSourceTypeAndSourceId(clientId, sourceType, sourceId);
     }
 
+    private AccountingPostingJob getOrCreatePostingJob(UUID clientId, UUID orgId, String sourceType, UUID sourceId) {
+        List<AccountingPostingJob> locked = postingJobRepository.findLockedBySource(clientId, orgId, sourceType, sourceId);
+        if (!locked.isEmpty()) {
+            return locked.get(0);
+        }
+        postingJobRepository.insertIfAbsent(UUID.randomUUID(), clientId, orgId, sourceType, sourceId, "PENDING");
+        locked = postingJobRepository.findLockedBySource(clientId, orgId, sourceType, sourceId);
+        if (!locked.isEmpty()) {
+            return locked.get(0);
+        }
+        throw new BusinessException("Unable to reserve accounting posting job");
+    }
+
     private void markJobPosted(UUID clientId, UUID orgId, String sourceType, UUID sourceId, UUID journalEntryId) {
-        AccountingPostingJob job = findPostingJob(clientId, orgId, sourceType, sourceId)
-                .orElseGet(() -> {
-                    AccountingPostingJob created = AccountingPostingJob.builder()
-                            .sourceType(sourceType)
-                            .sourceId(sourceId)
-                            .build();
-                    created.setClientId(clientId);
-                    created.setOrgId(orgId);
-                    return created;
-                });
+        markJobPosted(getOrCreatePostingJob(clientId, orgId, sourceType, sourceId), journalEntryId);
+    }
+
+    private void markJobPosted(AccountingPostingJob job, UUID journalEntryId) {
         job.setStatus("POSTED");
         job.setLastError(null);
         job.setPostedAt(LocalDateTime.now());
