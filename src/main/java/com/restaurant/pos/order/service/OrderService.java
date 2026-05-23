@@ -7,7 +7,6 @@ import com.restaurant.pos.common.exception.ResourceNotFoundException;
 import com.restaurant.pos.common.exception.BusinessException;
 import com.restaurant.pos.common.service.BranchContextService;
 import com.restaurant.pos.common.tenant.TenantContext;
-import com.restaurant.pos.common.util.SecurityUtils;
 import com.restaurant.pos.inventory.service.InventoryService;
 import com.restaurant.pos.invoice.domain.Invoice;
 import com.restaurant.pos.invoice.domain.InvoiceType;
@@ -136,6 +135,30 @@ public class OrderService {
         return order != null && "MAIN_OFFLINE".equalsIgnoreCase(order.getSyncOrigin());
     }
 
+    private UUID resolveOrderWriteOrgId(Order order) {
+        UUID currentOrgId = TenantContext.getCurrentOrg();
+        UUID requestedOrgId = order != null ? order.getOrgId() : null;
+        if (currentOrgId != null) {
+            if (requestedOrgId != null && !currentOrgId.equals(requestedOrgId)) {
+                throw new BusinessException("Selected branch does not match the requested order branch.");
+            }
+            return currentOrgId;
+        }
+
+        if (order != null && order.getTableId() != null) {
+            RestaurantTable table = tableRepository.findByIdAndClientId(order.getTableId(), TenantContext.getCurrentTenant())
+                    .orElseThrow(() -> new ResourceNotFoundException("Target table not found"));
+            if (table.getOrgId() != null) {
+                if (requestedOrgId != null && !requestedOrgId.equals(table.getOrgId())) {
+                    throw new BusinessException("Selected table belongs to another branch.");
+                }
+                return table.getOrgId();
+            }
+        }
+
+        return branchContext.requireWriteOrgId(requestedOrgId);
+    }
+
     private LocalDateTime sourceBusinessDateTime(Order order) {
         if (order != null && order.getOrderDate() != null) {
             return LocalDateTime.ofInstant(order.getOrderDate(), BUSINESS_ZONE);
@@ -178,7 +201,11 @@ public class OrderService {
             return;
         }
 
-        ensureTableAvailableForOrder(getTenantTable(order.getTableId()));
+        RestaurantTable table = getTenantTable(order.getTableId());
+        if (order.getOrgId() != null && table.getOrgId() != null && !order.getOrgId().equals(table.getOrgId())) {
+            throw new BusinessException("Selected table belongs to another branch.");
+        }
+        ensureTableAvailableForOrder(table);
     }
 
     private void ensureTableAvailableForOrder(RestaurantTable table) {
@@ -616,7 +643,7 @@ public class OrderService {
         return (root, query, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
             UUID tenantId = TenantContext.getCurrentTenant();
-            UUID orgId = SecurityUtils.isSuperAdmin() ? null : TenantContext.getCurrentOrg();
+            UUID orgId = branchContext.getReadOrgId(null);
 
             predicates.add(cb.equal(root.get("clientId"), tenantId));
             if (orgId != null) {
@@ -688,15 +715,16 @@ public class OrderService {
 
     public List<Order> getOrders(String status) {
         UUID tenantId = TenantContext.getCurrentTenant();
+        UUID orgId = branchContext.getReadOrgId(null);
         List<String> statuses = (status != null && !status.isEmpty()) ? Arrays.asList(status.split(",")) : null;
 
         List<Order> orders;
-        if (SecurityUtils.isSuperAdmin()) {
+        if (orgId == null) {
             if (statuses != null) orders = orderRepository.findByClientIdAndOrderStatusInOrderByCreatedAtDesc(tenantId, statuses);
             else orders = orderRepository.findByClientIdOrderByCreatedAtDesc(tenantId);
         } else {
-            if (statuses != null) orders = orderRepository.findByClientIdAndOrgIdAndOrderStatusInOrderByCreatedAtDesc(tenantId, TenantContext.getCurrentOrg(), statuses);
-            else orders = orderRepository.findByClientIdAndOrgIdOrderByCreatedAtDesc(tenantId, TenantContext.getCurrentOrg());
+            if (statuses != null) orders = orderRepository.findByClientIdAndOrgIdAndOrderStatusInOrderByCreatedAtDesc(tenantId, orgId, statuses);
+            else orders = orderRepository.findByClientIdAndOrgIdOrderByCreatedAtDesc(tenantId, orgId);
         }
 
         // Lazy generate documents for completed orders that are missing them
@@ -716,18 +744,18 @@ public class OrderService {
     @Transactional(readOnly = true)
     public List<Order> getOrdersByType(OrderType orderType) {
         UUID tenantId = TenantContext.getCurrentTenant();
-        List<Order> orders;
-        if (SecurityUtils.isSuperAdmin()) {
+        UUID orgId = branchContext.getReadOrgId(null);
+        if (orgId == null) {
             return hydrateOrders(orderRepository.findByClientIdAndOrderTypeOrderByCreatedAtDesc(tenantId, orderType));
         }
         return hydrateOrders(orderRepository.findByClientIdAndOrgIdAndOrderTypeOrderByCreatedAtDesc(
-                tenantId, TenantContext.getCurrentOrg(), orderType));
+                tenantId, orgId, orderType));
     }
 
     @Transactional(readOnly = true)
     public List<OrderSummaryDto> getLiveSalesOrders() {
         UUID tenantId = TenantContext.getCurrentTenant();
-        UUID orgId = SecurityUtils.isSuperAdmin() ? null : TenantContext.getCurrentOrg();
+        UUID orgId = branchContext.getReadOrgId(null);
         return orderRepository.findLiveOrders(tenantId, orgId, OrderType.SALE, CLOSED_SALE_STATUSES)
                 .stream()
                 .map(this::toOrderSummary)
@@ -757,7 +785,7 @@ public class OrderService {
             }
         }
 
-        UUID orgId = SecurityUtils.isSuperAdmin() ? null : TenantContext.getCurrentOrg();
+        UUID orgId = branchContext.getReadOrgId(null);
         Set<UUID> customerIds = normalizedSearch == null
                 ? Set.of()
                 : findCustomerSearchCustomerIds(TenantContext.getCurrentTenant(), orgId, normalizedSearch);
@@ -789,7 +817,7 @@ public class OrderService {
         Instant safeSince = since != null ? since : Instant.now().minus(Duration.ofMinutes(15));
         LocalDateTime updatedAfter = LocalDateTime.ofInstant(safeSince, ZoneOffset.UTC);
         UUID tenantId = TenantContext.getCurrentTenant();
-        UUID orgId = SecurityUtils.isSuperAdmin() ? null : TenantContext.getCurrentOrg();
+        UUID orgId = branchContext.getReadOrgId(null);
         return orderRepository.findChangedOrders(
                         tenantId,
                         orgId,
@@ -805,7 +833,7 @@ public class OrderService {
     @Transactional(readOnly = true)
     public List<Order> searchOrders(com.restaurant.pos.order.dto.OrderSearchCriteria criteria) {
         UUID clientId = TenantContext.getCurrentTenant();
-        UUID orgId = TenantContext.getCurrentOrg();
+        UUID orgId = branchContext.getReadOrgId(null);
         
         org.springframework.data.jpa.domain.Specification<Order> spec = 
             com.restaurant.pos.order.spec.OrderSpecification.filterBy(criteria, clientId, orgId);
@@ -816,11 +844,12 @@ public class OrderService {
     @Transactional(readOnly = true)
     public Order getOrder(UUID id) {
         UUID tenantId = TenantContext.getCurrentTenant();
-        if (SecurityUtils.isSuperAdmin()) {
+        UUID orgId = branchContext.getReadOrgId(null);
+        if (orgId == null) {
             return hydrateOrder(orderRepository.findByIdAndClientId(id, tenantId)
                     .orElseThrow(() -> new ResourceNotFoundException("Order not found or access denied")));
         }
-        return hydrateOrder(orderRepository.findByIdAndClientIdAndOrgId(id, tenantId, TenantContext.getCurrentOrg())
+        return hydrateOrder(orderRepository.findByIdAndClientIdAndOrgId(id, tenantId, orgId)
                 .orElseThrow(() -> new ResourceNotFoundException("Order not found or access denied")));
     }
 
@@ -831,7 +860,7 @@ public class OrderService {
         String requestedPaymentNo = order.getOfflinePaymentNo();
         
         order.setClientId(TenantContext.getCurrentTenant());
-        order.setOrgId(branchContext.requireWriteOrgId(order.getOrgId()));
+        order.setOrgId(resolveOrderWriteOrgId(order));
         prepareSourceFields(order);
 
         if (order.getOrderStatus() == null) {
@@ -1158,7 +1187,7 @@ public class OrderService {
 
         Order saved = orderRepository.save(order);
         if (oldTableId != null && !oldTableId.equals(targetTable.getId())) {
-            setTableStatus(oldTableId, "AVAILABLE");
+            setTableStatus(oldTableId, "AVAILABLE", saved.getOrgId());
         }
         handleTableStatus(saved);
         return hydrateOrder(saved);
@@ -1437,7 +1466,7 @@ public class OrderService {
                 ? "AVAILABLE"
                 : "BILLED".equalsIgnoreCase(order.getOrderStatus()) ? "BILLED" : "OCCUPIED";
 
-        tableRepository.findById(order.getTableId()).ifPresent(table -> {
+        findTenantTableForOrder(order.getTableId(), order.getOrgId()).ifPresent(table -> {
             if (!nextStatus.equalsIgnoreCase(String.valueOf(table.getStatus()))) {
                 table.setStatus(nextStatus);
                 tableRepository.save(table);
@@ -1447,16 +1476,25 @@ public class OrderService {
 
     private RestaurantTable getTenantTable(UUID tableId) {
         UUID tenantId = TenantContext.getCurrentTenant();
-        if (SecurityUtils.isSuperAdmin()) {
+        UUID orgId = branchContext.getReadOrgId(null);
+        if (orgId == null) {
             return tableRepository.findByIdAndClientId(tableId, tenantId)
                     .orElseThrow(() -> new ResourceNotFoundException("Target table not found"));
         }
-        return tableRepository.findByIdAndClientIdAndOrgId(tableId, tenantId, TenantContext.getCurrentOrg())
+        return tableRepository.findByIdAndClientIdAndOrgId(tableId, tenantId, orgId)
                 .orElseThrow(() -> new ResourceNotFoundException("Target table not found"));
     }
 
-    private void setTableStatus(UUID tableId, String status) {
-        tableRepository.findById(tableId).ifPresent(table -> {
+    private Optional<RestaurantTable> findTenantTableForOrder(UUID tableId, UUID orgId) {
+        UUID tenantId = TenantContext.getCurrentTenant();
+        if (orgId == null) {
+            return tableRepository.findByIdAndClientId(tableId, tenantId);
+        }
+        return tableRepository.findByIdAndClientIdAndOrgId(tableId, tenantId, orgId);
+    }
+
+    private void setTableStatus(UUID tableId, String status, UUID orgId) {
+        findTenantTableForOrder(tableId, orgId).ifPresent(table -> {
             table.setStatus(status);
             tableRepository.save(table);
         });

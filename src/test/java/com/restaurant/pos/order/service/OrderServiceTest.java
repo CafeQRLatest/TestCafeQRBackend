@@ -38,6 +38,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -98,6 +99,37 @@ class OrderServiceTest {
     void tearDown() {
         TenantContext.clear();
         SecurityContextHolder.clearContext();
+    }
+
+    @Test
+    void superAdminSelectedBranchScopesLiveSalesOrders() {
+        SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(
+                "owner@example.com",
+                null,
+                List.of(new SimpleGrantedAuthority("ROLE_SUPER_ADMIN"))
+        ));
+        when(orderRepository.findLiveOrders(eq(clientId), eq(orgId), eq(OrderType.SALE), any()))
+                .thenReturn(List.of());
+
+        orderService.getLiveSalesOrders();
+
+        verify(orderRepository).findLiveOrders(eq(clientId), eq(orgId), eq(OrderType.SALE), any());
+    }
+
+    @Test
+    void superAdminAllBranchesLeavesLiveSalesOrdersUnscoped() {
+        TenantContext.setCurrentOrg(null);
+        SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(
+                "owner@example.com",
+                null,
+                List.of(new SimpleGrantedAuthority("ROLE_SUPER_ADMIN"))
+        ));
+        when(orderRepository.findLiveOrders(eq(clientId), isNull(), eq(OrderType.SALE), any()))
+                .thenReturn(List.of());
+
+        orderService.getLiveSalesOrders();
+
+        verify(orderRepository).findLiveOrders(eq(clientId), isNull(), eq(OrderType.SALE), any());
     }
 
     @Test

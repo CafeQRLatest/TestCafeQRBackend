@@ -2,6 +2,7 @@ package com.restaurant.pos.table.service;
 
 import com.restaurant.pos.auth.service.EmailService;
 import com.restaurant.pos.common.exception.ResourceNotFoundException;
+import com.restaurant.pos.common.service.BranchContextService;
 import com.restaurant.pos.common.tenant.TenantContext;
 import com.restaurant.pos.common.util.SecurityUtils;
 import com.restaurant.pos.table.domain.RestaurantTable;
@@ -22,6 +23,7 @@ public class RestaurantTableService {
 
     private final RestaurantTableRepository tableRepository;
     private final EmailService emailService;
+    private final BranchContextService branchContext;
 
     @org.springframework.beans.factory.annotation.Value("${app.frontend-url:http://localhost:3000}")
     private String frontendUrl;
@@ -29,29 +31,32 @@ public class RestaurantTableService {
     @Transactional(readOnly = true)
     public List<RestaurantTable> getAllTables() {
         UUID clientId = TenantContext.getCurrentTenant();
-        if (SecurityUtils.isSuperAdmin()) {
+        UUID orgId = branchContext.getReadOrgId(null);
+        if (orgId == null) {
             return tableRepository.findByClientIdOrderByDisplayOrderAscTableNumberAsc(clientId);
         }
-        return tableRepository.findByClientIdAndOrgIdOrderByDisplayOrderAscTableNumberAsc(clientId, TenantContext.getCurrentOrg());
+        return tableRepository.findByClientIdAndOrgIdOrderByDisplayOrderAscTableNumberAsc(clientId, orgId);
     }
 
     @Transactional(readOnly = true)
     public List<RestaurantTable> getActiveTables() {
         UUID clientId = TenantContext.getCurrentTenant();
-        if (SecurityUtils.isSuperAdmin()) {
+        UUID orgId = branchContext.getReadOrgId(null);
+        if (orgId == null) {
             return tableRepository.findByClientIdAndIsactiveOrderByDisplayOrderAscTableNumberAsc(clientId, "Y");
         }
-        return tableRepository.findByClientIdAndOrgIdAndIsactiveOrderByDisplayOrderAscTableNumberAsc(clientId, TenantContext.getCurrentOrg(), "Y");
+        return tableRepository.findByClientIdAndOrgIdAndIsactiveOrderByDisplayOrderAscTableNumberAsc(clientId, orgId, "Y");
     }
 
     @Transactional(readOnly = true)
     public RestaurantTable getTable(UUID id) {
         UUID clientId = TenantContext.getCurrentTenant();
-        if (SecurityUtils.isSuperAdmin()) {
+        UUID orgId = branchContext.getReadOrgId(null);
+        if (orgId == null) {
             return tableRepository.findByIdAndClientId(id, clientId)
                     .orElseThrow(() -> new ResourceNotFoundException("Table not found"));
         }
-        return tableRepository.findByIdAndClientIdAndOrgId(id, clientId, TenantContext.getCurrentOrg())
+        return tableRepository.findByIdAndClientIdAndOrgId(id, clientId, orgId)
                 .orElseThrow(() -> new ResourceNotFoundException("Table not found"));
     }
 
@@ -62,12 +67,13 @@ public class RestaurantTableService {
         }
         UUID clientId = TenantContext.getCurrentTenant();
         LocalDateTime updatedAfter = LocalDateTime.ofInstant(since, ZoneOffset.UTC);
-        if (SecurityUtils.isSuperAdmin()) {
+        UUID orgId = branchContext.getReadOrgId(null);
+        if (orgId == null) {
             return tableRepository.findByClientIdAndUpdatedAtAfterOrderByDisplayOrderAscTableNumberAsc(clientId, updatedAfter);
         }
         return tableRepository.findByClientIdAndOrgIdAndUpdatedAtAfterOrderByDisplayOrderAscTableNumberAsc(
                 clientId,
-                TenantContext.getCurrentOrg(),
+                orgId,
                 updatedAfter
         );
     }
@@ -75,12 +81,14 @@ public class RestaurantTableService {
     @Transactional
     public RestaurantTable saveTable(RestaurantTable table) {
         boolean isNew = table.getId() == null;
-        if (table.getClientId() == null) {
-            table.setClientId(TenantContext.getCurrentTenant());
+        if (!isNew) {
+            RestaurantTable existing = getTable(table.getId());
+            copyMutableFields(existing, table);
+            return tableRepository.save(existing);
         }
-        if (table.getOrgId() == null) {
-            table.setOrgId(TenantContext.getCurrentOrg());
-        }
+
+        table.setClientId(TenantContext.getCurrentTenant());
+        table.setOrgId(branchContext.requireWriteOrgId(table.getOrgId()));
         RestaurantTable saved = tableRepository.save(table);
         
         // On creation, automatically send QR mail to owner
@@ -90,6 +98,21 @@ public class RestaurantTableService {
         }
         
         return saved;
+    }
+
+    private void copyMutableFields(RestaurantTable target, RestaurantTable source) {
+        target.setTableNumber(source.getTableNumber());
+        target.setName(source.getName());
+        target.setSeatingCapacity(source.getSeatingCapacity());
+        target.setFloor(source.getFloor());
+        target.setSection(source.getSection());
+        target.setShape(source.getShape());
+        target.setStatus(source.getStatus());
+        target.setNotes(source.getNotes());
+        target.setDisplayOrder(source.getDisplayOrder());
+        if (source.getIsactive() != null) {
+            target.setIsactive(source.getIsactive());
+        }
     }
 
     @Transactional

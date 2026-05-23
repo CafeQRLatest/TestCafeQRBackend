@@ -3,6 +3,7 @@ package com.restaurant.pos.product.service;
 import com.restaurant.pos.common.exception.BusinessException;
 import com.restaurant.pos.common.tenant.TenantContext;
 import com.restaurant.pos.common.exception.ResourceNotFoundException;
+import com.restaurant.pos.common.util.SecurityUtils;
 import com.restaurant.pos.product.domain.Category;
 import com.restaurant.pos.product.domain.Product;
 import com.restaurant.pos.product.domain.Uom;
@@ -233,6 +234,9 @@ public class ProductService {
 
     @Transactional(readOnly = true)
     public List<VariantOptionDto> getVariantOptionsByGroup(UUID groupId) {
+        VariantGroup group = variantGroupRepository.findById(java.util.Objects.requireNonNull(groupId))
+                .orElseThrow(() -> new ResourceNotFoundException("Variant Group not found"));
+        validateOwnership(group.getClientId(), group.getOrgId(), "Variant Group", false);
         return variantOptionRepository.findByGroup_Id(groupId)
                 .stream()
                 .map(option -> mapVariantOptionToDto(option, groupId))
@@ -253,7 +257,7 @@ public class ProductService {
 
         option.setGroup(group);
         option.setClientId(TenantContext.getCurrentTenant());
-        option.setOrgId(TenantContext.getCurrentOrg());
+        option.setOrgId(effectiveWriteOrgId(group.getOrgId()));
         return mapVariantOptionToDto(variantOptionRepository.save(option));
     }
 
@@ -673,7 +677,7 @@ public class ProductService {
         validateOwnership(existing.getClientId(), existing.getOrgId(), "Product");
 
         UUID clientId = TenantContext.getCurrentTenant();
-        UUID orgId = TenantContext.getCurrentOrg();
+        UUID orgId = effectiveWriteOrgId(existing.getOrgId());
         validateProductIntegrity(product, clientId, orgId);
 
         existing.setName(product.getName());
@@ -847,6 +851,10 @@ public class ProductService {
             throw new BusinessException("Access denied: " + entityName + " belongs to another tenant");
         }
 
+        if (SecurityUtils.isSuperAdmin() && currentOrgId == null) {
+            return;
+        }
+
         // 2. Global Data Protection (Global records have NULL orgId)
         if (forModification && ownerOrgId == null && currentOrgId != null) {
             // Check if user has permission to modify global data (assuming only
@@ -860,6 +868,11 @@ public class ProductService {
         if (ownerOrgId != null && !java.util.Objects.equals(currentOrgId, ownerOrgId)) {
             throw new BusinessException("Access denied: " + entityName + " belongs to another organization");
         }
+    }
+
+    private UUID effectiveWriteOrgId(UUID ownerOrgId) {
+        UUID currentOrgId = TenantContext.getCurrentOrg();
+        return currentOrgId != null ? currentOrgId : ownerOrgId;
     }
 
     private void validateProductIntegrity(Product product, UUID clientId, UUID orgId) {

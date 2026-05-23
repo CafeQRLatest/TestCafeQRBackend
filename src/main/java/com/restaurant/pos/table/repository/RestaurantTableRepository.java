@@ -16,21 +16,21 @@ public interface RestaurantTableRepository extends JpaRepository<RestaurantTable
 
     List<RestaurantTable> findByClientIdOrderByDisplayOrderAscTableNumberAsc(UUID clientId);
 
-    @Query("SELECT t FROM RestaurantTable t WHERE t.clientId = :clientId AND (t.orgId IS NULL OR t.orgId = :orgId) ORDER BY t.displayOrder ASC, t.tableNumber ASC")
+    @Query("SELECT t FROM RestaurantTable t WHERE t.clientId = :clientId AND t.orgId = :orgId ORDER BY t.displayOrder ASC, t.tableNumber ASC")
     List<RestaurantTable> findByClientIdAndOrgIdOrderByDisplayOrderAscTableNumberAsc(@Param("clientId") UUID clientId, @Param("orgId") UUID orgId);
 
     Optional<RestaurantTable> findByIdAndClientId(UUID id, UUID clientId);
 
-    @Query("SELECT t FROM RestaurantTable t WHERE t.id = :id AND t.clientId = :clientId AND (t.orgId IS NULL OR t.orgId = :orgId)")
+    @Query("SELECT t FROM RestaurantTable t WHERE t.id = :id AND t.clientId = :clientId AND t.orgId = :orgId")
     Optional<RestaurantTable> findByIdAndClientIdAndOrgId(@Param("id") UUID id, @Param("clientId") UUID clientId, @Param("orgId") UUID orgId);
 
     List<RestaurantTable> findByClientIdAndIsactiveOrderByDisplayOrderAscTableNumberAsc(UUID clientId, String isactive);
 
-    @Query("SELECT t FROM RestaurantTable t WHERE t.clientId = :clientId AND (t.orgId IS NULL OR t.orgId = :orgId) AND t.isactive = :isactive ORDER BY t.displayOrder ASC, t.tableNumber ASC")
+    @Query("SELECT t FROM RestaurantTable t WHERE t.clientId = :clientId AND t.orgId = :orgId AND t.isactive = :isactive ORDER BY t.displayOrder ASC, t.tableNumber ASC")
     List<RestaurantTable> findByClientIdAndOrgIdAndIsactiveOrderByDisplayOrderAscTableNumberAsc(@Param("clientId") UUID clientId, @Param("orgId") UUID orgId, @Param("isactive") String isactive);
 
     List<RestaurantTable> findByClientIdAndUpdatedAtAfterOrderByDisplayOrderAscTableNumberAsc(UUID clientId, LocalDateTime updatedAfter);
 
-    @Query("SELECT t FROM RestaurantTable t WHERE t.clientId = :clientId AND (t.orgId IS NULL OR t.orgId = :orgId) AND t.updatedAt > :updatedAfter ORDER BY t.displayOrder ASC, t.tableNumber ASC")
+    @Query("SELECT t FROM RestaurantTable t WHERE t.clientId = :clientId AND t.orgId = :orgId AND t.updatedAt > :updatedAfter ORDER BY t.displayOrder ASC, t.tableNumber ASC")
     List<RestaurantTable> findByClientIdAndOrgIdAndUpdatedAtAfterOrderByDisplayOrderAscTableNumberAsc(@Param("clientId") UUID clientId, @Param("orgId") UUID orgId, @Param("updatedAfter") LocalDateTime updatedAfter);
 }
