@@ -5,6 +5,8 @@ import com.restaurant.pos.common.util.SecurityUtils;
 import com.restaurant.pos.accounting.dto.AccountingSummaryDto;
 import com.restaurant.pos.accounting.service.AccountingPostingService;
 import com.restaurant.pos.accounting.service.AccountingService;
+import com.restaurant.pos.client.domain.Organization;
+import com.restaurant.pos.client.repository.OrganizationRepository;
 import com.restaurant.pos.invoice.domain.Invoice;
 import com.restaurant.pos.invoice.domain.InvoiceType;
 import com.restaurant.pos.invoice.repository.InvoiceRepository;
@@ -47,6 +49,7 @@ public class ReportService {
     private final CustomerRepository customerRepository;
     private final AccountingPostingService accountingPostingService;
     private final AccountingService accountingService;
+    private final OrganizationRepository organizationRepository;
 
     private static final ZoneId IST = ZoneId.of("Asia/Kolkata");
 
@@ -173,11 +176,13 @@ public class ReportService {
             }
         }
 
-        return rows.stream()
+        List<SalesInvoiceReportDto> sortedRows = rows.stream()
                 .sorted(Comparator.comparing(
                         SalesInvoiceReportDto::getTransactionDate,
                         Comparator.nullsLast(Comparator.reverseOrder())))
                 .collect(Collectors.toList());
+        attachBranchDetails(sortedRows);
+        return sortedRows;
     }
 
     // ─── Item-wise Sales ────────────────────────────────────────────────────
@@ -344,7 +349,7 @@ public class ReportService {
 
     public List<InvoiceReportDto> getInvoices(Instant from, Instant to, String filterType) {
         UUID clientId = TenantContext.getCurrentTenant();
-        UUID orgId = SecurityUtils.isSuperAdmin() ? null : TenantContext.getCurrentOrg();
+        UUID orgId = reportOrgId();
 
         // invoiceDate is LocalDateTime — convert Instant to LocalDateTime for comparison
         LocalDateTime ldFrom = from != null ? LocalDateTime.ofInstant(from, IST) : null;
@@ -506,6 +511,7 @@ public class ReportService {
                 .id(id)
                 .orderId(orderId)
                 .invoiceId(invoiceId)
+                .branchId(resolveBranchId(order, invoice))
                 .orderNo(order != null ? order.getOrderNo() : null)
                 .invoiceNo(invoice != null ? invoice.getInvoiceNo() : null)
                 .paymentNo(payment != null ? payment.getReferenceNo() : (order != null ? order.getPaymentNo() : null))
@@ -531,6 +537,37 @@ public class ReportService {
                 .voidable(invoice != null && !isVoidStatus(invoice.getStatus()) && !isVoidStatus(invoice.getDocStatus()))
                 .lines(toSalesInvoiceLines(order))
                 .build();
+    }
+
+    private UUID resolveBranchId(Order order, Invoice invoice) {
+        if (order != null && order.getOrgId() != null) {
+            return order.getOrgId();
+        }
+        return invoice != null ? invoice.getOrgId() : null;
+    }
+
+    private void attachBranchDetails(List<SalesInvoiceReportDto> rows) {
+        Set<UUID> branchIds = rows.stream()
+                .map(SalesInvoiceReportDto::getBranchId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        if (branchIds.isEmpty()) {
+            return;
+        }
+
+        UUID clientId = TenantContext.getCurrentTenant();
+        Map<UUID, Organization> branchesById = organizationRepository
+                .findAllByClientIdAndIdIn(clientId, branchIds)
+                .stream()
+                .collect(Collectors.toMap(Organization::getId, branch -> branch, (left, right) -> left));
+
+        rows.forEach(row -> {
+            Organization branch = branchesById.get(row.getBranchId());
+            if (branch != null) {
+                row.setBranchName(branch.getName());
+                row.setBranchCode(branch.getBranchCode());
+            }
+        });
     }
 
     private List<SalesInvoiceReportDto.LineDto> toSalesInvoiceLines(Order order) {
@@ -732,7 +769,7 @@ public class ReportService {
 
     private List<Invoice> fetchCustomerInvoices(Instant from, Instant to) {
         UUID clientId = TenantContext.getCurrentTenant();
-        UUID orgId = SecurityUtils.isSuperAdmin() ? null : TenantContext.getCurrentOrg();
+        UUID orgId = reportOrgId();
         LocalDateTime ldFrom = from != null ? LocalDateTime.ofInstant(from, IST) : null;
         LocalDateTime ldTo = to != null ? LocalDateTime.ofInstant(to, IST) : null;
 
@@ -756,7 +793,7 @@ public class ReportService {
 
     private List<Order> fetchSaleOrders(Instant from, Instant to) {
         UUID clientId = TenantContext.getCurrentTenant();
-        UUID orgId = SecurityUtils.isSuperAdmin() ? null : TenantContext.getCurrentOrg();
+        UUID orgId = reportOrgId();
 
         return orderRepository.findAll((root, query, cb) -> {
             var predicates = new ArrayList<jakarta.persistence.criteria.Predicate>();
@@ -777,6 +814,10 @@ public class ReportService {
             query.orderBy(cb.desc(root.get("orderDate")));
             return cb.and(predicates.toArray(new jakarta.persistence.criteria.Predicate[0]));
         });
+    }
+
+    private UUID reportOrgId() {
+        return TenantContext.getCurrentOrg();
     }
 
     private boolean isActivePayment(Payment payment) {

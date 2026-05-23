@@ -19,6 +19,9 @@ public class SalesInvoiceReportDto {
     private String id;
     private UUID orderId;
     private UUID invoiceId;
+    private UUID branchId;
+    private String branchName;
+    private String branchCode;
     private String orderNo;
     private String invoiceNo;
     private String paymentNo;
