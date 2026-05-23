@@ -634,6 +634,7 @@ public class OrderService {
     }
 
     private Specification<Order> salesHistorySpec(
+            UUID orgId,
             Instant fromDate,
             Instant toDate,
             String searchTerm,
@@ -644,7 +645,6 @@ public class OrderService {
         return (root, query, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
             UUID tenantId = TenantContext.getCurrentTenant();
-            UUID orgId = branchContext.getReadOrgId(null);
 
             predicates.add(cb.equal(root.get("clientId"), tenantId));
             if (orgId != null) {
@@ -776,9 +776,10 @@ public class OrderService {
                 Sort.by(Sort.Order.desc("orderDate"), Sort.Order.desc("createdAt"))
         );
 
+        UUID orgId = branchContext.getReadOrgId(null);
         if (normalizedSearch != null) {
             Page<Order> exactDocumentMatches = orderRepository.findAll(
-                    salesHistorySpec(null, null, normalizedSearch, true, Set.of(), Set.of()),
+                    salesHistorySpec(orgId, null, null, normalizedSearch, true, Set.of(), Set.of()),
                     pageable
             );
             if (exactDocumentMatches.hasContent()) {
@@ -786,16 +787,16 @@ public class OrderService {
             }
         }
 
-        UUID orgId = branchContext.getReadOrgId(null);
+        UUID tenantId = TenantContext.getCurrentTenant();
         Set<UUID> customerIds = normalizedSearch == null
                 ? Set.of()
-                : findCustomerSearchCustomerIds(TenantContext.getCurrentTenant(), orgId, normalizedSearch);
+                : findCustomerSearchCustomerIds(tenantId, orgId, normalizedSearch);
         Set<UUID> customerOrderIds = normalizedSearch == null
                 ? Set.of()
-                : findCustomerSearchOrderIds(TenantContext.getCurrentTenant(), orgId, normalizedSearch);
+                : findCustomerSearchOrderIds(tenantId, orgId, normalizedSearch);
 
         return orderRepository.findAll(
-                salesHistorySpec(effectiveFrom, effectiveTo, normalizedSearch, false, customerIds, customerOrderIds),
+                salesHistorySpec(orgId, effectiveFrom, effectiveTo, normalizedSearch, false, customerIds, customerOrderIds),
                 pageable
         ).map(this::toOrderSummary);
     }

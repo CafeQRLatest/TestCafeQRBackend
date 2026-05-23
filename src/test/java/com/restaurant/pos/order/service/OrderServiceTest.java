@@ -23,24 +23,37 @@ import com.restaurant.pos.sequence.domain.DocumentType;
 import com.restaurant.pos.sequence.service.DocumentSequenceService;
 import com.restaurant.pos.sequence.service.OfflineSequenceLeaseService;
 import com.restaurant.pos.table.repository.RestaurantTableRepository;
+import jakarta.persistence.criteria.CriteriaBuilder;
+import jakarta.persistence.criteria.CriteriaQuery;
+import jakarta.persistence.criteria.Expression;
+import jakarta.persistence.criteria.Path;
+import jakarta.persistence.criteria.Predicate;
+import jakarta.persistence.criteria.Root;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -130,6 +143,74 @@ class OrderServiceTest {
         orderService.getLiveSalesOrders();
 
         verify(orderRepository).findLiveOrders(eq(clientId), isNull(), eq(OrderType.SALE), any());
+    }
+
+    @Test
+    void superAdminSelectedBranchScopesSalesHistorySearches() {
+        SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(
+                "owner@example.com",
+                null,
+                List.of(new SimpleGrantedAuthority("ROLE_SUPER_ADMIN"))
+        ));
+        when(orderRepository.findAll(any(Specification.class), any(Pageable.class))).thenReturn(Page.empty());
+        when(customerRepository.findIdsByClientAndOrgAndSearch(eq(clientId), eq(orgId), eq("%inv-1%")))
+                .thenReturn(List.of());
+        when(customerRepository.findLinkedOrderIdsByClientAndOrgAndCustomerSearch(eq(clientId), eq(orgId), eq("%inv-1%")))
+                .thenReturn(List.of());
+
+        orderService.getSalesOrderHistory(
+                Instant.parse("2026-05-23T00:00:00Z"),
+                Instant.parse("2026-05-23T23:59:59Z"),
+                0,
+                20,
+                "INV-1"
+        );
+
+        verify(customerRepository).findIdsByClientAndOrgAndSearch(eq(clientId), eq(orgId), eq("%inv-1%"));
+        verify(customerRepository).findLinkedOrderIdsByClientAndOrgAndCustomerSearch(eq(clientId), eq(orgId), eq("%inv-1%"));
+        capturedSalesHistorySpecs(2).forEach(spec -> assertSpecificationFiltersOrg(spec, orgId));
+    }
+
+    @Test
+    void superAdminAllBranchesLeavesSalesHistoryUnscoped() {
+        TenantContext.setCurrentOrg(null);
+        SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(
+                "owner@example.com",
+                null,
+                List.of(new SimpleGrantedAuthority("ROLE_SUPER_ADMIN"))
+        ));
+        when(orderRepository.findAll(any(Specification.class), any(Pageable.class))).thenReturn(Page.empty());
+        when(customerRepository.findIdsByClientAndOrgAndSearch(eq(clientId), isNull(), eq("%inv-1%")))
+                .thenReturn(List.of());
+        when(customerRepository.findLinkedOrderIdsByClientAndOrgAndCustomerSearch(eq(clientId), isNull(), eq("%inv-1%")))
+                .thenReturn(List.of());
+
+        orderService.getSalesOrderHistory(
+                Instant.parse("2026-05-23T00:00:00Z"),
+                Instant.parse("2026-05-23T23:59:59Z"),
+                0,
+                20,
+                "INV-1"
+        );
+
+        verify(customerRepository).findIdsByClientAndOrgAndSearch(eq(clientId), isNull(), eq("%inv-1%"));
+        verify(customerRepository).findLinkedOrderIdsByClientAndOrgAndCustomerSearch(eq(clientId), isNull(), eq("%inv-1%"));
+        capturedSalesHistorySpecs(2).forEach(this::assertSpecificationDoesNotFilterOrg);
+    }
+
+    @Test
+    void staffSalesHistoryUsesAssignedBranchScope() {
+        when(orderRepository.findAll(any(Specification.class), any(Pageable.class))).thenReturn(Page.empty());
+
+        orderService.getSalesOrderHistory(
+                Instant.parse("2026-05-23T00:00:00Z"),
+                Instant.parse("2026-05-23T23:59:59Z"),
+                0,
+                20,
+                null
+        );
+
+        capturedSalesHistorySpecs(1).forEach(spec -> assertSpecificationFiltersOrg(spec, orgId));
     }
 
     @Test
@@ -297,4 +378,53 @@ class OrderServiceTest {
         verify(accountingPostingService).reversePayment(payment, "Order cancelled");
         verify(accountingPostingService).reverseSaleCogs(order, "Order cancelled");
     }
+
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    private List<Specification<Order>> capturedSalesHistorySpecs(int count) {
+        ArgumentCaptor<Specification<Order>> specCaptor = ArgumentCaptor.forClass((Class) Specification.class);
+        verify(orderRepository, times(count)).findAll(specCaptor.capture(), any(Pageable.class));
+        return specCaptor.getAllValues();
+    }
+
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    private void assertSpecificationFiltersOrg(Specification<Order> spec, UUID expectedOrgId) {
+        CriteriaProbe probe = criteriaProbe();
+
+        spec.toPredicate(probe.root, probe.query, probe.cb);
+
+        verify(probe.cb).equal(any(Expression.class), eq(expectedOrgId));
+    }
+
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    private void assertSpecificationDoesNotFilterOrg(Specification<Order> spec) {
+        CriteriaProbe probe = criteriaProbe();
+
+        spec.toPredicate(probe.root, probe.query, probe.cb);
+
+        verify(probe.root, never()).get("orgId");
+    }
+
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    private CriteriaProbe criteriaProbe() {
+        Root<Order> root = mock(Root.class);
+        CriteriaQuery query = mock(CriteriaQuery.class);
+        CriteriaBuilder cb = mock(CriteriaBuilder.class);
+        Path path = mock(Path.class);
+        Expression<String> loweredExpression = mock(Expression.class);
+        Predicate predicate = mock(Predicate.class);
+
+        when(root.get(anyString())).thenReturn(path);
+        when(cb.equal(any(Expression.class), any())).thenReturn(predicate);
+        when(cb.notEqual(any(Expression.class), any())).thenReturn(predicate);
+        when(cb.greaterThanOrEqualTo(any(Expression.class), any(Instant.class))).thenReturn(predicate);
+        when(cb.lessThanOrEqualTo(any(Expression.class), any(Instant.class))).thenReturn(predicate);
+        when(cb.lower(any(Expression.class))).thenReturn(loweredExpression);
+        when(cb.like(any(Expression.class), anyString(), eq('\\'))).thenReturn(predicate);
+        when(cb.or(any(Predicate[].class))).thenReturn(predicate);
+        when(cb.and(any(Predicate[].class))).thenReturn(predicate);
+
+        return new CriteriaProbe(root, query, cb);
+    }
+
+    private record CriteriaProbe(Root<Order> root, CriteriaQuery query, CriteriaBuilder cb) {}
 }
