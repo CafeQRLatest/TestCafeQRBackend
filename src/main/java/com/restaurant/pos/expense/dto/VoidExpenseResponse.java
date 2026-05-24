@@ -4,6 +4,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.*;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 @Getter
@@ -21,7 +22,7 @@ public class VoidExpenseResponse {
     private UUID invoiceId;
 
     @Schema(description = "List of voided payment IDs")
-    private java.util.List<UUID> paymentIds;
+    private List<UUID> paymentIds;
 
     @Schema(description = "UTC timestamp when the voiding was finalized")
     private Instant voidedAt;

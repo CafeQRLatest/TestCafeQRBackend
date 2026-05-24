@@ -5,16 +5,12 @@ import com.restaurant.pos.category.dto.CategoryResponse;
 import com.restaurant.pos.category.dto.CreateCategoryRequest;
 import com.restaurant.pos.category.mapper.CategoryMapper;
 import com.restaurant.pos.category.repository.ExpenseCategoryRepository;
+import com.restaurant.pos.common.context.ContextProvider;
 import com.restaurant.pos.common.exception.DuplicateResourceException;
-import com.restaurant.pos.common.tenant.TenantContext;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.security.access.AccessDeniedException;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.core.authority.SimpleGrantedAuthority;
-import org.springframework.security.core.context.SecurityContextHolder;
 
 import java.util.List;
 import java.util.Optional;
@@ -31,56 +27,55 @@ import static org.mockito.Mockito.when;
 class CategoryServiceTest {
 
     private ExpenseCategoryRepository categoryRepository;
+    private ContextProvider contextProvider;
+    private ExpenseCategoryPolicy categoryPolicy;
     private CategoryService categoryService;
+    
     private UUID clientId;
     private UUID orgId;
+    private UUID currentUserId;
 
     @BeforeEach
     void setUp() {
         categoryRepository = mock(ExpenseCategoryRepository.class);
-        categoryService = new CategoryService(categoryRepository, new CategoryMapper());
+        contextProvider = mock(ContextProvider.class);
+        categoryPolicy = new ExpenseCategoryPolicy(); // Pure, stateless - use real policy!
+        categoryService = new CategoryService(categoryRepository, new CategoryMapper(), contextProvider, categoryPolicy);
 
         clientId = UUID.randomUUID();
         orgId = UUID.randomUUID();
-        TenantContext.setCurrentTenant(clientId);
-        TenantContext.setCurrentOrg(orgId);
+        
+        when(contextProvider.getCurrentTenant()).thenReturn(clientId);
+        when(contextProvider.getCurrentOrg()).thenReturn(orgId);
+        when(contextProvider.getCurrentTerminal()).thenReturn(UUID.randomUUID());
+        when(contextProvider.getCurrentTimezone()).thenReturn(java.time.ZoneId.of("Asia/Kolkata"));
         authenticate("profile-a@example.com");
     }
 
-    @AfterEach
-    void tearDown() {
-        TenantContext.clear();
-        SecurityContextHolder.clearContext();
-    }
-
     @Test
-    void getCategoriesOnlyLoadsCurrentProfileCategories() {
-        ExpenseCategory ownCategory = category("Wages", "profile-a@example.com");
-        when(categoryRepository.findByClientIdAndOrgIdAndCreatedByOrderBySortOrderAsc(
+    void getCategoriesLoadsBranchCategories() {
+        ExpenseCategory ownCategory = category("Wages", UUID.randomUUID().toString());
+        when(categoryRepository.findByClientIdAndOrgIdOrderBySortOrderAsc(
                 clientId,
-                orgId,
-                "profile-a@example.com"
+                orgId
         )).thenReturn(List.of(ownCategory));
 
         List<CategoryResponse> categories = categoryService.getCategories(null, null);
 
         assertThat(categories).hasSize(1);
         assertThat(categories.get(0).getName()).isEqualTo("Wages");
-        verify(categoryRepository).findByClientIdAndOrgIdAndCreatedByOrderBySortOrderAsc(
+        verify(categoryRepository).findByClientIdAndOrgIdOrderBySortOrderAsc(
                 clientId,
-                orgId,
-                "profile-a@example.com"
+                orgId
         );
     }
 
     @Test
-    void createCategoryAllowsSameNameForDifferentProfile() {
-        authenticate("profile-b@example.com");
-        when(categoryRepository.existsByNameIgnoreCaseAndClientIdAndOrgIdAndCreatedBy(
+    void createCategoryAllowsSameNameForDifferentBranch() {
+        when(categoryRepository.existsByNameIgnoreCaseAndClientIdAndOrgId(
                 "Wages",
                 clientId,
-                orgId,
-                "profile-b@example.com"
+                orgId
         )).thenReturn(false);
         when(categoryRepository.save(any(ExpenseCategory.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -96,17 +91,16 @@ class CategoryServiceTest {
         ExpenseCategory saved = categoryCaptor.getValue();
         assertThat(saved.getClientId()).isEqualTo(clientId);
         assertThat(saved.getOrgId()).isEqualTo(orgId);
-        assertThat(saved.getCreatedBy()).isEqualTo("profile-b@example.com");
-        assertThat(saved.getUpdatedBy()).isEqualTo("profile-b@example.com");
+        assertThat(saved.getCreatedBy()).isEqualTo(currentUserId.toString());
+        assertThat(saved.getUpdatedBy()).isEqualTo(currentUserId.toString());
     }
 
     @Test
-    void createCategoryRejectsDuplicateNameForSameProfile() {
-        when(categoryRepository.existsByNameIgnoreCaseAndClientIdAndOrgIdAndCreatedBy(
+    void createCategoryRejectsDuplicateNameForSameBranch() {
+        when(categoryRepository.existsByNameIgnoreCaseAndClientIdAndOrgId(
                 "Wages",
                 clientId,
-                orgId,
-                "profile-a@example.com"
+                orgId
         )).thenReturn(true);
 
         assertThatThrownBy(() -> categoryService.createCategory(CreateCategoryRequest.builder()
@@ -114,17 +108,22 @@ class CategoryServiceTest {
                 .sortOrder(1)
                 .build()))
                 .isInstanceOf(DuplicateResourceException.class)
-                .hasMessageContaining("already exists in this profile");
+                .hasMessageContaining("already exists in this branch");
 
         verify(categoryRepository, never()).save(any(ExpenseCategory.class));
     }
 
     @Test
-    void updateCategoryRejectsAnotherProfileCategory() {
+    void updateCategoryRejectsAnotherBranchCategory() {
         UUID categoryId = UUID.randomUUID();
-        ExpenseCategory otherProfileCategory = category("Wages", "profile-b@example.com");
-        otherProfileCategory.setId(categoryId);
-        when(categoryRepository.findById(categoryId)).thenReturn(Optional.of(otherProfileCategory));
+        ExpenseCategory otherBranchCategory = category("Wages", UUID.randomUUID().toString());
+        otherBranchCategory.setId(categoryId);
+        otherBranchCategory.setOrgId(UUID.randomUUID());
+        when(categoryRepository.findById(categoryId)).thenReturn(Optional.of(otherBranchCategory));
+
+        // Stub role checking for validateOwnership
+        when(contextProvider.hasRole("ADMIN")).thenReturn(false);
+        when(contextProvider.isSuperAdmin()).thenReturn(false);
 
         assertThatThrownBy(() -> categoryService.updateCategory(
                 categoryId,
@@ -134,21 +133,26 @@ class CategoryServiceTest {
                         .active(true)
                         .build()
         )).isInstanceOf(AccessDeniedException.class)
-                .hasMessageContaining("profile-specific category");
+                .hasMessageContaining("branch-specific category");
 
         verify(categoryRepository, never()).save(any(ExpenseCategory.class));
     }
 
     @Test
-    void deleteCategoryRejectsAnotherProfileCategory() {
+    void deactivateCategoryRejectsAnotherBranchCategory() {
         UUID categoryId = UUID.randomUUID();
-        ExpenseCategory otherProfileCategory = category("Wages", "profile-b@example.com");
-        otherProfileCategory.setId(categoryId);
-        when(categoryRepository.findById(categoryId)).thenReturn(Optional.of(otherProfileCategory));
+        ExpenseCategory otherBranchCategory = category("Wages", UUID.randomUUID().toString());
+        otherBranchCategory.setId(categoryId);
+        otherBranchCategory.setOrgId(UUID.randomUUID());
+        when(categoryRepository.findById(categoryId)).thenReturn(Optional.of(otherBranchCategory));
 
-        assertThatThrownBy(() -> categoryService.deleteCategory(categoryId))
+        // Stub role checking for validateOwnership
+        when(contextProvider.hasRole("ADMIN")).thenReturn(false);
+        when(contextProvider.isSuperAdmin()).thenReturn(false);
+
+        assertThatThrownBy(() -> categoryService.deactivateCategory(categoryId))
                 .isInstanceOf(AccessDeniedException.class)
-                .hasMessageContaining("profile-specific category");
+                .hasMessageContaining("branch-specific category");
 
         verify(categoryRepository, never()).save(any(ExpenseCategory.class));
     }
@@ -158,7 +162,7 @@ class CategoryServiceTest {
                 .id(UUID.randomUUID())
                 .name(name)
                 .sortOrder(1)
-                .isactive("Y")
+                .isActive("Y")
                 .build();
         category.setClientId(clientId);
         category.setOrgId(orgId);
@@ -168,10 +172,9 @@ class CategoryServiceTest {
     }
 
     private void authenticate(String email) {
-        SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(
-                email,
-                null,
-                List.of(new SimpleGrantedAuthority("ROLE_ADMIN"))
-        ));
+        currentUserId = UUID.randomUUID();
+        when(contextProvider.getCurrentUserId()).thenReturn(currentUserId);
+        when(contextProvider.getCurrentUserEmail()).thenReturn(email);
+        when(contextProvider.hasRole("ADMIN")).thenReturn(true);
     }
 }

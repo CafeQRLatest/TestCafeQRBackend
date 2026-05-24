@@ -1,8 +1,8 @@
 package com.restaurant.pos.expense.spec;
 
-import com.restaurant.pos.common.util.SecurityUtils;
 import com.restaurant.pos.expense.domain.Expense;
 import com.restaurant.pos.expense.domain.ExpenseStatus;
+import com.restaurant.pos.expense.domain.ScopeType;
 import com.restaurant.pos.expense.dto.ExpenseSearchCriteria;
 import jakarta.persistence.criteria.Predicate;
 import org.springframework.data.jpa.domain.Specification;
@@ -18,7 +18,7 @@ import java.util.UUID;
  */
 public class ExpenseSpecification {
 
-    public static Specification<Expense> filterBy(ExpenseSearchCriteria criteria, UUID clientId, UUID orgId) {
+    public static Specification<Expense> filterBy(ExpenseSearchCriteria criteria, UUID clientId, UUID orgId, boolean canManageAll) {
         return (root, query, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
 
@@ -30,26 +30,25 @@ public class ExpenseSpecification {
             // ALL    -> no org predicate (global + all branches) for organization admins only.
             // GLOBAL -> only true organization-level expenses where org_id is null.
             // BRANCH -> one branch, either explicit branchId or current branch context.
-            boolean canReadAllScopes = SecurityUtils.isSuperAdmin() || SecurityUtils.hasRole("ADMIN");
             String requestedScope = criteria.getScope() != null ? criteria.getScope().trim().toUpperCase() : "";
-            if (!canReadAllScopes && orgId != null) {
+            if (!canManageAll && orgId != null) {
                 predicates.add(cb.equal(root.get("orgId"), orgId));
-            } else if ("GLOBAL".equals(requestedScope)) {
-                if (canReadAllScopes) {
+            } else if (ScopeType.GLOBAL.name().equals(requestedScope)) {
+                if (canManageAll) {
                     predicates.add(cb.isNull(root.get("orgId")));
                 } else if (orgId != null) {
                     predicates.add(cb.equal(root.get("orgId"), orgId));
                 } else {
                     predicates.add(cb.disjunction());
                 }
-            } else if ("BRANCH".equals(requestedScope) || criteria.getBranchId() != null) {
+            } else if (ScopeType.BRANCH.name().equals(requestedScope) || criteria.getBranchId() != null) {
                 UUID targetOrgId = criteria.getBranchId() != null ? criteria.getBranchId() : orgId;
                 if (targetOrgId != null) {
                     predicates.add(cb.equal(root.get("orgId"), targetOrgId));
-                } else if (!canReadAllScopes) {
+                } else if (!canManageAll) {
                     predicates.add(cb.disjunction());
                 }
-            } else if (!canReadAllScopes && orgId == null) {
+            } else if (!canManageAll && orgId == null) {
                 predicates.add(cb.disjunction());
             }
 
@@ -85,18 +84,18 @@ public class ExpenseSpecification {
             }
 
             // Status Filtering (Strictly Mutually Exclusive)
-            if (criteria.getStatus() != null && ExpenseStatus.VOID.equalsIgnoreCase(criteria.getStatus())) {
+            if (criteria.getStatus() != null && ExpenseStatus.VOID.name().equalsIgnoreCase(criteria.getStatus())) {
                 // VOID History: Show only records marked as inactive or explicitly voided
                 predicates.add(cb.or(
-                    cb.equal(root.get("isactive"), ExpenseStatus.INACTIVE_FLAG),
-                    cb.equal(root.get("status"), ExpenseStatus.VOID)
+                    cb.equal(root.get("activeFlag"), Expense.INACTIVE_FLAG),
+                    cb.equal(root.get("docStatus"), ExpenseStatus.VOID.name())
                 ));
             } else {
                 // ACTIVE: Show only records that are both isactive='Y' AND not status 'VOID'
                 // This is the default if status is null, empty, or "ACTIVE"
                 predicates.add(cb.and(
-                    cb.equal(root.get("isactive"), ExpenseStatus.ACTIVE_FLAG),
-                    cb.notEqual(root.get("status"), ExpenseStatus.VOID)
+                    cb.equal(root.get("activeFlag"), Expense.ACTIVE_FLAG),
+                    cb.notEqual(root.get("docStatus"), ExpenseStatus.VOID.name())
                 ));
             }
 

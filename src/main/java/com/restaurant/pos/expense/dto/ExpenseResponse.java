@@ -6,6 +6,7 @@ import lombok.*;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.UUID;
 
 @Getter
@@ -53,4 +54,16 @@ public class ExpenseResponse {
 
     @Schema(description = "User who last updated the record", example = "admin")
     private String updatedBy;
+
+    @Schema(description = "Status of the expense document", example = "COMPLETED")
+    private String docStatus;
+
+    @Schema(description = "Payment settlement status", example = "PAID")
+    private String paymentStatus;
+
+    @Schema(description = "ISO-8601 timestamp of record creation")
+    private LocalDateTime createdAt;
+
+    @Schema(description = "ISO-8601 timestamp of the last record update")
+    private LocalDateTime updatedAt;
 }

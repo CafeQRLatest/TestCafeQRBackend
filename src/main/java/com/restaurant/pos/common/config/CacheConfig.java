@@ -13,6 +13,10 @@ import org.springframework.data.redis.serializer.GenericJackson2JsonRedisSeriali
 import org.springframework.data.redis.serializer.RedisSerializationContext;
 import org.springframework.data.redis.serializer.StringRedisSerializer;
 
+import org.springframework.cache.interceptor.KeyGenerator;
+import org.springframework.cache.interceptor.SimpleKey;
+import com.restaurant.pos.common.context.ContextProvider;
+
 import java.time.Duration;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
@@ -21,6 +25,16 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 @EnableCaching
 @Slf4j
 public class CacheConfig {
+
+    @Bean("categoryKeyGenerator")
+    public KeyGenerator categoryKeyGenerator(ContextProvider contextProvider) {
+        return (target, method, params) -> new SimpleKey(
+                params[0] != null ? params[0] : "DEFAULT",  // scope
+                params[1] != null ? params[1] : "NONE",     // branchId
+                contextProvider.getCurrentTenant(),
+                contextProvider.getCurrentOrg()
+        );
+    }
     @Value("${spring.profiles.active:local}")
     private String activeProfile;
 
