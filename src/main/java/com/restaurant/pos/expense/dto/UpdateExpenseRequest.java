@@ -1,8 +1,8 @@
 package com.restaurant.pos.expense.dto;
 
-import com.fasterxml.jackson.annotation.JsonInclude;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Positive;
 import lombok.*;
 
@@ -16,7 +16,6 @@ import java.util.UUID;
 @Builder(toBuilder = true)
 @NoArgsConstructor
 @AllArgsConstructor
-@JsonInclude(JsonInclude.Include.NON_NULL)
 @Schema(description = "Payload for updating an existing expense transaction")
 public class UpdateExpenseRequest implements ExpenseBaseRequest {
 
@@ -35,12 +34,14 @@ public class UpdateExpenseRequest implements ExpenseBaseRequest {
     @Schema(description = "Optional narrative description", example = "Monthly internet bill updated")
     private String description;
 
+    @Pattern(regexp = "CASH|ONLINE|UPI|CARD|BANK|CHEQUE|MIXED", message = "Invalid payment method")
     @Schema(description = "Method of payment used", example = "CASH")
     private String paymentMethod;
 
     @Schema(description = "Target branch ID for organizational attribution")
     private UUID branchId;
 
+    @Pattern(regexp = "GLOBAL|BRANCH", message = "Scope must be GLOBAL or BRANCH")
     @Schema(description = "Expense scope: GLOBAL for organization-level, BRANCH for a specific branch", example = "BRANCH")
     private String scope;
 }

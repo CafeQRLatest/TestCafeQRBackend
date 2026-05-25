@@ -16,7 +16,6 @@ import java.util.UUID;
 @Builder(toBuilder = true)
 @NoArgsConstructor
 @AllArgsConstructor
-@JsonInclude(JsonInclude.Include.NON_NULL)
 @Schema(description = "Payload for creating a new expense category")
 public class CreateCategoryRequest {
 
@@ -30,6 +29,7 @@ public class CreateCategoryRequest {
     @Builder.Default
     private Integer sortOrder = 0;
 
+    @Pattern(regexp = "GLOBAL|BRANCH", message = "Scope must be GLOBAL or BRANCH")
     @Schema(description = "Category scope: GLOBAL for organization-level, BRANCH for a specific branch", example = "BRANCH")
     private String scope;
 

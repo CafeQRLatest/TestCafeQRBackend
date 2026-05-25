@@ -1,7 +1,6 @@
 package com.restaurant.pos.category.controller;
 
 import com.restaurant.pos.common.dto.ApiResponse;
-import com.restaurant.pos.common.security.AdminAccess;
 import com.restaurant.pos.common.security.StaffAccess;
 import com.restaurant.pos.category.dto.CategoryResponse;
 import com.restaurant.pos.category.dto.CreateCategoryRequest;
@@ -52,7 +51,7 @@ public class CategoryController {
     }
 
     @PostMapping
-    @AdminAccess
+    @StaffAccess
     @Operation(
             summary = "Create expense category",
             description = "Creates a new profile-specific expense category for expense classification and reporting."
@@ -77,7 +76,7 @@ public class CategoryController {
     }
 
     @PutMapping("/{id}")
-    @AdminAccess
+    @StaffAccess
     @Operation(
             summary = "Update expense category",
             description = "Updates an existing expense category."
@@ -101,25 +100,25 @@ public class CategoryController {
     }
 
     @DeleteMapping("/{id}")
-    @AdminAccess
+    @StaffAccess
     @Operation(
-            summary = "Delete expense category",
-            description = "Soft deletes an expense category by marking it inactive."
+            summary = "Deactivate expense category",
+            description = "Soft deletes/deactivates an expense category by marking it inactive."
     )
     @io.swagger.v3.oas.annotations.responses.ApiResponses({
-        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "204", description = "Category soft-deleted successfully"),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "204", description = "Category deactivated successfully"),
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "Category not found")
     })
-    public ResponseEntity<Void> deleteCategory(
+    public ResponseEntity<Void> deactivateCategory(
             @PathVariable UUID id
     ) {
 
         log.info(
-                "Soft deleting expense category | categoryId={}",
+                "Deactivating expense category | categoryId={}",
                 id
         );
 
-        categoryService.deleteCategory(id);
+        categoryService.deactivateCategory(id);
 
         return ResponseEntity.noContent().build();
     }

@@ -14,6 +14,10 @@ import java.time.Duration;
 /**
  * Redis-backed implementation of IdempotencyStore.
  * Ensures FAANG-grade idempotency across multiple server nodes.
+ *
+ * Key Design:
+ * Expects structured keys of format: "tenant=X:org=Y:key=Z".
+ * Prepends "idempotency:expense:" namespace prefix internally.
  */
 @Slf4j
 @Component
@@ -26,29 +30,38 @@ public class RedisIdempotencyStore implements IdempotencyStore {
     private static final String PREFIX = "idempotency:expense:";
     private static final Duration TTL = Duration.ofHours(24);
 
+    /**
+     * Retrieves a cached transaction response.
+     * Fails open on read (log warn, return null) to prevent Redis transient errors
+     * from rejecting first-time legitimate user requests.
+     */
     @Override
     public ExpenseResponse get(String key) {
         try {
             String json = redisTemplate.opsForValue().get(PREFIX + key);
-            if (json == null) return null;
+            if (json == null) {
+                return null;
+            }
             return objectMapper.readValue(json, ExpenseResponse.class);
         } catch (Exception e) {
-            log.error("Redis unavailable — cannot verify idempotency | key={}", key, e);
-            throw new IdempotencyStoreException("Idempotency store unavailable", e);
+            log.warn("Redis unavailable — bypassing idempotency check (failing open on read) | key={}", key, e);
+            return null; // fail open on read
         }
     }
 
+    /**
+     * Caches a successful transaction response.
+     * Fails closed (throws IdempotencyStoreException) to roll back the DB transaction
+     * on Redis write errors, eliminating double-billing risk.
+     */
     @Override
     public void put(String key, ExpenseResponse response) {
         try {
             String json = objectMapper.writeValueAsString(response);
             redisTemplate.opsForValue().set(PREFIX + key, json, TTL);
         } catch (JsonProcessingException e) {
-            // Serialization failure is a programming error — rethrow
             throw new IllegalStateException("Failed to serialize ExpenseResponse for idempotency store", e);
         } catch (Exception e) {
-            // Redis failure — log and rethrow so the transaction rolls back
-            // A created expense with no idempotency record is worse than a failed request
             log.error("Redis unavailable — idempotency key not stored | key={}", key, e);
             throw new IdempotencyStoreException("Idempotency store unavailable", e);
         }

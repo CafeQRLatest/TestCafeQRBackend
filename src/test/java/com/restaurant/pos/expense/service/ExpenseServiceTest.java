@@ -7,6 +7,8 @@ import com.restaurant.pos.common.exception.BusinessException;
 import com.restaurant.pos.common.tenant.TenantContext;
 import com.restaurant.pos.expense.domain.Expense;
 import com.restaurant.pos.expense.dto.CreateExpenseRequest;
+import com.restaurant.pos.category.service.ExpenseCategoryPolicy;
+import com.restaurant.pos.common.context.ContextProvider;
 import com.restaurant.pos.expense.dto.ExpenseResponse;
 import com.restaurant.pos.expense.idempotency.IdempotencyStore;
 import com.restaurant.pos.expense.mapper.ExpenseMapper;
@@ -53,6 +55,8 @@ class ExpenseServiceTest {
     private com.restaurant.pos.auth.repository.UserRepository userRepository;
     private com.restaurant.pos.client.repository.ClientRepository clientRepository;
     private com.restaurant.pos.invoice.service.InvoiceService invoiceService;
+    private ContextProvider contextProvider;
+    private ExpenseCategoryPolicy categoryPolicy;
     private ExpenseService expenseService;
 
     private UUID clientId;
@@ -61,6 +65,10 @@ class ExpenseServiceTest {
 
     @BeforeEach
     void setUp() {
+        clientId = UUID.randomUUID();
+        orgId = UUID.randomUUID();
+        profileOwner = "profile-a@example.com";
+
         categoryRepository = mock(ExpenseCategoryRepository.class);
         expenseRepository = mock(ExpenseRepository.class);
         sequenceService = mock(DocumentSequenceService.class);
@@ -72,6 +80,8 @@ class ExpenseServiceTest {
         userRepository = mock(com.restaurant.pos.auth.repository.UserRepository.class);
         clientRepository = mock(com.restaurant.pos.client.repository.ClientRepository.class);
         invoiceService = mock(com.restaurant.pos.invoice.service.InvoiceService.class);
+        contextProvider = mock(ContextProvider.class);
+        categoryPolicy = mock(ExpenseCategoryPolicy.class);
 
         expenseService = new ExpenseService(
                 categoryRepository,
@@ -83,14 +93,26 @@ class ExpenseServiceTest {
                 invoiceRepository,
                 paymentRepository,
                 userRepository,
-                clientRepository,
                 invoiceService,
-                idempotencyStore
+                idempotencyStore,
+                contextProvider,
+                categoryPolicy
         );
 
-        clientId = UUID.randomUUID();
-        orgId = UUID.randomUUID();
-        profileOwner = "profile-a@example.com";
+        when(contextProvider.getCurrentTenant()).thenAnswer(inv -> clientId);
+        when(contextProvider.getCurrentOrg()).thenAnswer(inv -> TenantContext.getCurrentOrg());
+        when(contextProvider.getCurrentTerminal()).thenAnswer(inv -> TenantContext.getCurrentTerminal());
+        when(contextProvider.getCurrentTimezone()).thenReturn(java.time.ZoneId.of("Asia/Kolkata"));
+        when(contextProvider.isSuperAdmin()).thenReturn(false);
+        when(contextProvider.hasRole(any())).thenReturn(true);
+
+        when(categoryPolicy.resolveWriteScope(any(), any(), any())).thenAnswer(invocation -> {
+            String scopeStr = invocation.getArgument(0);
+            UUID branchId = invocation.getArgument(1);
+            UUID targetOrg = "GLOBAL".equalsIgnoreCase(scopeStr) ? null : (branchId != null ? branchId : TenantContext.getCurrentOrg());
+            return new ExpenseCategoryPolicy.CategoryScope(scopeStr != null ? scopeStr.toUpperCase() : "BRANCH", targetOrg, false);
+        });
+
         TenantContext.setCurrentTenant(clientId);
         TenantContext.setCurrentOrg(orgId);
         TenantContext.setCurrentTerminal(UUID.randomUUID());
@@ -113,12 +135,12 @@ class ExpenseServiceTest {
         UUID branchId = UUID.randomUUID();
         Instant expenseDate = Instant.parse("2026-05-13T18:29:00Z");
         String idempotencyKey = "expense-create-key";
-        String cacheKey = clientId + ":" + branchId + ":" + idempotencyKey;
+        String cacheKey = String.format("tenant=%s:org=%s:key=%s", clientId, branchId, idempotencyKey);
 
         ExpenseCategory category = ExpenseCategory.builder()
                 .id(categoryId)
                 .name("Wages")
-                .isactive("Y")
+                .isActive("Y")
                 .build();
 
         CreateExpenseRequest request = CreateExpenseRequest.builder()
@@ -131,7 +153,7 @@ class ExpenseServiceTest {
                 .build();
 
         when(idempotencyStore.get(cacheKey)).thenReturn(null);
-        when(categoryRepository.findByIdAndClientIdAndOrgIdAndCreatedBy(categoryId, clientId, branchId, profileOwner))
+        when(categoryRepository.findByIdAndClientIdAndOrgId(categoryId, clientId, branchId))
                 .thenReturn(Optional.of(category));
         when(currencyRepository.findByClientIdAndIsDefaultTrue(clientId)).thenReturn(List.of());
 
@@ -150,7 +172,7 @@ class ExpenseServiceTest {
             saved.setOrgId(e.getOrgId());
             return saved;
         });
-        when(invoiceRepository.save(any(Invoice.class))).thenAnswer(invocation -> {
+        when(invoiceService.createInvoice(any(Invoice.class))).thenAnswer(invocation -> {
             Invoice inv = invocation.getArgument(0);
             Invoice saved = inv.toBuilder().id(invoiceId).build();
             saved.setClientId(inv.getClientId());
@@ -205,12 +227,12 @@ class ExpenseServiceTest {
         UUID categoryId = UUID.randomUUID();
         Instant expenseDate = Instant.parse("2026-05-22T02:43:00Z");
         String idempotencyKey = "global-expense-key";
-        String cacheKey = clientId + ":GLOBAL:" + idempotencyKey;
+        String cacheKey = String.format("tenant=%s:org=GLOBAL:key=%s", clientId, idempotencyKey);
 
         ExpenseCategory category = ExpenseCategory.builder()
                 .id(categoryId)
                 .name("Maintenance")
-                .isactive("Y")
+                .isActive("Y")
                 .build();
 
         CreateExpenseRequest request = CreateExpenseRequest.builder()
@@ -223,7 +245,7 @@ class ExpenseServiceTest {
                 .build();
 
         when(idempotencyStore.get(cacheKey)).thenReturn(null);
-        when(categoryRepository.findByIdAndClientIdAndOrgIdAndCreatedBy(categoryId, clientId, null, profileOwner))
+        when(categoryRepository.findByIdAndClientIdAndOrgId(categoryId, clientId, null))
                 .thenReturn(Optional.of(category));
         when(currencyRepository.findByClientIdAndIsDefaultTrue(clientId)).thenReturn(List.of());
         when(sequenceService.generateNextSequence(DocumentType.EXPENSE, null)).thenReturn("EX-2026-0000001-ORG");
@@ -241,7 +263,7 @@ class ExpenseServiceTest {
             saved.setOrgId(e.getOrgId());
             return saved;
         });
-        when(invoiceRepository.save(any(Invoice.class))).thenAnswer(invocation -> {
+        when(invoiceService.createInvoice(any(Invoice.class))).thenAnswer(invocation -> {
             Invoice inv = invocation.getArgument(0);
             Invoice saved = inv.toBuilder().id(invoiceId).build();
             saved.setClientId(inv.getClientId());
@@ -275,10 +297,10 @@ class ExpenseServiceTest {
     }
 
     @Test
-    void createExpenseRejectsCategoryOwnedByAnotherProfile() {
+    void createExpenseRejectsCategoryOwnedByAnotherBranch() {
         UUID categoryId = UUID.randomUUID();
-        String idempotencyKey = "wrong-profile-category-key";
-        String cacheKey = clientId + ":" + orgId + ":" + idempotencyKey;
+        String idempotencyKey = "wrong-branch-category-key";
+        String cacheKey = String.format("tenant=%s:org=%s:key=%s", clientId, orgId, idempotencyKey);
 
         CreateExpenseRequest request = CreateExpenseRequest.builder()
                 .categoryId(categoryId)
@@ -288,7 +310,7 @@ class ExpenseServiceTest {
                 .build();
 
         when(idempotencyStore.get(cacheKey)).thenReturn(null);
-        when(categoryRepository.findByIdAndClientIdAndOrgIdAndCreatedBy(categoryId, clientId, orgId, profileOwner))
+        when(categoryRepository.findByIdAndClientIdAndOrgId(categoryId, clientId, orgId))
                 .thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> expenseService.createExpense(idempotencyKey, request))

@@ -14,17 +14,17 @@ public class CategoryMapper {
 
     public ExpenseCategory toEntity(CreateCategoryRequest request) {
         ExpenseCategory category = new ExpenseCategory();
-        category.setName(request.getName() != null ? request.getName().trim() : null);
+        category.updateName(request.getName());
         category.setSortOrder(request.getSortOrder());
         return category;
     }
 
     public void updateEntity(ExpenseCategory entity, UpdateCategoryRequest request) {
         if (request.getName() != null) {
-            entity.setName(request.getName().trim());
+            entity.updateName(request.getName());
         }
         if (request.getSortOrder() != null) {
-            entity.setSortOrder(request.getSortOrder());
+            entity.updateSortOrder(request.getSortOrder());
         }
     }
 
@@ -33,9 +33,9 @@ public class CategoryMapper {
                 .id(entity.getId())
                 .name(entity.getName())
                 .sortOrder(entity.getSortOrder())
-                .active("Y".equalsIgnoreCase(entity.getIsactive()))
+                .active(entity.isActive())
                 .orgId(entity.getOrgId())
-                .scope(entity.getOrgId() == null ? "GLOBAL" : "BRANCH")
+                .scope(entity.getScope())
                 .createdAt(entity.getCreatedAt())
                 .updatedAt(entity.getUpdatedAt())
                 .build();

@@ -12,18 +12,21 @@ import java.util.UUID;
  * Enterprise-grade Domain Entity for Expenses.
  * Dedicated to the stand-alone 'expenses' table.
  */
-@Data
+@Getter
+@Setter
+@ToString(callSuper = true)
 @Entity
 @Builder(toBuilder = true)
 @NoArgsConstructor
 @AllArgsConstructor
-@EqualsAndHashCode(callSuper = true)
+@EqualsAndHashCode(onlyExplicitlyIncluded = true, callSuper = false)
 @Table(name = "expenses")
 public class Expense extends BaseEntity {
 
     @Id
-    @Builder.Default
-    private UUID id = UUID.randomUUID();
+    @GeneratedValue(strategy = GenerationType.UUID)
+    @EqualsAndHashCode.Include
+    private UUID id;
 
     @Column(name = "expense_no", nullable = false)
     private String expenseNo;
@@ -50,7 +53,7 @@ public class Expense extends BaseEntity {
 
     @Column(name = "doc_status", length = 20)
     @Builder.Default
-    private String status = "COMPLETED";
+    private String docStatus = "COMPLETED";
 
     @Column(name = "payment_status", length = 20)
     @Builder.Default
@@ -66,15 +69,24 @@ public class Expense extends BaseEntity {
     @Column(name = "currency_id")
     private UUID currencyId;
 
+    public static final String ACTIVE_FLAG = "Y";
+    public static final String INACTIVE_FLAG = "N";
+
     @Builder.Default
     @Column(name = "isactive", length = 1)
-    private String isactive = "Y";
+    private String activeFlag = ACTIVE_FLAG;
 
     public boolean isActive() {
-        return "Y".equals(this.isactive);
+        return ACTIVE_FLAG.equals(this.activeFlag);
     }
 
     public void deactivate() {
-        this.isactive = "N";
+        this.activeFlag = INACTIVE_FLAG;
+    }
+
+    public String getScope() {
+        return this.getOrgId() == null 
+                ? ScopeType.GLOBAL.name() 
+                : ScopeType.BRANCH.name();
     }
 }

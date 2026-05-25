@@ -11,11 +11,6 @@ import org.springframework.stereotype.Component;
 public class ExpenseMapper {
 
     public ExpenseResponse toExpenseResponse(Expense expense, String categoryName) {
-        
-        String method = (expense.getPaymentMethod() != null && !expense.getPaymentMethod().isBlank()) 
-                ? expense.getPaymentMethod() 
-                : "CASH";
-
         return ExpenseResponse.builder()
                 .id(expense.getId())
                 .referenceNumber(expense.getExpenseNo())
@@ -24,11 +19,15 @@ public class ExpenseMapper {
                 .expenseDate(expense.getExpenseDate())
                 .amount(expense.getAmount())
                 .description(expense.getDescription())
-                .paymentMethod(method)
-                .active("Y".equals(expense.getIsactive()))
+                .paymentMethod(expense.getPaymentMethod())
+                .active(expense.isActive())
                 .orgId(expense.getOrgId())
-                .scope(expense.getOrgId() == null ? "GLOBAL" : "BRANCH")
+                .scope(expense.getScope())
                 .updatedBy(expense.getUpdatedBy())
+                .docStatus(expense.getDocStatus())
+                .paymentStatus(expense.getPaymentStatus())
+                .createdAt(expense.getCreatedAt())
+                .updatedAt(expense.getUpdatedAt())
                 .build();
     }
 
