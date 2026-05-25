@@ -14,7 +14,6 @@ import lombok.*;
 @Builder(toBuilder = true)
 @NoArgsConstructor
 @AllArgsConstructor
-@JsonInclude(JsonInclude.Include.NON_NULL)
 @Schema(description = "Payload for updating an existing expense category")
 public class UpdateCategoryRequest {
 

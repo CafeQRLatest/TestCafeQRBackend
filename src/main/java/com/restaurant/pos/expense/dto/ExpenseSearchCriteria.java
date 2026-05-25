@@ -1,6 +1,5 @@
 package com.restaurant.pos.expense.dto;
 
-import com.fasterxml.jackson.annotation.JsonInclude;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.*;
 
@@ -17,7 +16,6 @@ import java.util.UUID;
 @Builder(toBuilder = true)
 @NoArgsConstructor
 @AllArgsConstructor
-@JsonInclude(JsonInclude.Include.NON_NULL)
 @Schema(description = "Criteria for filtering expense records")
 public class ExpenseSearchCriteria {
 

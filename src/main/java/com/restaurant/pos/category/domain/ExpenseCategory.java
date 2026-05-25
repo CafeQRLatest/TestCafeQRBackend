@@ -4,7 +4,10 @@ import com.restaurant.pos.common.entity.BaseEntity;
 import jakarta.persistence.*;
 import lombok.*;
 
+import com.restaurant.pos.expense.domain.ScopeType;
+
 import java.util.UUID;
+
 
 /**
  * Enterprise-grade Entity for Expense Classification.
@@ -21,18 +24,16 @@ import java.util.UUID;
     name = "expense_categories",
     indexes = {
         @Index(name = "idx_expense_category_client", columnList = "client_id"),
-        @Index(name = "idx_expense_category_org", columnList = "org_id"),
-        @Index(name = "idx_expense_category_owner", columnList = "client_id, org_id, created_by"),
-        @Index(name = "idx_expense_category_active", columnList = "is_active"),
-        @Index(name = "idx_expense_category_sort", columnList = "sort_order")
+        @Index(name = "idx_expense_category_org_sort", columnList = "client_id, org_id, sort_order")
     }
 )
-@EqualsAndHashCode(callSuper = true)
+@EqualsAndHashCode(onlyExplicitlyIncluded = true, callSuper = false)
 public class ExpenseCategory extends BaseEntity {
 
     @Id
-    @Builder.Default
-    private UUID id = UUID.randomUUID();
+    @GeneratedValue(strategy = GenerationType.UUID)
+    @EqualsAndHashCode.Include
+    private UUID id;
 
     @Column(nullable = false, length = 100)
     private String name;
@@ -46,22 +47,22 @@ public class ExpenseCategory extends BaseEntity {
 
     @Column(name = "is_active", nullable = false, length = 1)
     @Builder.Default
-    private String isactive = "Y";
+    private String isActive = "Y";
 
     /*
      * ── Domain Behavior Methods ─────────────────────────────────────────────
      */
 
     public void deactivate() {
-        this.isactive = "N";
+        this.isActive = "N";
     }
 
     public void activate() {
-        this.isactive = "Y";
+        this.isActive = "Y";
     }
 
     public boolean isActive() {
-        return "Y".equalsIgnoreCase(this.isactive);
+        return "Y".equalsIgnoreCase(this.isActive);
     }
 
     public void updateName(String name) {
@@ -74,5 +75,11 @@ public class ExpenseCategory extends BaseEntity {
         if (sortOrder != null) {
             this.sortOrder = sortOrder;
         }
+    }
+
+    public String getScope() {
+        return this.getOrgId() == null 
+                ? ScopeType.GLOBAL.name() 
+                : ScopeType.BRANCH.name();
     }
 }

@@ -17,6 +17,13 @@ import java.util.UUID;
  */
 @Repository
 public interface ExpenseRepository extends JpaRepository<Expense, UUID>, JpaSpecificationExecutor<Expense> {
+    /**
+     * Retrieves expenses within a specific date range for accounting backfills.
+     * 
+     * Null Semantics:
+     * A null 'orgId' acts as a wildcard (cross-org backfill), returning expenses
+     * across all branches (both global orgId=null and branch-specific orgId=UUID).
+     */
     @Query("""
             SELECT e FROM Expense e
             WHERE e.clientId = :clientId
@@ -26,6 +33,15 @@ public interface ExpenseRepository extends JpaRepository<Expense, UUID>, JpaSpec
             """)
     List<Expense> findByClientIdAndOrgIdAndExpenseDateBetweenOrderByExpenseDateAsc(@Param("clientId") UUID clientId, @Param("orgId") UUID orgId, @Param("from") Instant from, @Param("to") Instant to);
 
+    /**
+     * Checks if an expense record exists with a given document number.
+     * Used by DocumentSequenceService to guarantee sequence number uniqueness.
+     * 
+     * Null Semantics:
+     * A null 'orgId' specifically targets global-scope records (where e.orgId IS NULL),
+     * rather than matching branch records. This prevents sequence generation namespace 
+     * collisions between global and branch-specific documents.
+     */
     @Query("""
             SELECT COUNT(e) > 0 FROM Expense e
             WHERE e.clientId = :clientId
