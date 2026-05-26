@@ -4,25 +4,32 @@ services:
     runtime: docker
     dockerContext: .
     dockerfilePath: Dockerfile
+    healthCheckPath: /actuator/health
     plan: free
     envVars:
       - key: SPRING_PROFILES_ACTIVE
         value: prod
-      # Database (To be provided by Neon.tech)
+
+      # Supabase Postgres. Use Session Pooler on port 5432, or Direct with IPv4 support.
+      # Avoid Transaction Pooler for this Hibernate/JDBC app because prepared statements are unsupported there.
       - key: SPRING_DATASOURCE_URL
         sync: false
       - key: SPRING_DATASOURCE_USERNAME
         sync: false
       - key: SPRING_DATASOURCE_PASSWORD
         sync: false
-      # Redis (To be provided by Upstash or Render Managed)
+
+      # Upstash Redis.
       - key: SPRING_DATA_REDIS_HOST
         sync: false
       - key: SPRING_DATA_REDIS_PORT
         sync: false
       - key: SPRING_DATA_REDIS_PASSWORD
         sync: false
-      # RabbitMQ (To be provided by CloudAMQP)
+      - key: SPRING_DATA_REDIS_SSL
+        value: true
+
+      # CloudAMQP RabbitMQ.
       - key: SPRING_RABBITMQ_HOST
         sync: false
       - key: SPRING_RABBITMQ_PORT
@@ -31,28 +38,47 @@ services:
         sync: false
       - key: SPRING_RABBITMQ_PASSWORD
         sync: false
-      # Security & Mail
-      # Render free web services block outbound SMTP ports 25, 465, and 587.
-      # Keep free hosting by using Gmail API over HTTPS instead of Gmail SMTP.
-      - key: JWT_SECRET
-        generateValue: true
+      - key: SPRING_RABBITMQ_VHOST
+        sync: false
+      - key: SPRING_RABBITMQ_SSL
+        value: true
+
+      # App URLs and security.
       - key: ALLOWED_ORIGINS
         sync: false
+      - key: FRONTEND_URL
+        sync: false
+      - key: JWT_PRIVATE_KEY
+        sync: false
+      - key: JWT_PUBLIC_KEY
+        sync: false
+
+      # Gmail API mail delivery.
+      # Render free web services block outbound SMTP ports 25, 465, and 587.
+      # Keep free hosting by using Gmail API over HTTPS instead of Gmail SMTP.
       - key: EMAIL_PROVIDER
         value: gmail-api
+      - key: GMAIL_SENDER_EMAIL
+        value: cafeqrllp@gmail.com
       - key: GMAIL_CLIENT_ID
         sync: false
       - key: GMAIL_CLIENT_SECRET
         sync: false
       - key: GMAIL_REFRESH_TOKEN
         sync: false
-      - key: GMAIL_SENDER_EMAIL
+      - key: OTP_LOG_CODE
+        value: false
+
+      # Razorpay. Rotate any credentials that were ever committed before using production.
+      - key: RAZORPAY_KEY_ID
         sync: false
-      - key: SMTP_HOST
+      - key: RAZORPAY_KEY_SECRET
         sync: false
-      - key: SMTP_PORT
+      - key: RAZORPAY_WEBHOOK_SECRET
         sync: false
-      - key: SMTP_USERNAME
-        sync: false
-      - key: SMTP_PASSWORD
+
+      # Optional observability.
+      - key: APP_OBSERVABILITY_LOG_ALL_API_REQUESTS
+        value: false
+      - key: SUBSCRIPTION_MONTHLY_AMOUNT_PAISE
         sync: false

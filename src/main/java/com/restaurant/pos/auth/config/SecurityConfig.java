@@ -51,7 +51,9 @@ public class SecurityConfig {
                                         "/configuration/security",
                                         "/swagger-ui/**",
                                         "/webjars/**",
-                                        "/swagger-ui.html"
+                                        "/swagger-ui.html",
+                                        "/actuator/health",
+                                        "/actuator/health/**"
                                 )
                                 .permitAll()
                                 .anyRequest()
@@ -64,7 +66,7 @@ public class SecurityConfig {
         return http.build();
     }
 
-    @Value("${app.cors.allowed-origins:http://localhost:3000,https://cafe-test-qr-frontend.vercel.app,https://cafe-qr-frontend.vercel.app}")
+    @Value("${app.cors.allowed-origins:http://localhost:3000,http://localhost:3001}")
     private String[] allowedOrigins;
 
     @Bean

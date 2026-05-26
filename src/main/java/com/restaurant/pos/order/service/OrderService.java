@@ -77,7 +77,6 @@ public class OrderService {
     private static final int MAX_HISTORY_PAGE_SIZE = 50;
     private static final int MAX_SYNC_ORDER_CHANGES = 200;
     private static final Duration DEFAULT_HISTORY_WINDOW = Duration.ofDays(1);
-    private static final Duration MAX_HISTORY_WINDOW = Duration.ofDays(31);
     private static final List<String> PAYMENT_METHODS = List.of("CASH", "ONLINE", "UPI", "CARD", "BANK", "CHEQUE", "MIXED");
     private static final List<String> PAYMENT_SPLIT_METHODS = List.of("CASH", "ONLINE", "UPI", "CARD", "BANK", "CHEQUE");
     private static final ZoneId BUSINESS_ZONE = ZoneId.of("Asia/Kolkata");
@@ -581,9 +580,6 @@ public class OrderService {
         }
         if (fromDate.isAfter(toDate)) {
             throw new IllegalArgumentException("fromDate must be before toDate");
-        }
-        if (Duration.between(fromDate, toDate).compareTo(MAX_HISTORY_WINDOW) > 0) {
-            throw new IllegalArgumentException("Order history range cannot exceed 31 days");
         }
     }
 

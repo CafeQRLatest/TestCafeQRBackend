@@ -122,6 +122,38 @@ class AccountingPostingServiceTest {
     }
 
     @Test
+    void backfillRangeAllowsMoreThanOneYear() throws Exception {
+        AccountingPostingService service = new AccountingPostingService(
+                mock(AccountingService.class),
+                mock(AccountingDefaultsService.class),
+                mock(AccountingAccountRepository.class),
+                mock(JournalEntryRepository.class),
+                mock(PartyLedgerEntryRepository.class),
+                mock(AccountingPostingJobRepository.class),
+                mock(OrderRepository.class),
+                mock(InvoiceRepository.class),
+                mock(PaymentRepository.class),
+                mock(PaymentSplitRepository.class),
+                mock(ProductRepository.class),
+                mock(ExpenseCategoryRepository.class),
+                mock(StockAdjustmentRepository.class),
+                mock(com.restaurant.pos.expense.repository.ExpenseRepository.class),
+                mock(PlatformTransactionManager.class)
+        );
+
+        Method method = AccountingPostingService.class.getDeclaredMethod("boundedRange", LocalDateTime.class, LocalDateTime.class);
+        method.setAccessible(true);
+
+        Object range = method.invoke(
+                service,
+                LocalDateTime.parse("2024-01-01T00:00:00"),
+                LocalDateTime.parse("2026-05-27T23:59:00")
+        );
+
+        assertThat(range).isNotNull();
+    }
+
+    @Test
     void replaceInvoiceJournalUsesBranchScopeAndLineDiscountFallback() {
         UUID clientId = UUID.randomUUID();
         UUID orgId = UUID.randomUUID();

@@ -33,7 +33,6 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
@@ -47,7 +46,6 @@ import java.util.function.Supplier;
 @RequiredArgsConstructor
 public class AccountingPostingService {
 
-    private static final int MAX_BACKFILL_DAYS = 366;
     private static final ZoneId IST = ZoneId.of("Asia/Kolkata");
 
     private final AccountingService accountingService;
@@ -1309,9 +1307,6 @@ public class AccountingPostingService {
         LocalDateTime resolvedFrom = from != null ? from : resolvedTo.minusDays(31);
         if (resolvedFrom.isAfter(resolvedTo)) {
             throw new BusinessException("From date must be before to date");
-        }
-        if (Duration.between(resolvedFrom, resolvedTo).toDays() > MAX_BACKFILL_DAYS) {
-            throw new BusinessException("Accounting backfill range cannot exceed " + MAX_BACKFILL_DAYS + " days");
         }
         return new DateRange(resolvedFrom, resolvedTo);
     }

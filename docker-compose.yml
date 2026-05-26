@@ -9,9 +9,18 @@ services:
       - SPRING_DATASOURCE_URL=jdbc:postgresql://db:5432/pos_db
       - SPRING_DATASOURCE_USERNAME=pos_user
       - SPRING_DATASOURCE_PASSWORD=pos_password
-      - JWT_SECRET=${JWT_SECRET:-your_fallback_secret_for_development}
-      - RAZORPAY_KEY_ID=rzp_live_RHGyElzudRSzgz
-      - RAZORPAY_KEY_SECRET=jCqjRcfddWa2NkfLdSmu2awB
+      - JWT_PRIVATE_KEY=${JWT_PRIVATE_KEY:-}
+      - JWT_PUBLIC_KEY=${JWT_PUBLIC_KEY:-}
+      - RAZORPAY_KEY_ID=${RAZORPAY_KEY_ID:-}
+      - RAZORPAY_KEY_SECRET=${RAZORPAY_KEY_SECRET:-}
+      - RAZORPAY_WEBHOOK_SECRET=${RAZORPAY_WEBHOOK_SECRET:-}
+      - EMAIL_PROVIDER=${EMAIL_PROVIDER:-gmail-api}
+      - GMAIL_SENDER_EMAIL=${GMAIL_SENDER_EMAIL:-cafeqrllp@gmail.com}
+      - GMAIL_CLIENT_ID=${GMAIL_CLIENT_ID:-}
+      - GMAIL_CLIENT_SECRET=${GMAIL_CLIENT_SECRET:-}
+      - GMAIL_REFRESH_TOKEN=${GMAIL_REFRESH_TOKEN:-}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:3000}
+      - FRONTEND_URL=${FRONTEND_URL:-http://localhost:3000}
     depends_on:
       - db
       - redis

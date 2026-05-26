@@ -23,9 +23,18 @@ Thumbs.db
 *.log
 *.txt
 !DEPLOY_FREE.md
-!all_tables.txt
+!OBSERVABILITY.md
 
 # Environment
 .env
 .env.local
+.env.*.local
 application-local.yml
+
+# Local tooling and generated artifacts
+apache-maven-*/
+maven.zip
+KeyGenerator.class
+$null
+git
+fix_*.py

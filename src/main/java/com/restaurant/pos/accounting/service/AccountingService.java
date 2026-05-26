@@ -30,7 +30,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
-import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -43,7 +42,6 @@ import java.util.stream.Collectors;
 public class AccountingService {
 
     private static final int DEFAULT_REPORT_DAYS = 31;
-    private static final int MAX_REPORT_DAYS = 366;
     private static final ZoneId IST = ZoneId.of("Asia/Kolkata");
     private static final Set<String> FINANCIAL_PAYMENT_METHODS = Set.of("CASH", "ONLINE", "UPI", "CARD", "BANK", "CHEQUE");
 
@@ -942,9 +940,6 @@ public class AccountingService {
         LocalDateTime resolvedFrom = from != null ? from : resolvedTo.minusDays(DEFAULT_REPORT_DAYS);
         if (resolvedFrom.isAfter(resolvedTo)) {
             throw new BusinessException("From date must be before to date");
-        }
-        if (Duration.between(resolvedFrom, resolvedTo).toDays() > MAX_REPORT_DAYS) {
-            throw new BusinessException("Accounting date range cannot exceed " + MAX_REPORT_DAYS + " days");
         }
         return new DateRange(resolvedFrom, resolvedTo);
     }

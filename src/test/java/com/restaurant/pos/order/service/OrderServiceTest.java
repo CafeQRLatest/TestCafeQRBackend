@@ -214,6 +214,21 @@ class OrderServiceTest {
     }
 
     @Test
+    void salesHistoryAllowsRangesLongerThanThirtyOneDays() {
+        when(orderRepository.findAll(any(Specification.class), any(Pageable.class))).thenReturn(Page.empty());
+
+        orderService.getSalesOrderHistory(
+                Instant.parse("2025-12-31T18:30:00Z"),
+                Instant.parse("2026-05-27T18:29:00Z"),
+                0,
+                20,
+                null
+        );
+
+        verify(orderRepository).findAll(any(Specification.class), any(Pageable.class));
+    }
+
+    @Test
     void createOrderStoresMultipleCustomerLinksOnCustomersTable() throws Exception {
         UUID orderId = UUID.randomUUID();
         UUID customerAId = UUID.randomUUID();

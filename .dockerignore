@@ -2,8 +2,18 @@ target/
 .idea/
 .git/
 .mvn/
+apache-maven-*/
+maven.zip
+*.txt
 *.log
 .DS_Store
-src/test/
+.env
+.env.*
+!*.example
+run_app.bat
+fix_*.py
+KeyGenerator.class
+$null
+git
 # Ignore locally compiled classes
 *.class

@@ -1,11 +1,11 @@
 # Build stage
-FROM maven:3.8.1-openjdk-17-slim AS build
+FROM maven:3.9.9-eclipse-temurin-17 AS build
 WORKDIR /app
 COPY pom.xml .
 # Download dependencies to cache them in Docker layer
-RUN mvn dependency:go-offline -B
+RUN mvn -B dependency:go-offline
 COPY src ./src
-RUN mvn package -DskipTests
+RUN mvn -B -DskipTests package
 
 # Run stage
 FROM eclipse-temurin:17-jre-alpine

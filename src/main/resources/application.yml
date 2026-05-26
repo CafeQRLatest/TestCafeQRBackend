@@ -56,7 +56,7 @@ spring:
   mail:
     host: ${SMTP_HOST:smtp.gmail.com}
     port: ${SMTP_PORT:587}
-    username: ${SMTP_USERNAME:testcafeqr@gmail.com}
+    username: ${SMTP_USERNAME:cafeqrllp@gmail.com}
     password: ${SMTP_PASSWORD:}
     default-encoding: UTF-8
     properties:
@@ -80,16 +80,24 @@ gmail:
     client-id: ${GMAIL_CLIENT_ID:}
     client-secret: ${GMAIL_CLIENT_SECRET:}
     refresh-token: ${GMAIL_REFRESH_TOKEN:}
-    sender-email: ${GMAIL_SENDER_EMAIL:${SMTP_USERNAME:testcafeqr@gmail.com}}
+    sender-email: ${GMAIL_SENDER_EMAIL:${SMTP_USERNAME:cafeqrllp@gmail.com}}
 
 # JWT Configuration
 jwt:
-  private-key: |-
-    MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQCrCzzKxm/agMEXjC4Ydz/+hkWX5xrdBYYNSBDE2Dhnk69I8xd8dU+eZrI5fOGLEwO1Cdg5DukM0WIA+sdnd1d2UGG3rAksKGCdfXggMwP1b8MJSVACQPnTud7lAhagLX7PQE4eWfzbyy7laUeMEbNsGA1XOv41IE3fMxtpGQgzUteXSgsfHSFJ8XOwiQ2HFPRg6bR9bgBEJmNctKKDdPnB+E7xu3+3Kc2S6BYExCFub8yOXdkR0N+MWypu0IfxDyenHLSHSezuEtVBHZ+Oby2ntDAZm65sWTLBy2Z/rw6Vbnd241+0cw97O62EBMikW65vu5xMoCoBZGH9XuvmkKcXAgMBAAECggEADW8Wg+lOA7VfympXfH3GkvEXf4ob5rF2Xo4DHdLLAKeYJCdOTZd70g8dfxJl4eHJGsD+heIRP9Ek3LrVn99ps9XgYZKrgxewxEMvL32SRAarz4uTMyTIpRkmKTUeyHnfnzDdHIPTg60pA8UJujXxslMOnoP4T1KNizLyZjDHH3CzL5XYUjyhvsLvX4lur/nMAtGQMwCOWr0+koc4AVGPb8jKe0NDMZdIMJT+xOhSPBdE+bGXbtqrQUq7yoBfDxoeN5yeWYrqgoPPHAiJp5QXh2l9+w2wOKtLW5m8FCSN3+CKTXmtYOWQLwqa/TgivXlEHV2sts5nhJhygY+jzgFRQQKBgQDpGR9J1NSsXHFyo/EfE3IkEXhYamrkqwdWmy1zJra3rFaZUEbs+zNYUaYW7AQ1HeInYkeoWePOwU9OlMcPLfwzufKpztukYB+WStq7M80skO0+a8Tap0x88wtdZ4SYvPuLVvmkjVX5ZmTpdTrqqwRe6CwMlcRPYReDr0b0tVFJZwKBgQC72VQsBC0jB1P/u41xYd+Oh9zmvTL8AIXNZ9FDS7B18MAiP4Y5CX3hHoRw3GJVEXLEyeHyOtJ4Ar/gf5yTNrsn1FrZkyIe58E7UpYHytiwtaUFragc5RHQnqb8PF/O2UpUgABEn5+JK4t/3Sn0xZVu1LFgecuoWDhbK954jYg20QKBgBDTsnGG/q9OoRXwhciDg9rcs/5V+E93lTkITLiiU9BgjYPVyrjyzVsT0dSXxxn6hUfojVm2234icFIw5UnQPQOS6dSeTTbJhZ442x9mduo/sBCwgO5z406l0O02Otk300TUy4K4fTtay/AaeV1VaSRcyElESn6ceLEV5x5lNHADAoGBAJSQOeCh4Oy+I/Gx7BhK1pqL2unlokfpRekAfWDioIl2QQ4U/VtopVSAZTA5K8+pgAIgxABmAwSE8Cll43gOJhBHAx7mHWsh0RHQq/U3uQ5wajXGdJl9lQxQHTKJsSAPe5i+rveW4n6CoM4cJM1/4kIIFsx9JtNaCiAY3taq4JqxAoGBALXr3+iqpqANBQAqSg+EMgfsWkvFuRae3OvYpYGGMyAZSEsV35qO81s9NjRlFHj7+AxRjBEf3DwAorTI7eMTOPUGabfftG6djeGrqfELOUCYL5vj1EFs/YmRe3w3QG86yxXVFHczOsNZJzsNxPsc9dXNsht2hlF/mLnKu4/Qs5+A
-  public-key: |-
-    MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAqws8ysZv2oDBF4wuGHc//oZFl+ca3QWGDUgQxNg4Z5OvSPMXfHVPnmayOXzhixMDtQnYOQ7pDNFiAPrHZ3dXdlBht6wJLChgnX14IDMD9W/DCUlQAkD507ne5QIWoC1+z0BOHln828su5WlHjBGzbBgNVzr+NSBN3zMbaRkIM1LXl0oLHx0hSfFzsIkNhxT0YOm0fW4ARCZjXLSig3T5wfhO8bt/tynNkugWBMQhbm/Mjl3ZEdDfjFsqbtCH8Q8npxy0h0ns7hLVQR2fjm8tp7QwGZuubFkywctmf68OlW53duNftHMPezuthATIpFuub7ucTKAqAWRh/V7r5pCnFwIDAQAB
+  private-key: ${JWT_PRIVATE_KEY:}
+  public-key: ${JWT_PUBLIC_KEY:}
   expiration: 14400000 # 4 hours in ms
   refresh-expiration: 2592000000 # 30 days in ms
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      probes:
+        enabled: true
 
 springdoc:
   api-docs:
@@ -99,7 +107,7 @@ springdoc:
 
 app:
   cors:
-    allowed-origins: ${ALLOWED_ORIGINS:http://localhost:3000,http://localhost:3001,https://cafe-test-qr-frontend.vercel.app,https://cafe-qr-frontend.vercel.app}
+    allowed-origins: ${ALLOWED_ORIGINS:http://localhost:3000,http://localhost:3001}
   frontend-url: ${FRONTEND_URL:http://localhost:3000}
   otp:
     log-code: ${OTP_LOG_CODE:false}
