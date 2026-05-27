@@ -966,7 +966,7 @@ public class AccountingPostingService {
 
         if (inbound) {
             addLine(lines, defaultsService.resolveAccount(AccountingDefaultsService.ACCOUNTS_RECEIVABLE), BigDecimal.ZERO, amount,
-                    PartyType.CUSTOMER, order != null ? order.getCustomerId() : null, "Receivable settled");
+                    PartyType.CUSTOMER, resolvePaymentCustomerId(order, payment), "Receivable settled");
         } else {
             addLine(lines, defaultsService.resolveAccount(AccountingDefaultsService.ACCOUNTS_PAYABLE), amount, BigDecimal.ZERO,
                     PartyType.VENDOR, order != null ? order.getVendorId() : null, "Payable settled");
@@ -1148,6 +1148,21 @@ public class AccountingPostingService {
             return Optional.empty();
         }
         return orderRepository.findById(orderId);
+    }
+
+    private UUID resolvePaymentCustomerId(Order order, Payment payment) {
+        if (order != null && order.getCustomerId() != null) {
+            return order.getCustomerId();
+        }
+        if (payment != null && payment.getCustomerId() != null) {
+            return payment.getCustomerId();
+        }
+        if (payment != null && payment.getInvoiceId() != null) {
+            return invoiceRepository.findById(payment.getInvoiceId())
+                    .map(Invoice::getCustomerId)
+                    .orElse(null);
+        }
+        return null;
     }
 
     private boolean alreadyPosted(String sourceType, UUID sourceId) {

@@ -61,6 +61,9 @@ public class Invoice extends BaseEntity {
     @Column(name = "customer_id")
     private UUID customerId;
 
+    @Column(name = "credit_customer_id")
+    private UUID creditCustomerId;
+
     @Column(name = "vendor_id")
     private UUID vendorId;
 

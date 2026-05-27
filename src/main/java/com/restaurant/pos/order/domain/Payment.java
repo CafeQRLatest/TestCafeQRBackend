@@ -63,6 +63,12 @@ public class Payment extends BaseEntity {
     @Column(name = "invoice_id")
     private UUID invoiceId;
 
+    @Column(name = "customer_id")
+    private UUID customerId;
+
+    @Column(name = "credit_customer_id")
+    private UUID creditCustomerId;
+
     @Column(name = "expense_id")
     private UUID expenseId;
 

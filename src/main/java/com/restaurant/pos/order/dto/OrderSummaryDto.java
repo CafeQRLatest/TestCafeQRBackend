@@ -1,5 +1,6 @@
 package com.restaurant.pos.order.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.restaurant.pos.order.domain.OrderType;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -29,6 +30,9 @@ public class OrderSummaryDto {
     private UUID customerId;
     private String customerName;
     private String customerPhone;
+    @JsonProperty("isCredit")
+    private Boolean isCredit;
+    private UUID creditCustomerId;
     @Builder.Default
     private List<OrderCustomerDto> customers = new ArrayList<>();
     private BigDecimal totalAmount;
