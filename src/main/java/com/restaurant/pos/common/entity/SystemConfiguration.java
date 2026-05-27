@@ -34,6 +34,9 @@ public class SystemConfiguration {
     private boolean onlinePaymentEnabled;
     private boolean menuImagesEnabled;
     private boolean creditEnabled;
+    @Column(name = "credit_allocation_mode", length = 30)
+    @Builder.Default
+    private String creditAllocationMode = "OLDEST_FIRST";
     private boolean tableManagementEnabled;
     private boolean qrOrderingEnabled;
     private boolean inventoryEnabled;

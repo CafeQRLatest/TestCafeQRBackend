@@ -185,6 +185,7 @@ public class SystemConfigurationService {
                 .onlinePaymentEnabled(source.isOnlinePaymentEnabled())
                 .menuImagesEnabled(source.isMenuImagesEnabled())
                 .creditEnabled(source.isCreditEnabled())
+                .creditAllocationMode(normalizeCreditAllocationMode(source.getCreditAllocationMode()))
                 .tableManagementEnabled(source.isTableManagementEnabled())
                 .qrOrderingEnabled(source.isQrOrderingEnabled())
                 .inventoryEnabled(source.isInventoryEnabled())
@@ -227,6 +228,7 @@ public class SystemConfigurationService {
                 .onlinePaymentEnabled(entity.isOnlinePaymentEnabled())
                 .menuImagesEnabled(entity.isMenuImagesEnabled())
                 .creditEnabled(entity.isCreditEnabled())
+                .creditAllocationMode(normalizeCreditAllocationMode(entity.getCreditAllocationMode()))
                 .tableManagementEnabled(entity.isTableManagementEnabled())
                 .qrOrderingEnabled(entity.isQrOrderingEnabled())
                 .inventoryEnabled(entity.isInventoryEnabled())
@@ -268,6 +270,7 @@ public class SystemConfigurationService {
         entity.setOnlinePaymentEnabled(dto.isOnlinePaymentEnabled());
         entity.setMenuImagesEnabled(dto.isMenuImagesEnabled());
         entity.setCreditEnabled(dto.isCreditEnabled());
+        entity.setCreditAllocationMode(normalizeCreditAllocationMode(dto.getCreditAllocationMode()));
         entity.setTableManagementEnabled(dto.isTableManagementEnabled());
         entity.setQrOrderingEnabled(dto.isQrOrderingEnabled());
         entity.setInventoryEnabled(dto.isInventoryEnabled());
@@ -326,5 +329,13 @@ public class SystemConfigurationService {
             log.error("Failed to serialize tax rates", e);
             return "[]";
         }
+    }
+
+    private String normalizeCreditAllocationMode(String value) {
+        if (value == null || value.isBlank()) {
+            return "OLDEST_FIRST";
+        }
+        String normalized = value.trim().toUpperCase(java.util.Locale.ROOT);
+        return "MANUAL".equals(normalized) ? "MANUAL" : "OLDEST_FIRST";
     }
 }
