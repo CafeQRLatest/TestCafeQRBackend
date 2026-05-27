@@ -3,10 +3,14 @@ package com.restaurant.pos.order.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.restaurant.pos.accounting.service.AccountingPostingService;
+import com.restaurant.pos.common.dto.ConfigurationDto;
 import com.restaurant.pos.common.exception.ResourceNotFoundException;
 import com.restaurant.pos.common.exception.BusinessException;
 import com.restaurant.pos.common.service.BranchContextService;
+import com.restaurant.pos.common.service.SystemConfigurationService;
 import com.restaurant.pos.common.tenant.TenantContext;
+import com.restaurant.pos.credit.domain.CreditCustomer;
+import com.restaurant.pos.credit.repository.CreditCustomerRepository;
 import com.restaurant.pos.inventory.service.InventoryService;
 import com.restaurant.pos.invoice.domain.Invoice;
 import com.restaurant.pos.invoice.domain.InvoiceType;
@@ -18,6 +22,7 @@ import com.restaurant.pos.order.domain.Payment;
 import com.restaurant.pos.order.domain.PaymentSplit;
 import com.restaurant.pos.order.domain.PaymentType;
 import com.restaurant.pos.order.dto.OrderCancelRequest;
+import com.restaurant.pos.order.dto.OrderCreditCompletionRequest;
 import com.restaurant.pos.order.dto.OrderCustomerDto;
 import com.restaurant.pos.order.dto.OrderLineSummaryDto;
 import com.restaurant.pos.order.dto.OrderMoveTableRequest;
@@ -94,6 +99,8 @@ public class OrderService {
     private final PrintJobService printJobService;
     private final ProductRepository productRepository;
     private final CustomerRepository customerRepository;
+    private final CreditCustomerRepository creditCustomerRepository;
+    private final SystemConfigurationService configurationService;
     private final ObjectMapper objectMapper;
     private final BranchContextService branchContext;
 
@@ -316,6 +323,48 @@ public class OrderService {
         order.setCustomers(linkedCustomers);
     }
 
+    private void prepareCreditCustomer(Order order, boolean completingAsCredit) {
+        if (order == null || (order.getOrderType() != null && order.getOrderType() != OrderType.SALE)) {
+            return;
+        }
+        UUID creditCustomerId = order.getCreditCustomerId();
+        if (creditCustomerId == null) {
+            if (completingAsCredit) {
+                throw new BusinessException("Credit customer is required for credit sale");
+            }
+            order.setIsCredit(false);
+            return;
+        }
+
+        ensureCreditLedgerEnabled();
+        CreditCustomer creditCustomer = creditCustomerRepository.findByIdAndClientId(creditCustomerId, order.getClientId())
+                .filter(customer -> !"N".equalsIgnoreCase(customer.getIsactive()))
+                .orElseThrow(() -> new ResourceNotFoundException("Credit customer not found"));
+        if (!"ACTIVE".equalsIgnoreCase(creditCustomer.getStatus())) {
+            throw new BusinessException("Credit customer is suspended");
+        }
+        if (creditCustomer.getLinkedCustomerId() == null) {
+            throw new BusinessException("Credit customer is not linked to a customer record");
+        }
+
+        order.setCreditCustomerId(creditCustomer.getId());
+        order.setCustomerId(creditCustomer.getLinkedCustomerId());
+        order.setCustomerName(creditCustomer.getName());
+        order.setCustomerPhone(creditCustomer.getPhone());
+        if (completingAsCredit) {
+            order.setIsCredit(true);
+        } else if (!Boolean.TRUE.equals(order.getIsCredit())) {
+            order.setIsCredit(false);
+        }
+    }
+
+    private void ensureCreditLedgerEnabled() {
+        ConfigurationDto config = configurationService.getConfiguration();
+        if (config == null || !config.isCreditEnabled()) {
+            throw new BusinessException("Credit Ledger is not enabled for this organization");
+        }
+    }
+
     private Customer resolveCustomer(UUID clientId, UUID orgId, CustomerSelection selection) {
         if (selection.id() != null) {
             return customerRepository.findByIdAndClientId(selection.id(), clientId)
@@ -519,6 +568,8 @@ public class OrderService {
                 .customerId(primaryCustomer != null ? primaryCustomer.getId() : hydrated.getCustomerId())
                 .customerName(primaryCustomer != null ? primaryCustomer.getName() : hydrated.getCustomerName())
                 .customerPhone(primaryCustomer != null ? primaryCustomer.getPhone() : hydrated.getCustomerPhone())
+                .isCredit(hydrated.getIsCredit())
+                .creditCustomerId(hydrated.getCreditCustomerId())
                 .customers(customers)
                 .totalAmount(hydrated.getTotalAmount())
                 .totalTaxAmount(hydrated.getTotalTaxAmount())
@@ -871,6 +922,7 @@ public class OrderService {
 
         validateTableAvailableForNewOrder(order);
         assignOrderNumber(order);
+        prepareCreditCustomer(order, Boolean.TRUE.equals(order.getIsCredit()));
 
         // Ensure bidirectional mapping
         if (order.getLines() != null) {
@@ -889,6 +941,8 @@ public class OrderService {
         if ("COMPLETED".equalsIgnoreCase(saved.getOrderStatus()) && "PAID".equalsIgnoreCase(saved.getPaymentStatus())) {
             String paymentMethod = saved.getReference() != null ? saved.getReference() : "CASH";
             generatePayment(saved, paymentMethod, requestedPaymentNo);
+            accountingPostingService.postSaleCogs(saved);
+        } else if (isCompletedCreditSale(saved)) {
             accountingPostingService.postSaleCogs(saved);
         }
 
@@ -972,6 +1026,8 @@ public class OrderService {
         // Parties & references (merge from updates, fallback to old)
         newOrder.setVendorId(updates.getVendorId() != null ? updates.getVendorId() : oldOrder.getVendorId());
         newOrder.setCustomerId(updates.getCustomerId() != null ? updates.getCustomerId() : oldOrder.getCustomerId());
+        newOrder.setIsCredit(updates.getIsCredit() != null ? updates.getIsCredit() : oldOrder.getIsCredit());
+        newOrder.setCreditCustomerId(updates.getCreditCustomerId() != null ? updates.getCreditCustomerId() : oldOrder.getCreditCustomerId());
         newOrder.setCustomerName(updates.getCustomerName() != null ? updates.getCustomerName() : oldOrder.getCustomerName());
         newOrder.setCustomerPhone(updates.getCustomerPhone() != null ? updates.getCustomerPhone() : oldOrder.getCustomerPhone());
         newOrder.setCustomerIds(updates.getCustomerIds() != null ? updates.getCustomerIds() : oldOrder.getCustomerIds());
@@ -1020,6 +1076,7 @@ public class OrderService {
             }
         }
         hydrateOrderLines(newOrder);
+        prepareCreditCustomer(newOrder, Boolean.TRUE.equals(newOrder.getIsCredit()));
         hydrateCustomer(newOrder);
         
         Order saved = orderRepository.save(newOrder);
@@ -1032,6 +1089,8 @@ public class OrderService {
         if ("PAID".equalsIgnoreCase(saved.getPaymentStatus())) {
             String paymentMethod = saved.getReference() != null ? saved.getReference() : "CASH";
             generatePayment(saved, paymentMethod);
+            accountingPostingService.postSaleCogs(saved);
+        } else if (isCompletedCreditSale(saved)) {
             accountingPostingService.postSaleCogs(saved);
         }
         
@@ -1053,6 +1112,7 @@ public class OrderService {
         if (status != null) order.setOrderStatus(status);
         if (paymentStatus != null) order.setPaymentStatus(paymentStatus);
         if (description != null) order.setDescription(description);
+        prepareCreditCustomer(order, Boolean.TRUE.equals(order.getIsCredit()));
         
         Order result = orderRepository.save(order);
         
@@ -1064,6 +1124,8 @@ public class OrderService {
         if ("COMPLETED".equalsIgnoreCase(result.getOrderStatus()) && "PAID".equalsIgnoreCase(result.getPaymentStatus())) {
             String paymentMethod = result.getReference() != null ? result.getReference() : "CASH";
             generatePayment(result, paymentMethod);
+            accountingPostingService.postSaleCogs(result);
+        } else if (isCompletedCreditSale(result)) {
             accountingPostingService.postSaleCogs(result);
         }
         
@@ -1168,6 +1230,68 @@ public class OrderService {
     }
 
     @Transactional
+    public Order completeCreditOrder(UUID id, OrderCreditCompletionRequest request) {
+        Order order = getOrder(id);
+        ensureOrderCanChange(order, "settle");
+        if ("PAID".equalsIgnoreCase(order.getPaymentStatus())) {
+            throw new BusinessException("Paid orders cannot be converted to credit");
+        }
+
+        OrderCreditCompletionRequest safeRequest = request == null ? new OrderCreditCompletionRequest() : request;
+        order.setCreditCustomerId(safeRequest.getCreditCustomerId() != null ? safeRequest.getCreditCustomerId() : order.getCreditCustomerId());
+        prepareCreditCustomer(order, true);
+
+        BigDecimal discountAmount = moneyValue(safeRequest.getDiscountAmount());
+        BigDecimal roundOffAmount = moneyValue(safeRequest.getRoundOffAmount());
+        BigDecimal currentTotal = moneyValue(order.getGrandTotal());
+        if (discountAmount.compareTo(BigDecimal.ZERO) > 0) {
+            order.setTotalDiscountAmount(moneyValue(order.getTotalDiscountAmount()).add(discountAmount));
+        }
+        BigDecimal payable = currentTotal.subtract(discountAmount).add(roundOffAmount);
+        if (payable.compareTo(BigDecimal.ZERO) < 0) {
+            payable = BigDecimal.ZERO;
+        }
+        payable = payable.setScale(2, RoundingMode.HALF_UP);
+        if (discountAmount.compareTo(BigDecimal.ZERO) > 0 || roundOffAmount.compareTo(BigDecimal.ZERO) != 0) {
+            order.setGrandTotal(payable);
+        }
+
+        order.setReference("CREDIT");
+        order.setOrderStatus("COMPLETED");
+        order.setPaymentStatus("PENDING");
+        order.setIsCredit(true);
+        if (safeRequest.getDescription() != null && !safeRequest.getDescription().isBlank()) {
+            order.setDescription(appendDescription(order.getDescription(), safeRequest.getDescription().trim()));
+        }
+
+        Order saved = orderRepository.save(order);
+        List<Invoice> invoices = invoiceRepository.findByOrderId(saved.getId());
+        if (invoices.isEmpty()) {
+            generateInvoice(saved);
+        } else {
+            for (Invoice invoice : invoices) {
+                if (isVoidStatus(invoice.getStatus()) || isVoidStatus(invoice.getDocStatus())) {
+                    continue;
+                }
+                invoice.setCustomerId(saved.getCustomerId());
+                invoice.setCreditCustomerId(saved.getCreditCustomerId());
+                invoice.setIsCredit(true);
+                invoice.setTotalAmount(saved.getGrandTotal());
+                invoice.setAmountDue(saved.getGrandTotal());
+                invoice.setStatus("UNPAID");
+                invoice.setIsPaid(false);
+                Invoice updatedInvoice = invoiceRepository.save(invoice);
+                accountingPostingService.replaceInvoiceJournal(saved, updatedInvoice, "Credit customer attached");
+            }
+        }
+        accountingPostingService.postSaleCogs(saved);
+        handleTableStatus(saved);
+        Order hydrated = hydrateOrder(saved);
+        enqueueCloudPrintJobs(hydrated);
+        return hydrated;
+    }
+
+    @Transactional
     public Order moveTable(UUID id, OrderMoveTableRequest request) {
         if (request == null || request.getTableId() == null) {
             throw new IllegalArgumentException("Target table is required");
@@ -1267,6 +1391,7 @@ public class OrderService {
             .syncOrigin(order.getSyncOrigin())
             .orderId(order.getId())
             .customerId(order.getCustomerId())
+            .creditCustomerId(Boolean.TRUE.equals(order.getIsCredit()) ? order.getCreditCustomerId() : null)
             .vendorId(order.getVendorId())
             .invoiceNo(invNo)
             .invoiceDate(sourceBusinessDateTime(order))
@@ -1274,7 +1399,7 @@ public class OrderService {
             .amountDue(order.getGrandTotal())
             .status("UNPAID")
             .isPaid(false)
-            .isCredit("PENDING".equalsIgnoreCase(order.getPaymentStatus()))
+            .isCredit(Boolean.TRUE.equals(order.getIsCredit()))
             .originalInvoiceId(originalInvoiceId)
             .build();
             
@@ -1379,6 +1504,8 @@ public class OrderService {
             .syncOrigin(order.getSyncOrigin())
             .orderId(order.getId())
             .invoiceId(invoice != null ? invoice.getId() : null)
+            .customerId(order.getCustomerId())
+            .creditCustomerId(Boolean.TRUE.equals(order.getIsCredit()) ? order.getCreditCustomerId() : null)
             .paymentMethod(storedPaymentMethod)
             .paymentDate(sourceBusinessDateTime(order))
             .amountPaid(moneyValue(amountPaid))
@@ -1608,6 +1735,13 @@ public class OrderService {
 
     private boolean hasExplicitPaymentSplits(OrderSettleRequest request) {
         return request != null && request.getPaymentSplits() != null && !request.getPaymentSplits().isEmpty();
+    }
+
+    private boolean isCompletedCreditSale(Order order) {
+        return isSaleOrder(order)
+                && Boolean.TRUE.equals(order.getIsCredit())
+                && "COMPLETED".equalsIgnoreCase(order.getOrderStatus())
+                && !"PAID".equalsIgnoreCase(order.getPaymentStatus());
     }
 
     private BigDecimal moneyValue(BigDecimal value) {

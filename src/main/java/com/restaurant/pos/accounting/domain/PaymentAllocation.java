@@ -32,6 +32,9 @@ public class PaymentAllocation extends BaseEntity {
     @Column(name = "order_id")
     private UUID orderId;
 
+    @Column(name = "credit_customer_id")
+    private UUID creditCustomerId;
+
     @Column(name = "allocated_amount", precision = 15, scale = 2, nullable = false)
     private BigDecimal allocatedAmount;
 

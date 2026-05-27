@@ -4,6 +4,7 @@ import com.restaurant.pos.common.dto.ApiResponse;
 import com.restaurant.pos.order.domain.Order;
 import com.restaurant.pos.order.domain.OrderType;
 import com.restaurant.pos.order.dto.OrderCancelRequest;
+import com.restaurant.pos.order.dto.OrderCreditCompletionRequest;
 import com.restaurant.pos.order.dto.OrderMoveTableRequest;
 import com.restaurant.pos.order.dto.OrderSettleRequest;
 import com.restaurant.pos.order.dto.OrderSummaryDto;
@@ -133,6 +134,12 @@ public class OrderController {
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<Order>> settleOrder(@PathVariable UUID id, @RequestBody(required = false) OrderSettleRequest request) {
         return ResponseEntity.ok(ApiResponse.success(orderService.settleOrder(id, request)));
+    }
+
+    @PostMapping("/{id}/complete-credit")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
+    public ResponseEntity<ApiResponse<Order>> completeCreditOrder(@PathVariable UUID id, @RequestBody(required = false) OrderCreditCompletionRequest request) {
+        return ResponseEntity.ok(ApiResponse.success(orderService.completeCreditOrder(id, request)));
     }
 
     @PostMapping("/{id}/move-table")

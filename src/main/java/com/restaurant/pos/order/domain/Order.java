@@ -104,6 +104,14 @@ public class Order extends BaseEntity {
     @Column(name = "customer_id")
     private UUID customerId;
 
+    @Builder.Default
+    @JsonProperty("isCredit")
+    @Column(name = "is_credit")
+    private Boolean isCredit = false;
+
+    @Column(name = "credit_customer_id")
+    private UUID creditCustomerId;
+
     @Transient
     @JsonProperty("customerName")
     private String customerName;

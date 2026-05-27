@@ -18,6 +18,8 @@ public class ConfigurationDto {
     private boolean onlinePaymentEnabled;
     private boolean menuImagesEnabled;
     private boolean creditEnabled;
+    @Builder.Default
+    private String creditAllocationMode = "OLDEST_FIRST";
     private boolean tableManagementEnabled;
     private boolean qrOrderingEnabled;
     private boolean inventoryEnabled;

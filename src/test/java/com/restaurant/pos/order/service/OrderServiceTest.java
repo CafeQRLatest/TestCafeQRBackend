@@ -2,7 +2,9 @@ package com.restaurant.pos.order.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.restaurant.pos.accounting.service.AccountingPostingService;
+import com.restaurant.pos.common.service.SystemConfigurationService;
 import com.restaurant.pos.common.tenant.TenantContext;
+import com.restaurant.pos.credit.repository.CreditCustomerRepository;
 import com.restaurant.pos.inventory.service.InventoryService;
 import com.restaurant.pos.invoice.repository.InvoiceRepository;
 import com.restaurant.pos.invoice.domain.Invoice;
@@ -65,6 +67,8 @@ class OrderServiceTest {
     private AccountingPostingService accountingPostingService;
     private DocumentSequenceService sequenceService;
     private CustomerRepository customerRepository;
+    private CreditCustomerRepository creditCustomerRepository;
+    private SystemConfigurationService configurationService;
     private OrderService orderService;
 
     private UUID clientId;
@@ -77,6 +81,8 @@ class OrderServiceTest {
         paymentRepository = mock(PaymentRepository.class);
         sequenceService = mock(DocumentSequenceService.class);
         customerRepository = mock(CustomerRepository.class);
+        creditCustomerRepository = mock(CreditCustomerRepository.class);
+        configurationService = mock(SystemConfigurationService.class);
 
         accountingPostingService = mock(AccountingPostingService.class);
 
@@ -93,6 +99,8 @@ class OrderServiceTest {
                 mock(PrintJobService.class),
                 mock(ProductRepository.class),
                 customerRepository,
+                creditCustomerRepository,
+                configurationService,
                 new ObjectMapper(),
                 new com.restaurant.pos.common.service.BranchContextService()
         );
