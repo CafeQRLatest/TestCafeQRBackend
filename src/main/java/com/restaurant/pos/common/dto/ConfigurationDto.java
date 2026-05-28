@@ -32,6 +32,13 @@ public class ConfigurationDto {
     private boolean posProductListingEnabled;
     private boolean discountEnabled;
 
+    // Offline Sync Capabilities
+    private boolean offlineSyncEnabled;
+    private Integer offlineSyncInterval;
+    private Integer offlineLeaseBlockSize;
+    private boolean offlineFailOpenPayments;
+    private boolean offlineLocalEncryption;
+
     // Tax Settings (Stubbed for now as requested - handled in client wise)
     @Builder.Default
     private boolean taxEnabled = false;

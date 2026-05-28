@@ -50,6 +50,13 @@ public class SystemConfiguration {
     private boolean posProductListingEnabled;
     private boolean discountEnabled;
 
+    // Offline Sync Capabilities
+    private boolean offlineSyncEnabled;
+    private Integer offlineSyncInterval;
+    private Integer offlineLeaseBlockSize;
+    private boolean offlineFailOpenPayments;
+    private boolean offlineLocalEncryption;
+
     // Round-off Engine
     private boolean roundOffEnabled;
     private String roundOffMode;

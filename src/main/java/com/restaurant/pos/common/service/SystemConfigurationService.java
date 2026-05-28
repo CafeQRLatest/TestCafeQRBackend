@@ -164,6 +164,11 @@ public class SystemConfigurationService {
                 .sendToKitchenEnabled(true)
                 .posProductListingEnabled(true)
                 .discountEnabled(true)
+                .offlineSyncEnabled(true)
+                .offlineSyncInterval(60)
+                .offlineLeaseBlockSize(100)
+                .offlineFailOpenPayments(false)
+                .offlineLocalEncryption(false)
                 .taxEnabled(false)
                 .taxLabelGlobal("GST")
                 .taxRatesJson("[]")
@@ -197,6 +202,11 @@ public class SystemConfigurationService {
                 .allowMultipleCustomersPerOrder(source.isAllowMultipleCustomersPerOrder())
                 .posProductListingEnabled(source.isPosProductListingEnabled())
                 .discountEnabled(source.isDiscountEnabled())
+                .offlineSyncEnabled(source.isOfflineSyncEnabled())
+                .offlineSyncInterval(source.getOfflineSyncInterval())
+                .offlineLeaseBlockSize(source.getOfflineLeaseBlockSize())
+                .offlineFailOpenPayments(source.isOfflineFailOpenPayments())
+                .offlineLocalEncryption(source.isOfflineLocalEncryption())
                 .roundOffEnabled(source.isRoundOffEnabled())
                 .roundOffMode(source.getRoundOffMode())
                 .roundOffAutoFactor(source.getRoundOffAutoFactor())
@@ -240,6 +250,11 @@ public class SystemConfigurationService {
                 .allowMultipleCustomersPerOrder(entity.isAllowMultipleCustomersPerOrder())
                 .posProductListingEnabled(entity.isPosProductListingEnabled())
                 .discountEnabled(entity.isDiscountEnabled())
+                .offlineSyncEnabled(entity.isOfflineSyncEnabled())
+                .offlineSyncInterval(entity.getOfflineSyncInterval())
+                .offlineLeaseBlockSize(entity.getOfflineLeaseBlockSize())
+                .offlineFailOpenPayments(entity.isOfflineFailOpenPayments())
+                .offlineLocalEncryption(entity.isOfflineLocalEncryption())
                 .roundOffEnabled(entity.isRoundOffEnabled())
                 .roundOffMode(entity.getRoundOffMode())
                 .roundOffAutoFactor(entity.getRoundOffAutoFactor())
@@ -282,6 +297,11 @@ public class SystemConfigurationService {
         entity.setAllowMultipleCustomersPerOrder(dto.isAllowMultipleCustomersPerOrder());
         entity.setPosProductListingEnabled(dto.isPosProductListingEnabled());
         entity.setDiscountEnabled(dto.isDiscountEnabled());
+        entity.setOfflineSyncEnabled(dto.isOfflineSyncEnabled());
+        entity.setOfflineSyncInterval(dto.getOfflineSyncInterval());
+        entity.setOfflineLeaseBlockSize(dto.getOfflineLeaseBlockSize());
+        entity.setOfflineFailOpenPayments(dto.isOfflineFailOpenPayments());
+        entity.setOfflineLocalEncryption(dto.isOfflineLocalEncryption());
         entity.setRoundOffEnabled(dto.isRoundOffEnabled());
         entity.setRoundOffMode(dto.getRoundOffMode());
         entity.setRoundOffAutoFactor(dto.getRoundOffAutoFactor());
