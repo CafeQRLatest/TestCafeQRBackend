@@ -164,6 +164,7 @@ public class SystemConfigurationService {
                 .sendToKitchenEnabled(true)
                 .posProductListingEnabled(true)
                 .discountEnabled(true)
+                .defaultBillingUiMode("standard")
                 .offlineSyncEnabled(true)
                 .offlineSyncInterval(60)
                 .offlineLeaseBlockSize(100)
@@ -202,6 +203,7 @@ public class SystemConfigurationService {
                 .allowMultipleCustomersPerOrder(source.isAllowMultipleCustomersPerOrder())
                 .posProductListingEnabled(source.isPosProductListingEnabled())
                 .discountEnabled(source.isDiscountEnabled())
+                .defaultBillingUiMode(source.getDefaultBillingUiMode())
                 .offlineSyncEnabled(source.isOfflineSyncEnabled())
                 .offlineSyncInterval(source.getOfflineSyncInterval())
                 .offlineLeaseBlockSize(source.getOfflineLeaseBlockSize())
@@ -250,6 +252,7 @@ public class SystemConfigurationService {
                 .allowMultipleCustomersPerOrder(entity.isAllowMultipleCustomersPerOrder())
                 .posProductListingEnabled(entity.isPosProductListingEnabled())
                 .discountEnabled(entity.isDiscountEnabled())
+                .defaultBillingUiMode(entity.getDefaultBillingUiMode())
                 .offlineSyncEnabled(entity.isOfflineSyncEnabled())
                 .offlineSyncInterval(entity.getOfflineSyncInterval())
                 .offlineLeaseBlockSize(entity.getOfflineLeaseBlockSize())
@@ -297,6 +300,7 @@ public class SystemConfigurationService {
         entity.setAllowMultipleCustomersPerOrder(dto.isAllowMultipleCustomersPerOrder());
         entity.setPosProductListingEnabled(dto.isPosProductListingEnabled());
         entity.setDiscountEnabled(dto.isDiscountEnabled());
+        if (dto.getDefaultBillingUiMode() != null) entity.setDefaultBillingUiMode(dto.getDefaultBillingUiMode());
         entity.setOfflineSyncEnabled(dto.isOfflineSyncEnabled());
         entity.setOfflineSyncInterval(dto.getOfflineSyncInterval());
         entity.setOfflineLeaseBlockSize(dto.getOfflineLeaseBlockSize());

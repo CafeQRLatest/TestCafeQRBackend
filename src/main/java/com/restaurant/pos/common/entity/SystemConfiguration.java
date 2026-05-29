@@ -49,6 +49,9 @@ public class SystemConfiguration {
     private boolean customerAgeEnabled;
     private boolean posProductListingEnabled;
     private boolean discountEnabled;
+    @Column(name = "default_billing_ui_mode", length = 20)
+    @Builder.Default
+    private String defaultBillingUiMode = "standard";
 
     // Offline Sync Capabilities
     private boolean offlineSyncEnabled;

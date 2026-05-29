@@ -31,6 +31,8 @@ public class ConfigurationDto {
     private boolean allowMultipleCustomersPerOrder;
     private boolean posProductListingEnabled;
     private boolean discountEnabled;
+    @Builder.Default
+    private String defaultBillingUiMode = "standard";
 
     // Offline Sync Capabilities
     private boolean offlineSyncEnabled;
