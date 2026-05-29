@@ -306,7 +306,7 @@ public class OrderService {
         return orders;
     }
 
-    private void hydrateCustomer(Order order) {
+    private void prepareCustomerFields(Order order) {
         if (order == null) return;
         if (order.getOrderType() != null && order.getOrderType() != OrderType.SALE) return;
 
@@ -319,13 +319,47 @@ public class OrderService {
             return;
         }
 
+        order.setCustomers(resolveOrderCustomers(order, selections, clientId, orgId, false));
+    }
+
+    private void linkCustomersToSavedOrder(Order order) {
+        if (order == null) return;
+        if (order.getOrderType() != null && order.getOrderType() != OrderType.SALE) return;
+        if (order.getId() == null) {
+            throw new IllegalStateException("Order id is required before linking customers");
+        }
+
+        UUID clientId = order.getClientId();
+        UUID orgId = order.getOrgId();
+        List<CustomerSelection> selections = resolvedCustomerSelections(order);
+        if (selections.isEmpty()) {
+            selections = customerSelections(order);
+        }
+
+        if (selections.isEmpty()) {
+            hydrateOrderCustomers(order);
+            return;
+        }
+
+        order.setCustomers(resolveOrderCustomers(order, selections, clientId, orgId, true));
+    }
+
+    private List<OrderCustomerDto> resolveOrderCustomers(
+            Order order,
+            List<CustomerSelection> selections,
+            UUID clientId,
+            UUID orgId,
+            boolean linkToOrder
+    ) {
         List<OrderCustomerDto> linkedCustomers = new ArrayList<>();
         Instant attachedAt = Instant.now();
         for (int i = 0; i < selections.size(); i++) {
             CustomerSelection selection = selections.get(i);
             Customer customer = resolveCustomer(clientId, orgId, selection);
             boolean primary = i == 0;
-            linkCustomerToOrder(customer, order.getId(), primary, attachedAt);
+            if (linkToOrder) {
+                linkCustomerToOrder(customer, order.getId(), primary, attachedAt);
+            }
             Customer saved = customerRepository.save(customer);
             linkedCustomers.add(toOrderCustomerDto(saved, primary));
             if (primary) {
@@ -334,7 +368,7 @@ public class OrderService {
                 order.setCustomerPhone(saved.getPhone());
             }
         }
-        order.setCustomers(linkedCustomers);
+        return linkedCustomers;
     }
 
     private void prepareCreditCustomer(Order order, boolean completingAsCredit) {
@@ -483,10 +517,13 @@ public class OrderService {
     }
 
     private void linkCustomerToOrder(Customer customer, UUID orderId, boolean primary, Instant attachedAt) {
+        if (orderId == null) {
+            throw new IllegalStateException("Order id is required before linking customers");
+        }
         if (customer.getOrderLinks() == null) {
             customer.setOrderLinks(new ArrayList<>());
         }
-        customer.getOrderLinks().removeIf(link -> orderId.equals(link.getOrderId()));
+        customer.getOrderLinks().removeIf(link -> Objects.equals(orderId, link.getOrderId()));
         customer.getOrderLinks().add(Customer.OrderLink.builder()
                 .orderId(orderId)
                 .isPrimary(primary)
@@ -510,6 +547,22 @@ public class OrderService {
                 || (order.getCustomerPhone() != null && !order.getCustomerPhone().isBlank())) {
             addCustomerSelection(selections, new CustomerSelection(null, order.getCustomerName(), order.getCustomerPhone()));
         }
+        return selections.values().stream()
+                .filter(selection -> selection.id() != null
+                        || (selection.name() != null && !selection.name().isBlank())
+                        || (selection.phone() != null && !selection.phone().isBlank()))
+                .toList();
+    }
+
+    private List<CustomerSelection> resolvedCustomerSelections(Order order) {
+        if (order.getCustomers() == null || order.getCustomers().isEmpty()) {
+            return List.of();
+        }
+        Map<String, CustomerSelection> selections = new LinkedHashMap<>();
+        order.getCustomers().forEach(customer -> addCustomerSelection(
+                selections,
+                new CustomerSelection(customer.getId(), customer.getName(), customer.getPhone())
+        ));
         return selections.values().stream()
                 .filter(selection -> selection.id() != null
                         || (selection.name() != null && !selection.name().isBlank())
@@ -838,11 +891,11 @@ public class OrderService {
     }
 
     private boolean isPrimaryForOrder(Customer customer, UUID orderId) {
-        if (customer.getOrderLinks() == null) {
+        if (orderId == null || customer.getOrderLinks() == null) {
             return false;
         }
         return customer.getOrderLinks().stream()
-                .anyMatch(link -> orderId.equals(link.getOrderId()) && Boolean.TRUE.equals(link.getIsPrimary()));
+                .anyMatch(link -> Objects.equals(orderId, link.getOrderId()) && Boolean.TRUE.equals(link.getIsPrimary()));
     }
 
     private OrderCustomerDto toOrderCustomerDto(Customer customer, boolean primary) {
@@ -1072,10 +1125,13 @@ public class OrderService {
 
             diagnosticPhase = "hydrate_order_inputs";
             hydrateOrderLines(order);
-            hydrateCustomer(order);
+            prepareCustomerFields(order);
 
             diagnosticPhase = "save_order";
             Order saved = orderRepository.save(order);
+
+            diagnosticPhase = "link_customers";
+            linkCustomersToSavedOrder(saved);
 
             diagnosticPhase = "generate_invoice";
             if (shouldGenerateInvoice(saved)) {
@@ -1252,9 +1308,10 @@ public class OrderService {
         }
         hydrateOrderLines(newOrder);
         prepareCreditCustomer(newOrder, Boolean.TRUE.equals(newOrder.getIsCredit()));
-        hydrateCustomer(newOrder);
+        prepareCustomerFields(newOrder);
         
         Order saved = orderRepository.save(newOrder);
+        linkCustomersToSavedOrder(saved);
         
         // 4. Generate new ERP documents (Invoice/Payment)
         UUID oldInvId = oldInvoiceIdList.isEmpty() ? null : oldInvoiceIdList.get(0);
@@ -1483,6 +1540,7 @@ public class OrderService {
         OrderCreditCompletionRequest safeRequest = request == null ? new OrderCreditCompletionRequest() : request;
         order.setCreditCustomerId(safeRequest.getCreditCustomerId() != null ? safeRequest.getCreditCustomerId() : order.getCreditCustomerId());
         prepareCreditCustomer(order, true);
+        prepareCustomerFields(order);
 
         BigDecimal discountAmount = moneyValue(safeRequest.getDiscountAmount());
         BigDecimal roundOffAmount = moneyValue(safeRequest.getRoundOffAmount());
@@ -1508,6 +1566,7 @@ public class OrderService {
         }
 
         Order saved = orderRepository.save(order);
+        linkCustomersToSavedOrder(saved);
         List<Invoice> invoices = invoiceRepository.findByOrderId(saved.getId());
         if (invoices.isEmpty()) {
             generateInvoice(saved);
