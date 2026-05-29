@@ -1,5 +1,6 @@
 package com.restaurant.pos.order.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.restaurant.pos.order.domain.OrderType;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AllArgsConstructor;
@@ -77,6 +78,13 @@ public class OrderResponseDto {
 
     @Schema(description = "Associated customer details list")
     private List<OrderCustomerDto> customers;
+
+    @JsonProperty("isCredit")
+    @Schema(description = "Whether this order was completed as a credit sale")
+    private Boolean isCredit;
+
+    @Schema(description = "Credit customer UUID linked to the credit sale workflow")
+    private UUID creditCustomerId;
 
     @Schema(description = "Associated invoice document number")
     private String invoiceNo;

@@ -1,5 +1,6 @@
 package com.restaurant.pos.order.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.restaurant.pos.order.domain.OrderType;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
@@ -53,6 +54,13 @@ public class CreateOrderRequest {
 
     @Schema(description = "Dynamic list of customer details linked to this order")
     private com.fasterxml.jackson.databind.JsonNode customerIds;
+
+    @JsonProperty("isCredit")
+    @Schema(description = "Whether this order is being completed as a credit sale")
+    private Boolean isCredit;
+
+    @Schema(description = "Credit customer UUID for credit sale workflows")
+    private UUID creditCustomerId;
 
     @Schema(description = "Operational description or notes")
     private String description;

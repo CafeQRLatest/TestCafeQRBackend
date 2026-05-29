@@ -43,6 +43,8 @@ public class OrderDtoMapper {
                 .description(order.getDescription())
                 .reference(order.getReference())
                 .customers(order.getCustomers())
+                .isCredit(order.getIsCredit())
+                .creditCustomerId(order.getCreditCustomerId())
                 .invoiceNo(order.getInvoiceNo())
                 .paymentNo(order.getPaymentNo())
                 .paymentMethod(order.getPaymentMethod())
@@ -89,6 +91,8 @@ public class OrderDtoMapper {
         order.setCurrencyId(request.getCurrencyId());
         order.setFulfillmentType(request.getFulfillmentType() != null ? request.getFulfillmentType() : "DINE_IN");
         order.setCustomerIds(request.getCustomerIds());
+        order.setIsCredit(Boolean.TRUE.equals(request.getIsCredit()));
+        order.setCreditCustomerId(request.getCreditCustomerId());
         order.setDescription(request.getDescription());
         order.setReference(request.getReference());
         order.setPaymentMethod(request.getPaymentMethod());
@@ -158,6 +162,10 @@ public class OrderDtoMapper {
             existing.setFulfillmentType(request.getFulfillmentType());
         if (request.getCustomerIds() != null)
             existing.setCustomerIds(request.getCustomerIds());
+        if (request.getIsCredit() != null)
+            existing.setIsCredit(request.getIsCredit());
+        if (request.getCreditCustomerId() != null)
+            existing.setCreditCustomerId(request.getCreditCustomerId());
 
         if (request.getLines() != null) {
             existing.getLines().clear();
@@ -194,6 +202,8 @@ public class OrderDtoMapper {
         order.setPaymentMethod(request.getPaymentMethod());
         order.setFulfillmentType(request.getFulfillmentType());
         order.setCustomerIds(request.getCustomerIds());
+        order.setIsCredit(request.getIsCredit());
+        order.setCreditCustomerId(request.getCreditCustomerId());
 
         if (request.getLines() != null) {
             for (CreateOrderRequest.CreateOrderLineRequest lineReq : request.getLines()) {
