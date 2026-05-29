@@ -379,6 +379,81 @@ public class OrderService {
         }
     }
 
+    private boolean shouldLogCreditOrderCreate(Order order) {
+        if (order == null) {
+            return false;
+        }
+        return Boolean.TRUE.equals(order.getIsCredit())
+                || order.getCreditCustomerId() != null
+                || "CREDIT".equalsIgnoreCase(order.getPaymentMethod())
+                || "CREDIT".equalsIgnoreCase(order.getReference());
+    }
+
+    private void logCreditOrderCreateSuccess(boolean enabled, Order order) {
+        if (!enabled) {
+            return;
+        }
+        log.info(
+                "credit_order_create_success orderId={} orderNo={} clientId={} orgId={} tableId={} orderStatus={} paymentStatus={} isCredit={} creditCustomerId={} customerId={} grandTotal={} sourceOperationId={} terminalId={}",
+                order != null ? order.getId() : null,
+                order != null ? order.getOrderNo() : null,
+                order != null ? order.getClientId() : null,
+                order != null ? order.getOrgId() : null,
+                order != null ? order.getTableId() : null,
+                order != null ? order.getOrderStatus() : null,
+                order != null ? order.getPaymentStatus() : null,
+                order != null ? order.getIsCredit() : null,
+                order != null ? order.getCreditCustomerId() : null,
+                order != null ? order.getCustomerId() : null,
+                order != null ? order.getGrandTotal() : null,
+                order != null ? order.getSourceOperationId() : null,
+                order != null ? order.getTerminalId() : null
+        );
+    }
+
+    private void logCreditOrderCreateFailure(boolean enabled, String phase, Order order, RuntimeException ex) {
+        if (!enabled) {
+            return;
+        }
+        Throwable root = rootCause(ex);
+        log.error(
+                "credit_order_create_failed phase={} exception={} rootException={} rootMessage={} orderId={} orderNo={} clientId={} orgId={} tableId={} orderStatus={} paymentStatus={} isCredit={} creditCustomerId={} customerId={} grandTotal={} sourceOperationId={} terminalId={}",
+                phase,
+                ex.getClass().getName(),
+                root.getClass().getName(),
+                safeLogMessage(root.getMessage()),
+                order != null ? order.getId() : null,
+                order != null ? order.getOrderNo() : null,
+                order != null ? order.getClientId() : null,
+                order != null ? order.getOrgId() : null,
+                order != null ? order.getTableId() : null,
+                order != null ? order.getOrderStatus() : null,
+                order != null ? order.getPaymentStatus() : null,
+                order != null ? order.getIsCredit() : null,
+                order != null ? order.getCreditCustomerId() : null,
+                order != null ? order.getCustomerId() : null,
+                order != null ? order.getGrandTotal() : null,
+                order != null ? order.getSourceOperationId() : null,
+                order != null ? order.getTerminalId() : null,
+                ex
+        );
+    }
+
+    private Throwable rootCause(Throwable throwable) {
+        Throwable current = throwable;
+        while (current != null && current.getCause() != null && current.getCause() != current) {
+            current = current.getCause();
+        }
+        return current != null ? current : throwable;
+    }
+
+    private String safeLogMessage(String message) {
+        if (message == null) {
+            return null;
+        }
+        return message.replace('\r', ' ').replace('\n', ' ');
+    }
+
     private Customer resolveCustomer(UUID clientId, UUID orgId, CustomerSelection selection) {
         if (selection.id() != null) {
             return customerRepository.findByIdAndClientId(selection.id(), clientId)
@@ -968,64 +1043,88 @@ public class OrderService {
         log.info("Creating order: {} | Tenant: {} | Org: {}", order, TenantContext.getCurrentTenant(), TenantContext.getCurrentOrg());
         String requestedInvoiceNo = order.getOfflineInvoiceNo();
         String requestedPaymentNo = order.getOfflinePaymentNo();
-        
-        order.setClientId(TenantContext.getCurrentTenant());
-        order.setOrgId(resolveOrderWriteOrgId(order));
-        prepareSourceFields(order);
 
-        if (order.getOrderStatus() == null) {
-            order.setOrderStatus("DRAFT");
-        }
+        boolean logCreditDiagnostics = shouldLogCreditOrderCreate(order);
+        String diagnosticPhase = "resolve_context";
+        try {
+            order.setClientId(TenantContext.getCurrentTenant());
+            order.setOrgId(resolveOrderWriteOrgId(order));
+            prepareSourceFields(order);
 
-        validateTableAvailableForNewOrder(order);
-        assignOrderNumber(order);
-        prepareCreditCustomer(order, Boolean.TRUE.equals(order.getIsCredit()));
-
-        // Ensure bidirectional mapping
-        if (order.getLines() != null) {
-            order.getLines().forEach(line -> line.setOrder(order));
-        }
-        hydrateOrderLines(order);
-        hydrateCustomer(order);
-
-        Order saved = orderRepository.save(order);
-        
-        if (shouldGenerateInvoice(saved)) {
-            generateInvoice(saved, null, requestedInvoiceNo);
-        }
-        
-        // Resolve payment method safely
-        String paymentMethod = order.getPaymentMethod();
-        if (paymentMethod == null || paymentMethod.isBlank()) {
-            paymentMethod = saved.getPaymentMethod();
-        }
-        if (paymentMethod == null || paymentMethod.isBlank()) {
-            paymentMethod = "CASH";
-        }
-        boolean isCredit = Boolean.TRUE.equals(saved.getIsCredit()) || "CREDIT".equalsIgnoreCase(paymentMethod);
-
-        if (saved.getOrderType() == OrderType.PURCHASE) {
-            if (!"DRAFT".equalsIgnoreCase(saved.getOrderStatus()) && !isCredit) {
-                generatePayment(saved, paymentMethod, requestedPaymentNo);
+            if (order.getOrderStatus() == null) {
+                order.setOrderStatus("DRAFT");
             }
-            if ("COMPLETED".equalsIgnoreCase(saved.getOrderStatus())) {
-                processInventoryForOrder(saved);
-            }
-        } else {
-            // Sales
-            if ("COMPLETED".equalsIgnoreCase(saved.getOrderStatus()) && "PAID".equalsIgnoreCase(saved.getPaymentStatus())) {
-                String salePaymentMethod = saved.getReference() != null ? saved.getReference() : "CASH";
-                generatePayment(saved, salePaymentMethod, requestedPaymentNo);
-                accountingPostingService.postSaleCogs(saved);
-            } else if (isCompletedCreditSale(saved)) {
-                accountingPostingService.postSaleCogs(saved);
-            }
-        }
 
-        handleTableStatus(saved);
-        Order hydrated = hydrateOrder(saved);
-        enqueueCloudPrintJobs(hydrated);
-        return hydrated;
+            diagnosticPhase = "validate_table_available";
+            validateTableAvailableForNewOrder(order);
+
+            diagnosticPhase = "assign_order_number";
+            assignOrderNumber(order);
+
+            diagnosticPhase = "prepare_credit_customer";
+            prepareCreditCustomer(order, Boolean.TRUE.equals(order.getIsCredit()));
+
+            diagnosticPhase = "prepare_order_lines";
+            // Ensure bidirectional mapping
+            if (order.getLines() != null) {
+                order.getLines().forEach(line -> line.setOrder(order));
+            }
+
+            diagnosticPhase = "hydrate_order_inputs";
+            hydrateOrderLines(order);
+            hydrateCustomer(order);
+
+            diagnosticPhase = "save_order";
+            Order saved = orderRepository.save(order);
+
+            diagnosticPhase = "generate_invoice";
+            if (shouldGenerateInvoice(saved)) {
+                generateInvoice(saved, null, requestedInvoiceNo);
+            }
+
+            diagnosticPhase = "post_financials";
+            // Resolve payment method safely
+            String paymentMethod = order.getPaymentMethod();
+            if (paymentMethod == null || paymentMethod.isBlank()) {
+                paymentMethod = saved.getPaymentMethod();
+            }
+            if (paymentMethod == null || paymentMethod.isBlank()) {
+                paymentMethod = "CASH";
+            }
+            boolean isCredit = Boolean.TRUE.equals(saved.getIsCredit()) || "CREDIT".equalsIgnoreCase(paymentMethod);
+
+            if (saved.getOrderType() == OrderType.PURCHASE) {
+                if (!"DRAFT".equalsIgnoreCase(saved.getOrderStatus()) && !isCredit) {
+                    generatePayment(saved, paymentMethod, requestedPaymentNo);
+                }
+                if ("COMPLETED".equalsIgnoreCase(saved.getOrderStatus())) {
+                    processInventoryForOrder(saved);
+                }
+            } else {
+                // Sales
+                if ("COMPLETED".equalsIgnoreCase(saved.getOrderStatus()) && "PAID".equalsIgnoreCase(saved.getPaymentStatus())) {
+                    String salePaymentMethod = saved.getReference() != null ? saved.getReference() : "CASH";
+                    generatePayment(saved, salePaymentMethod, requestedPaymentNo);
+                    accountingPostingService.postSaleCogs(saved);
+                } else if (isCompletedCreditSale(saved)) {
+                    accountingPostingService.postSaleCogs(saved);
+                }
+            }
+
+            diagnosticPhase = "handle_table_status";
+            handleTableStatus(saved);
+
+            diagnosticPhase = "hydrate_saved_order";
+            Order hydrated = hydrateOrder(saved);
+
+            diagnosticPhase = "enqueue_cloud_print_jobs";
+            enqueueCloudPrintJobs(hydrated);
+            logCreditOrderCreateSuccess(logCreditDiagnostics, hydrated);
+            return hydrated;
+        } catch (RuntimeException ex) {
+            logCreditOrderCreateFailure(logCreditDiagnostics, diagnosticPhase, order, ex);
+            throw ex;
+        }
     }
 
     @Transactional(readOnly = true)
