@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.restaurant.pos.common.util.SecurityUtils;
+import java.time.LocalDateTime;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -46,6 +47,19 @@ public class InvoiceService {
         }
         if (invoice.getOrgId() == null && !SecurityUtils.isSuperAdmin()) {
             invoice.setOrgId(TenantContext.getCurrentOrg());
+        }
+
+        // Generate daily bill number resetting everyday
+        if (invoice.getDailyBillNo() == null || invoice.getDailyBillNo() <= 0) {
+            LocalDateTime date = invoice.getInvoiceDate();
+            if (date == null) {
+                date = LocalDateTime.now();
+                invoice.setInvoiceDate(date);
+            }
+            LocalDateTime start = date.toLocalDate().atStartOfDay();
+            LocalDateTime end = date.toLocalDate().atTime(23, 59, 59, 999999999);
+            int maxNo = invoiceRepository.findMaxDailyBillNo(invoice.getClientId(), invoice.getOrgId(), start, end);
+            invoice.setDailyBillNo(maxNo + 1);
         }
 
         // Prevent duplicate creation from offline sync

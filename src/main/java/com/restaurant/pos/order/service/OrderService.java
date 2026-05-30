@@ -691,7 +691,7 @@ public class OrderService {
     }
 
     private OrderSummaryDto toOrderSummary(Order order) {
-        Order hydrated = hydrateOrderCustomers(order);
+        Order hydrated = hydrateOrderCustomers(hydrateOrderLines(order));
         List<OrderCustomerDto> customers = hydrated.getCustomers() == null ? List.of() : hydrated.getCustomers();
         OrderCustomerDto primaryCustomer = customers.stream()
                 .filter(OrderCustomerDto::isPrimary)
@@ -721,6 +721,7 @@ public class OrderService {
                 .createdAt(hydrated.getCreatedAt())
                 .updatedAt(hydrated.getUpdatedAt())
                 .invoiceNo(hydrated.getInvoiceNo())
+                .dailyBillNo(hydrated.getDailyBillNo())
                 .paymentNo(hydrated.getPaymentNo())
                 .paymentMethod(firstNonBlank(hydrated.getPaymentMethod(), hydrated.getReference()))
                 .description(hydrated.getDescription())
