@@ -70,6 +70,9 @@ public class Invoice extends BaseEntity {
     @Column(name = "invoice_no", nullable = false)
     private String invoiceNo;
 
+    @Column(name = "daily_bill_no")
+    private Integer dailyBillNo;
+
     @Column(name = "invoice_date")
     @Builder.Default
     private LocalDateTime invoiceDate = LocalDateTime.now();

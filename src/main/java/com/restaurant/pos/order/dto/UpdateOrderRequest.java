@@ -5,6 +5,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
 import lombok.Data;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
 
@@ -51,6 +52,18 @@ public class UpdateOrderRequest {
 
     @Schema(description = "Credit customer UUID for credit sale workflows")
     private UUID creditCustomerId;
+
+    @Schema(description = "Pre-calculated total before tax/discount", example = "100.00")
+    private BigDecimal totalAmount;
+
+    @Schema(description = "Pre-calculated tax amount", example = "18.00")
+    private BigDecimal totalTaxAmount;
+
+    @Schema(description = "Pre-calculated discount amount", example = "0.00")
+    private BigDecimal totalDiscountAmount;
+
+    @Schema(description = "Grand total payable", example = "118.00")
+    private BigDecimal grandTotal;
 
     @Valid
     @Schema(description = "List of updated order lines")

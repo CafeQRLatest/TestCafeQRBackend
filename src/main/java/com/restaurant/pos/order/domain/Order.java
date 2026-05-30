@@ -189,6 +189,10 @@ public class Order extends BaseEntity {
     @Formula("(SELECT i.invoice_no FROM invoices i WHERE i.order_id = id LIMIT 1)")
     private String invoiceNo;
 
+    @Formula("(SELECT i.daily_bill_no FROM invoices i WHERE i.order_id = id LIMIT 1)")
+    @JsonProperty("dailyBillNo")
+    private Integer dailyBillNo;
+
     @Formula("(SELECT p.reference_no FROM payments p WHERE p.order_id = id ORDER BY p.created_at DESC LIMIT 1)")
     private String paymentNo;
 

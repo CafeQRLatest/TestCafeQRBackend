@@ -6,6 +6,7 @@ import com.restaurant.pos.order.domain.OrderType;
 import com.restaurant.pos.purchasing.domain.PurchaseOrder;
 import org.springframework.stereotype.Component;
 
+import java.math.BigDecimal;
 import java.util.List;
 
 @Component
@@ -46,6 +47,7 @@ public class OrderDtoMapper {
                 .isCredit(order.getIsCredit())
                 .creditCustomerId(order.getCreditCustomerId())
                 .invoiceNo(order.getInvoiceNo())
+                .dailyBillNo(order.getDailyBillNo())
                 .paymentNo(order.getPaymentNo())
                 .paymentMethod(order.getPaymentMethod())
                 .lines(lines)
@@ -166,6 +168,14 @@ public class OrderDtoMapper {
             existing.setIsCredit(request.getIsCredit());
         if (request.getCreditCustomerId() != null)
             existing.setCreditCustomerId(request.getCreditCustomerId());
+        if (request.getTotalAmount() != null)
+            existing.setTotalAmount(request.getTotalAmount());
+        if (request.getTotalTaxAmount() != null)
+            existing.setTotalTaxAmount(request.getTotalTaxAmount());
+        if (request.getTotalDiscountAmount() != null)
+            existing.setTotalDiscountAmount(request.getTotalDiscountAmount());
+        if (request.getGrandTotal() != null)
+            existing.setGrandTotal(request.getGrandTotal());
 
         if (request.getLines() != null) {
             existing.getLines().clear();
@@ -204,6 +214,18 @@ public class OrderDtoMapper {
         order.setCustomerIds(request.getCustomerIds());
         order.setIsCredit(request.getIsCredit());
         order.setCreditCustomerId(request.getCreditCustomerId());
+        if (request.getTotalAmount() != null) {
+            order.setTotalAmount(request.getTotalAmount());
+        }
+        if (request.getTotalTaxAmount() != null) {
+            order.setTotalTaxAmount(request.getTotalTaxAmount());
+        }
+        if (request.getTotalDiscountAmount() != null) {
+            order.setTotalDiscountAmount(request.getTotalDiscountAmount());
+        }
+        if (request.getGrandTotal() != null) {
+            order.setGrandTotal(request.getGrandTotal());
+        }
 
         if (request.getLines() != null) {
             for (CreateOrderRequest.CreateOrderLineRequest lineReq : request.getLines()) {
