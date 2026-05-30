@@ -1,0 +1,103 @@
+# ──────────────────────────────────────────────────────────────
+# CafeQR 2.0 — Caddy Reverse Proxy Configuration
+# ──────────────────────────────────────────────────────────────
+# Caddy automatically provisions and renews Let's Encrypt
+# SSL certificates for your domain. Zero configuration needed.
+#
+# Replace YOUR_DOMAIN below with your actual domain, e.g.:
+#   app.cafeqr.in
+#   cafeqr.yourdomain.com
+# ──────────────────────────────────────────────────────────────
+
+# ── Global Options ──
+{
+	# Contact email for Let's Encrypt certificate notifications
+	email cafeqrllp@gmail.com
+
+	# Enable OCSP stapling for faster TLS handshakes
+	ocsp_stapling on
+}
+
+# ── Main Site ──
+YOUR_DOMAIN {
+
+	# ── Security Headers ──
+	header {
+		# Prevent clickjacking
+		X-Frame-Options "SAMEORIGIN"
+
+		# Prevent MIME-type sniffing
+		X-Content-Type-Options "nosniff"
+
+		# XSS protection (legacy browsers)
+		X-XSS-Protection "1; mode=block"
+
+		# Referrer policy
+		Referrer-Policy "strict-origin-when-cross-origin"
+
+		# Permissions policy — restrict sensitive browser APIs
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(self)"
+
+		# HSTS — force HTTPS for 1 year (enable after confirming SSL works)
+		# Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+
+		# Remove server identification header
+		-Server
+	}
+
+	# ── Rate Limiting (basic protection against brute-force) ──
+	# Caddy Community plugin: uncomment if caddy-ratelimit is installed
+	# rate_limit {remote.host} 60r/m
+
+	# ── Backend API routes ──
+	handle /api/* {
+		reverse_proxy backend:8080 {
+			# Health checks
+			health_uri /actuator/health
+			health_interval 30s
+			health_timeout 5s
+
+			# Timeouts
+			transport http {
+				dial_timeout 10s
+				response_header_timeout 120s
+			}
+		}
+	}
+
+	# ── Swagger / OpenAPI docs (disable in production if not needed) ──
+	handle /swagger-ui* {
+		reverse_proxy backend:8080
+	}
+	handle /api-docs* {
+		reverse_proxy backend:8080
+	}
+
+	# ── Spring Boot Actuator (health only, block other endpoints) ──
+	handle /actuator/health {
+		reverse_proxy backend:8080
+	}
+	handle /actuator/* {
+		respond "Forbidden" 403
+	}
+
+	# ── Frontend (Next.js — catch-all) ──
+	handle {
+		reverse_proxy frontend:3000
+	}
+
+	# ── Logging ──
+	log {
+		output file /data/access.log {
+			roll_size 10mb
+			roll_keep 5
+			roll_keep_for 168h
+		}
+		format json
+	}
+}
+
+# ── WWW redirect (optional — uncomment if you want www → apex) ──
+# www.YOUR_DOMAIN {
+# 	redir https://YOUR_DOMAIN{uri} permanent
+# }
