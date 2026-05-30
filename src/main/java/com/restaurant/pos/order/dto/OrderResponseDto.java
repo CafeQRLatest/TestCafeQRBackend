@@ -89,6 +89,9 @@ public class OrderResponseDto {
     @Schema(description = "Associated invoice document number")
     private String invoiceNo;
 
+    @Schema(description = "Associated daily sequential bill number")
+    private Integer dailyBillNo;
+
     @Schema(description = "Associated payment record identifier")
     private String paymentNo;
 

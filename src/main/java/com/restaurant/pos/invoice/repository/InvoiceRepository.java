@@ -35,6 +35,19 @@ public interface InvoiceRepository extends JpaRepository<Invoice, UUID>, JpaSpec
     List<Invoice> findByClientIdAndOrgIdAndInvoiceDateBetweenOrderByInvoiceDateAsc(@Param("clientId") UUID clientId, @Param("orgId") UUID orgId, @Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
 
     @Query("""
+            SELECT COALESCE(MAX(i.dailyBillNo), 0) FROM Invoice i
+            WHERE i.clientId = :clientId
+              AND (:orgId IS NULL OR i.orgId = :orgId)
+              AND i.invoiceDate BETWEEN :start AND :end
+            """)
+    int findMaxDailyBillNo(
+        @Param("clientId") UUID clientId,
+        @Param("orgId") UUID orgId,
+        @Param("start") LocalDateTime start,
+        @Param("end") LocalDateTime end
+    );
+
+    @Query("""
             SELECT COUNT(i) > 0 FROM Invoice i
             WHERE i.clientId = :clientId
               AND ((:orgId IS NULL AND i.orgId IS NULL) OR i.orgId = :orgId)

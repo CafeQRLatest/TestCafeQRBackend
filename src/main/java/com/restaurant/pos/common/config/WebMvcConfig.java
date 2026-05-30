@@ -1,5 +1,6 @@
 package com.restaurant.pos.common.config;
 
+import com.restaurant.pos.backup.TenantRestoreLockInterceptor;
 import com.restaurant.pos.common.tenant.TenantInterceptor;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Configuration;
@@ -12,6 +13,7 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 public class WebMvcConfig implements WebMvcConfigurer {
 
     private final TenantInterceptor tenantInterceptor;
+    private final TenantRestoreLockInterceptor tenantRestoreLockInterceptor;
 
     @Value("${app.cors.allowed-origins:http://localhost:3000,http://localhost:3001}")
     private String[] allowedOrigins;
@@ -19,6 +21,7 @@ public class WebMvcConfig implements WebMvcConfigurer {
     @Override
     public void addInterceptors(@org.springframework.lang.NonNull InterceptorRegistry registry) {
         registry.addInterceptor(java.util.Objects.requireNonNull(tenantInterceptor));
+        registry.addInterceptor(java.util.Objects.requireNonNull(tenantRestoreLockInterceptor));
     }
 
     @Override
