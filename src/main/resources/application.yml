@@ -103,6 +103,9 @@ app:
   frontend-url: ${FRONTEND_URL:http://localhost:3000}
   otp:
     log-code: ${OTP_LOG_CODE:false}
+  backup:
+    storage-dir: ${CAFEQR_BACKUP_STORAGE_DIR:./data/backups}
+    restore-token-minutes: ${CAFEQR_BACKUP_RESTORE_TOKEN_MINUTES:30}
 
 razorpay:
   key-id: ${RAZORPAY_KEY_ID:}
