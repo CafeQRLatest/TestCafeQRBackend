@@ -327,6 +327,29 @@ docker compose -f docker-compose.prod.yml up -d
 ./scripts/backups/pg-restore.sh /home/cafeqr/backups/postgres/BACKUP_FILE.sql.gz
 ```
 
+### View Production Database with DBeaver
+
+PostgreSQL is not publicly exposed. The Compose file binds it only to the VPS
+loopback interface on port `15432`, so use an SSH tunnel from Windows:
+
+```powershell
+ssh -i "$HOME\.ssh\id_ed25519" -N -L 15432:127.0.0.1:15432 cafeqr@YOUR_VPS_IP
+```
+
+Then create a PostgreSQL connection in DBeaver:
+
+| Setting | Value |
+|---------|-------|
+| Host | `localhost` |
+| Port | `15432` |
+| Database | `DB_NAME` from `/home/cafeqr/app/.env` |
+| Username | `DB_USER` from `/home/cafeqr/app/.env` |
+| Password | `DB_PASSWORD` from `/home/cafeqr/app/.env` |
+| SSL | Disabled |
+
+Use DBeaver mainly for viewing and verification. Before any manual production
+edit, take a database backup and record the exact SQL/change made.
+
 ### Monitoring
 
 ```bash

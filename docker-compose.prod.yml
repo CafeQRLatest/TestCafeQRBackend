@@ -112,6 +112,10 @@ services:
       POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    ports:
+      # Localhost-only admin access for SSH-tunneled tools such as DBeaver.
+      # Do not bind this to 0.0.0.0 in production.
+      - "127.0.0.1:15432:5432"
     # Production-tuned PostgreSQL for 4 GB VPS
     command: >
       postgres
