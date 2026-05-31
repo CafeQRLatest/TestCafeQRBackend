@@ -12,7 +12,6 @@ on:
     branches: [main]
     paths-ignore:
       - '**.md'
-      - 'scripts/**'
       - '.gitignore'
 
   workflow_dispatch:     # Allow manual trigger from GitHub UI
@@ -74,22 +73,14 @@ jobs:
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
+            set -euo pipefail
             cd /home/cafeqr/app
-            git pull
-            docker compose -f docker-compose.prod.yml pull backend
-            docker compose -f docker-compose.prod.yml up -d --no-deps backend
-            
-            # Wait for health check
-            echo "Waiting for backend to become healthy..."
-            for i in $(seq 1 30); do
-              STATUS=$(docker inspect --format='{{.State.Health.Status}}' cafeqr-backend 2>/dev/null || echo "starting")
-              if [ "$STATUS" = "healthy" ]; then
-                echo "✅ Backend is healthy!"
-                exit 0
-              fi
-              echo "  Attempt $i/30: $STATUS"
-              sleep 5
-            done
-            echo "⚠️ Backend did not become healthy in 150 seconds. Check logs."
-            docker logs --tail=50 cafeqr-backend
-            exit 1
+            git status --short
+            git pull --ff-only
+            if [ -n "$(git status --porcelain)" ]; then
+              echo "ERROR: VPS checkout still has local changes after pull. Move server-only values into .env/.env.frontend and clean tracked edits before deploying."
+              git status --short
+              exit 1
+            fi
+            chmod +x scripts/hostinger/deploy.sh
+            PULL_REPO=false ./scripts/hostinger/deploy.sh backend

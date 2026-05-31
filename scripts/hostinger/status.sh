@@ -45,13 +45,13 @@ done
 
 echo ""
 echo "── SSL Certificate ──"
-DOMAIN=$(grep -oP '^\S+' "${APP_DIR}/Caddyfile" 2>/dev/null | head -1 | tr -d '{')
-if [ -n "${DOMAIN}" ] && [ "${DOMAIN}" != "YOUR_DOMAIN" ]; then
+DOMAIN=$(grep -E '^CADDY_SITE_ADDRESS=' "${APP_DIR}/.env" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d "\"'" || true)
+if [ -n "${DOMAIN}" ] && [ "${DOMAIN}" != ":80" ]; then
   EXPIRY=$(echo | openssl s_client -connect "${DOMAIN}:443" -servername "${DOMAIN}" 2>/dev/null | openssl x509 -noout -enddate 2>/dev/null | cut -d= -f2)
   echo "  Domain:  ${DOMAIN}"
   echo "  Expires: ${EXPIRY:-Unable to check}"
 else
-  echo "  Domain not yet configured in Caddyfile."
+  echo "  IP-first HTTP mode. Set CADDY_SITE_ADDRESS in .env after DNS is ready."
 fi
 
 echo ""

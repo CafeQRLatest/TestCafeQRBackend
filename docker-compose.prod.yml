@@ -16,6 +16,10 @@ services:
     image: caddy:2-alpine
     container_name: cafeqr-caddy
     restart: unless-stopped
+    environment:
+      # Defaults to HTTP on any host/IP. Set CADDY_SITE_ADDRESS=your-domain.com
+      # in .env after DNS is ready to enable automatic HTTPS.
+      - CADDY_SITE_ADDRESS=${CADDY_SITE_ADDRESS:-:80}
     ports:
       - "80:80"
       - "443:443"
@@ -64,7 +68,7 @@ services:
       rabbitmq:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8080/actuator/health || exit 1"]
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/actuator/health >/dev/null || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 5
@@ -84,7 +88,7 @@ services:
     restart: unless-stopped
     env_file: .env.frontend
     healthcheck:
-      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3000 || exit 1"]
+      test: ["CMD-SHELL", "curl -fsS http://localhost:3000 >/dev/null || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3

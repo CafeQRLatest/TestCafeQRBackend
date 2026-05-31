@@ -140,38 +140,40 @@ git clone https://github.com/cafeqrllp/cafeqr-backend.git .
 ```bash
 # Copy the template
 cp .env.production.example .env
+cp .env.frontend.example .env.frontend
 
 # Edit with your production secrets
 nano .env
+nano .env.frontend
 ```
 
 Fill in all values:
 - `DB_PASSWORD` — generate a strong password: `openssl rand -base64 24`
 - `RABBITMQ_PASSWORD` — generate: `openssl rand -base64 24`
 - `JWT_PRIVATE_KEY` / `JWT_PUBLIC_KEY` — your RSA keys
-- `ALLOWED_ORIGINS` — `https://your-domain.com`
-- `FRONTEND_URL` — `https://your-domain.com`
+- `CADDY_SITE_ADDRESS` — keep `:80` for IP-first deployment; use your real domain after DNS is ready
+- `ALLOWED_ORIGINS` — `http://YOUR_VPS_IP` for IP-first deployment
+- `FRONTEND_URL` — `http://YOUR_VPS_IP` for IP-first deployment
+- `.env.frontend` `NEXT_PUBLIC_API_URL` — `http://YOUR_VPS_IP`
+- `.env.frontend` `NEXT_PUBLIC_AI_PARSE_URL` — `http://YOUR_VPS_IP/api/ai/parse-menu`
 - Gmail, Razorpay credentials
 
-Also create the frontend env:
-```bash
-cat > .env.frontend << 'EOF'
-NEXT_PUBLIC_API_URL=https://YOUR_DOMAIN
-NEXT_PUBLIC_AI_PARSE_URL=https://YOUR_DOMAIN/api/ai/parse-menu
-EOF
-```
+If any generated secret contains `$`, wrap the whole value in single quotes, for example:
+`DB_PASSWORD='abc$def'`.
 
-### Step 3: Configure the Caddyfile
+### Step 3: Configure Caddy
 
-```bash
-# Replace YOUR_DOMAIN with your actual domain
-sed -i 's/YOUR_DOMAIN/app.cafeqr.in/g' Caddyfile
-```
+No Caddyfile edit is required for IP-first deployment. The default
+`CADDY_SITE_ADDRESS=:80` serves the app at `http://YOUR_VPS_IP`.
+
+After DNS is ready, set `CADDY_SITE_ADDRESS=app.cafeqr.in`, update frontend/API
+URLs to `https://app.cafeqr.in`, rebuild the frontend image, and redeploy.
 
 ### Step 4: Start Everything
 
 ```bash
-docker compose -f docker-compose.prod.yml up -d
+chmod +x scripts/hostinger/*.sh
+./scripts/hostinger/deploy.sh all
 ```
 
 ### Step 5: Verify
@@ -187,7 +189,7 @@ docker compose -f docker-compose.prod.yml ps
 ./scripts/hostinger/logs.sh backend 50
 ```
 
-Visit `https://YOUR_DOMAIN` in your browser — you should see the CafeQR login page with a valid SSL certificate! 🎉
+Visit `http://YOUR_VPS_IP` in your browser. After the domain is configured, use `https://YOUR_DOMAIN`.
 
 ---
 
@@ -243,9 +245,11 @@ Go to your GitHub repository → Settings → Secrets → Actions, and add:
 |------------|-------|
 | `VPS_HOST` | Your VPS IP address |
 | `VPS_USER` | `cafeqr` |
-| `VPS_SSH_KEY` | Contents of `~/.ssh/cafeqr_vps` (private key) |
-| `NEXT_PUBLIC_API_URL` | `https://YOUR_DOMAIN` |
-| `NEXT_PUBLIC_AI_PARSE_URL` | `https://YOUR_DOMAIN/api/ai/parse-menu` |
+| `VPS_SSH_KEY` | Full private key contents, including `-----BEGIN ... PRIVATE KEY-----` and `-----END ... PRIVATE KEY-----` |
+| `NEXT_PUBLIC_API_URL` | `http://YOUR_VPS_IP` for IP-first deployment |
+| `NEXT_PUBLIC_AI_PARSE_URL` | `http://YOUR_VPS_IP/api/ai/parse-menu` for IP-first deployment |
+
+Add the same `VPS_HOST`, `VPS_USER`, and `VPS_SSH_KEY` secrets to both the backend and frontend repositories.
 
 ### Step 2: Login to GHCR on VPS
 
@@ -423,6 +427,35 @@ docker logs cafeqr-caddy --tail=50
 ```bash
 # If locked out, use Hostinger hPanel → VPS → Console
 # Then fix /etc/ssh/sshd_config
+```
+
+If GitHub Actions shows `ssh.ParsePrivateKey: ssh: no key found`, replace the
+`VPS_SSH_KEY` secret with the full private key, not the `.pub` key and not a
+password.
+
+### Docker Compose says a variable is not set
+
+If Compose prints a random-looking missing variable from a password, the secret
+probably contains `$`. Quote that value in `.env`:
+
+```bash
+DB_PASSWORD='abc$def'
+```
+
+Then validate:
+
+```bash
+docker compose -f docker-compose.prod.yml config -q
+```
+
+### Git pull blocked by local changes
+
+Do not edit tracked files directly on the VPS. Move server-only values into
+`.env` or `.env.frontend`, then make `/home/cafeqr/app` clean before deploying:
+
+```bash
+cd /home/cafeqr/app
+git status --short
 ```
 
 ### Database connection refused

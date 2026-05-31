@@ -10,6 +10,10 @@ RUN mvn -B -DskipTests package
 # Run stage
 FROM eclipse-temurin:17-jre-alpine
 WORKDIR /app
+
+# Runtime health checks use curl.
+RUN apk add --no-cache curl
+
 COPY --from=build /app/target/*.jar app.jar
 
 # Expose the port (Render will use this)

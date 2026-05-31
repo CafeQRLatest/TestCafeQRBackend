@@ -4,9 +4,9 @@
 # Caddy automatically provisions and renews Let's Encrypt
 # SSL certificates for your domain. Zero configuration needed.
 #
-# Replace YOUR_DOMAIN below with your actual domain, e.g.:
+# CADDY_SITE_ADDRESS defaults to :80 for IP-first deployment.
+# After DNS is ready, set CADDY_SITE_ADDRESS to your real domain, e.g.:
 #   app.cafeqr.in
-#   cafeqr.yourdomain.com
 # ──────────────────────────────────────────────────────────────
 
 # ── Global Options ──
@@ -19,7 +19,7 @@
 }
 
 # ── Main Site ──
-YOUR_DOMAIN {
+{$CADDY_SITE_ADDRESS} {
 
 	# ── Security Headers ──
 	header {
@@ -48,6 +48,11 @@ YOUR_DOMAIN {
 	# ── Rate Limiting (basic protection against brute-force) ──
 	# Caddy Community plugin: uncomment if caddy-ratelimit is installed
 	# rate_limit {remote.host} 60r/m
+
+	# ── Frontend-owned Next.js API routes ──
+	handle /api/ai/* {
+		reverse_proxy frontend:3000
+	}
 
 	# ── Backend API routes ──
 	handle /api/* {
@@ -97,7 +102,7 @@ YOUR_DOMAIN {
 	}
 }
 
-# ── WWW redirect (optional — uncomment if you want www → apex) ──
-# www.YOUR_DOMAIN {
-# 	redir https://YOUR_DOMAIN{uri} permanent
+# ── WWW redirect (optional — enable after choosing the final domain) ──
+# www.example.com {
+# 	redir https://example.com{uri} permanent
 # }
