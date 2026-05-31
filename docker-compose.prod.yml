@@ -138,6 +138,7 @@ services:
       retries: 5
     networks:
       - backend_net
+      - db_admin_net
     deploy:
       resources:
         limits:
@@ -202,6 +203,8 @@ networks:
   backend_net:
     driver: bridge
     internal: true    # No internet access — internal services only
+  db_admin_net:
+    driver: bridge    # Enables localhost-only DB admin port publishing
 
 # ── Volumes ──
 volumes:

@@ -170,7 +170,8 @@ LoginGraceTime 30
 ClientAliveInterval 300
 ClientAliveCountMax 2
 X11Forwarding no
-AllowTcpForwarding no
+AllowTcpForwarding local
+PermitOpen 127.0.0.1:15432
 EOF
   systemctl restart sshd
   echo "SSH hardened: root password login disabled, key-only auth enforced."
