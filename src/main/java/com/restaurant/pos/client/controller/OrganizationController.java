@@ -19,13 +19,13 @@ public class OrganizationController {
     private final OrganizationService organizationService;
 
     @GetMapping
-    @PreAuthorize("hasRole('SUPER_ADMIN') or hasRole('ADMIN') or hasRole('MANAGER')")
+    @PreAuthorize("hasRole('SUPER_ADMIN') or hasRole('ADMIN') or hasRole('MANAGER') or hasRole('STAFF')")
     public ResponseEntity<ApiResponse<List<Organization>>> getMyOrganizations() {
         return ResponseEntity.ok(ApiResponse.success(organizationService.getMyOrganizations()));
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("hasRole('SUPER_ADMIN') or hasRole('ADMIN') or hasRole('MANAGER')")
+    @PreAuthorize("hasRole('SUPER_ADMIN') or hasRole('ADMIN') or hasRole('MANAGER') or hasRole('STAFF')")
     public ResponseEntity<ApiResponse<Organization>> getOrganization(@PathVariable UUID id) {
         return ResponseEntity.ok(ApiResponse.success(organizationService.getOrganizationById(id)));
     }
