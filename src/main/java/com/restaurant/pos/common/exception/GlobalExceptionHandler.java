@@ -1,6 +1,10 @@
 package com.restaurant.pos.common.exception;
 
 import com.restaurant.pos.common.dto.ApiResponse;
+import com.restaurant.pos.common.diagnostics.RuntimeEndpointLoggingInterceptor;
+import com.restaurant.pos.common.tenant.TenantContext;
+import com.restaurant.pos.common.util.SecurityUtils;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -132,9 +136,21 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<ApiResponse<Void>> handleGenericException(Exception ex) {
+    public ResponseEntity<ApiResponse<Void>> handleGenericException(Exception ex, HttpServletRequest request) {
         String errorId = java.util.UUID.randomUUID().toString().substring(0, 8).toUpperCase();
-        log.error("Unexpected error occurred [Ref: {}]", errorId, ex);
+        if (RuntimeEndpointLoggingInterceptor.isRuntimeEndpoint(request.getRequestURI())) {
+            log.error("Runtime endpoint exception [Ref: {}] method={} path={} query={} user={} clientId={} orgId={}",
+                    errorId,
+                    request.getMethod(),
+                    request.getRequestURI(),
+                    request.getQueryString(),
+                    SecurityUtils.getCurrentUserEmail(),
+                    TenantContext.getCurrentTenant(),
+                    TenantContext.getCurrentOrg(),
+                    ex);
+        } else {
+            log.error("Unexpected error occurred [Ref: {}]", errorId, ex);
+        }
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(ApiResponse.error("An unexpected error occurred. Please quote reference " + errorId + " to support.", errorId));
     }

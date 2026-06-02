@@ -24,9 +24,14 @@ public class OrganizationService {
 
     public List<Organization> getMyOrganizations() {
         UUID tenantId = TenantContext.getCurrentTenant();
-        log.info("Fetching organizations for Client ID: {}", tenantId);
+        if (tenantId == null) {
+            log.warn("Skipping organization lookup because tenant context is missing.");
+            return List.of();
+        }
+
+        log.debug("Fetching organizations for Client ID: {}", tenantId);
         List<Organization> orgs = repository.findAllByClientId(tenantId);
-        log.info("Found {} organizations for Client ID: {}", orgs.size(), tenantId);
+        log.debug("Found {} organizations for Client ID: {}", orgs.size(), tenantId);
         return orgs;
     }
 

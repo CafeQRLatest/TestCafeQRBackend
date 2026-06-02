@@ -5,6 +5,7 @@ import com.restaurant.pos.client.repository.TerminalRepository;
 import com.restaurant.pos.common.exception.ResourceNotFoundException;
 import com.restaurant.pos.common.tenant.TenantContext;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -12,8 +13,10 @@ import com.restaurant.pos.common.util.SecurityUtils;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.List;
+import java.util.Objects;
 
 @Service
+@Slf4j
 @RequiredArgsConstructor
 public class TerminalService {
 
@@ -23,25 +26,35 @@ public class TerminalService {
         UUID tenantId = TenantContext.getCurrentTenant();
         UUID orgId = TenantContext.getCurrentOrg();
         boolean isSuper = SecurityUtils.isSuperAdmin();
-        Object authorities = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication().getAuthorities();
-        
-        System.out.println("===> [DEBUG] TerminalService.getMyTerminals: tenantId=" + tenantId + ", orgId=" + orgId + ", isSuperAdmin=" + isSuper + ", Authorities=" + authorities);
-        
-        List<Terminal> terminals;
-        if (isSuper) {
-            terminals = repository.findAllByClientId(tenantId);
-        } else {
-            terminals = repository.findAllByOrgIdAndClientId(orgId, tenantId);
+
+        if (tenantId == null) {
+            log.warn("Terminal lookup skipped because tenant context is missing. user={}", SecurityUtils.getCurrentUserEmail());
+            return List.of();
         }
-        
-        System.out.println("===> [DEBUG] TerminalService.getMyTerminals: Found total=" + terminals.size());
-        return terminals;
+
+        if (isSuper) {
+            return repository.findAllByClientId(tenantId);
+        }
+
+        if (orgId == null) {
+            log.warn("Terminal lookup skipped because org context is missing. user={} clientId={}",
+                    SecurityUtils.getCurrentUserEmail(), tenantId);
+            return List.of();
+        }
+
+        return repository.findAllByOrgIdAndClientId(orgId, tenantId);
     }
 
     public List<Terminal> getTerminalsByOrg(UUID orgId) {
         UUID tenantId = TenantContext.getCurrentTenant();
+        if (tenantId == null || orgId == null) {
+            log.warn("Terminal org lookup skipped. user={} clientId={} orgId={}",
+                    SecurityUtils.getCurrentUserEmail(), tenantId, orgId);
+            return List.of();
+        }
+
         // If not super admin, they can only see terminals for their own org
-        if (!SecurityUtils.isSuperAdmin() && !orgId.equals(TenantContext.getCurrentOrg())) {
+        if (!SecurityUtils.isSuperAdmin() && !Objects.equals(orgId, TenantContext.getCurrentOrg())) {
             throw new com.restaurant.pos.common.exception.ResourceNotFoundException("Access denied to organization terminals");
         }
         
@@ -50,6 +63,9 @@ public class TerminalService {
 
     public Terminal getTerminalById(UUID id) {
         UUID tenantId = TenantContext.getCurrentTenant();
+        if (tenantId == null) {
+            throw new ResourceNotFoundException("Terminal not found or access denied");
+        }
         Optional<Terminal> terminal;
         
         if (SecurityUtils.isSuperAdmin()) {

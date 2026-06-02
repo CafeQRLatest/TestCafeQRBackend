@@ -14,12 +14,6 @@ public class SecurityUtils {
         
         boolean isSuper = auth.getAuthorities().stream()
                 .anyMatch(a -> a.getAuthority().equals("ROLE_SUPER_ADMIN"));
-        
-        if (!isSuper) {
-             // Let's log if it's not detected but maybe should be
-             // Note: Using System.out for quick simple debug in a static util if SLF4J is not easy to add
-             System.out.println("DEBUG: isSuperAdmin=false. Authorities: " + auth.getAuthorities());
-        }
         return isSuper;
     }
 
