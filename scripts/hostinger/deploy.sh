@@ -16,6 +16,9 @@ SERVICE="${1:-all}"
 PULL_REPO="${PULL_REPO:-true}"
 COMPOSE=(docker compose -f "${COMPOSE_FILE}")
 TMP_FILES=()
+BACKEND_WAIT_ATTEMPTS="${BACKEND_WAIT_ATTEMPTS:-80}"
+BACKEND_WAIT_DELAY="${BACKEND_WAIT_DELAY:-5}"
+SERVICE_LOG_TAIL="${SERVICE_LOG_TAIL:-250}"
 
 cleanup() {
   for file in "${TMP_FILES[@]}"; do
@@ -100,7 +103,7 @@ print_failure_details() {
 
   echo ""
   echo "-- ${service} recent logs --"
-  docker logs --tail=100 "${container}" 2>/dev/null || true
+  docker logs --tail="${SERVICE_LOG_TAIL}" "${container}" 2>/dev/null || true
 }
 
 wait_for_service() {
@@ -166,7 +169,7 @@ deploy_backend() {
   echo "-- Pulling and restarting backend --"
   "${COMPOSE[@]}" pull backend
   "${COMPOSE[@]}" up -d --no-deps backend
-  wait_for_service backend 40 5
+  wait_for_service backend "${BACKEND_WAIT_ATTEMPTS}" "${BACKEND_WAIT_DELAY}"
 }
 
 deploy_frontend() {
@@ -187,7 +190,7 @@ deploy_all() {
 
   echo "-- Restarting application stack --"
   "${COMPOSE[@]}" up -d --remove-orphans backend frontend caddy
-  wait_for_service backend 40 5
+  wait_for_service backend "${BACKEND_WAIT_ATTEMPTS}" "${BACKEND_WAIT_DELAY}"
   wait_for_service frontend 30 5
   wait_for_service caddy 12 5
 }

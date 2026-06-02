@@ -71,8 +71,9 @@ services:
       test: ["CMD-SHELL", "curl -fsS http://localhost:8080/actuator/health >/dev/null || exit 1"]
       interval: 30s
       timeout: 5s
-      retries: 5
-      start_period: 60s
+      retries: 10
+      # KVM1 can take several minutes to boot Spring after large imports/high CPU.
+      start_period: 300s
     networks:
       - frontend_net
       - backend_net
