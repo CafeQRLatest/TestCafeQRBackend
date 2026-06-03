@@ -59,20 +59,20 @@ public interface JournalEntryRepository extends JpaRepository<JournalEntry, UUID
             @Param("sourceId") UUID sourceId,
             @Param("status") JournalStatus status);
 
-    @Query("""
-            SELECT l.accountId AS accountId,
+    @Query(value = """
+            SELECT l.account_id AS accountId,
                    COALESCE(SUM(l.debit), 0) AS debit,
                    COALESCE(SUM(l.credit), 0) AS credit
-            FROM JournalEntry j
-            JOIN j.lines l
-            WHERE j.clientId = :clientId
-              AND (:orgId IS NULL OR j.orgId = :orgId)
-              AND (:from IS NULL OR j.entryDate >= :from)
-              AND (:to IS NULL OR j.entryDate <= :to)
-              AND j.status = :status
+            FROM journal_entries j
+            JOIN journal_lines l ON j.id = l.journal_entry_id
+            WHERE j.client_id = :clientId
+              AND (CAST(:orgId AS UUID) IS NULL OR j.org_id = CAST(:orgId AS UUID))
+              AND (CAST(:from AS TIMESTAMP) IS NULL OR j.entry_date >= CAST(:from AS TIMESTAMP))
+              AND (CAST(:to AS TIMESTAMP) IS NULL OR j.entry_date <= CAST(:to AS TIMESTAMP))
+              AND j.status = :#{#status.name()}
               AND COALESCE(UPPER(j.isactive), 'Y') <> 'N'
-            GROUP BY l.accountId
-            """)
+            GROUP BY l.account_id
+            """, nativeQuery = true)
     List<AccountMovementProjection> sumLineMovements(
             @Param("clientId") UUID clientId,
             @Param("orgId") UUID orgId,
@@ -80,16 +80,16 @@ public interface JournalEntryRepository extends JpaRepository<JournalEntry, UUID
             @Param("to") LocalDateTime to,
             @Param("status") JournalStatus status);
 
-    @Query("""
+    @Query(value = """
             SELECT COUNT(j.id)
-            FROM JournalEntry j
-            WHERE j.clientId = :clientId
-              AND (:orgId IS NULL OR j.orgId = :orgId)
-              AND (:from IS NULL OR j.entryDate >= :from)
-              AND (:to IS NULL OR j.entryDate <= :to)
-              AND j.status = :status
+            FROM journal_entries j
+            WHERE j.client_id = :clientId
+              AND (CAST(:orgId AS UUID) IS NULL OR j.org_id = CAST(:orgId AS UUID))
+              AND (CAST(:from AS TIMESTAMP) IS NULL OR j.entry_date >= CAST(:from AS TIMESTAMP))
+              AND (CAST(:to AS TIMESTAMP) IS NULL OR j.entry_date <= CAST(:to AS TIMESTAMP))
+              AND j.status = :#{#status.name()}
               AND COALESCE(UPPER(j.isactive), 'Y') <> 'N'
-            """)
+            """, nativeQuery = true)
     long countPostedActive(
             @Param("clientId") UUID clientId,
             @Param("orgId") UUID orgId,
@@ -97,19 +97,19 @@ public interface JournalEntryRepository extends JpaRepository<JournalEntry, UUID
             @Param("to") LocalDateTime to,
             @Param("status") JournalStatus status);
 
-    @Query("""
-            SELECT j.sourceType AS sourceType,
-                   j.sourceId AS sourceId
-            FROM JournalEntry j
-            WHERE j.clientId = :clientId
-              AND (:orgId IS NULL OR j.orgId = :orgId)
-              AND (:from IS NULL OR j.entryDate >= :from)
-              AND (:to IS NULL OR j.entryDate <= :to)
-              AND j.status = :status
+    @Query(value = """
+            SELECT j.source_type AS sourceType,
+                   j.source_id AS sourceId
+            FROM journal_entries j
+            WHERE j.client_id = :clientId
+              AND (CAST(:orgId AS UUID) IS NULL OR j.org_id = CAST(:orgId AS UUID))
+              AND (CAST(:from AS TIMESTAMP) IS NULL OR j.entry_date >= CAST(:from AS TIMESTAMP))
+              AND (CAST(:to AS TIMESTAMP) IS NULL OR j.entry_date <= CAST(:to AS TIMESTAMP))
+              AND j.status = :#{#status.name()}
               AND COALESCE(UPPER(j.isactive), 'Y') <> 'N'
-              AND j.sourceId IS NOT NULL
-              AND j.sourceType IN :sourceTypes
-            """)
+              AND j.source_id IS NOT NULL
+              AND j.source_type IN (:sourceTypes)
+            """, nativeQuery = true)
     List<PostedSourceProjection> findPostedSources(
             @Param("clientId") UUID clientId,
             @Param("orgId") UUID orgId,
