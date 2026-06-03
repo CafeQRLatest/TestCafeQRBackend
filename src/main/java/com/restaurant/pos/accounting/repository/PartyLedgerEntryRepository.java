@@ -39,7 +39,7 @@ public interface PartyLedgerEntryRepository extends JpaRepository<PartyLedgerEnt
             WHERE journal_entry_id IN (
                 SELECT id FROM journal_entries
                 WHERE client_id = :clientId
-                  AND (:orgId IS NULL OR org_id = :orgId)
+                  AND (CAST(:orgId AS UUID) IS NULL OR org_id = CAST(:orgId AS UUID))
                   AND COALESCE(auto_posted, false) = true
             )
             """, nativeQuery = true)

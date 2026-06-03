@@ -20,14 +20,15 @@ public interface AccountingPostingJobRepository extends JpaRepository<Accounting
     Optional<AccountingPostingJob> findFirstByClientIdAndSourceTypeAndSourceId(UUID clientId, String sourceType, UUID sourceId);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @Query("""
-            SELECT j FROM AccountingPostingJob j
-            WHERE j.clientId = :clientId
-              AND (:orgId IS NULL OR j.orgId = :orgId)
-              AND j.sourceType = :sourceType
-              AND j.sourceId = :sourceId
-            ORDER BY j.updatedAt DESC
-            """)
+    @Query(value = """
+            SELECT * FROM accounting_posting_jobs j
+            WHERE j.client_id = :clientId
+              AND (CAST(:orgId AS UUID) IS NULL OR j.org_id = CAST(:orgId AS UUID))
+              AND j.source_type = :sourceType
+              AND j.source_id = :sourceId
+            ORDER BY j.updated_at DESC
+            FOR UPDATE
+            """, nativeQuery = true)
     List<AccountingPostingJob> findLockedBySource(
             @Param("clientId") UUID clientId,
             @Param("orgId") UUID orgId,
@@ -61,6 +62,6 @@ public interface AccountingPostingJobRepository extends JpaRepository<Accounting
     List<AccountingPostingJob> findByClientIdAndOrgId(UUID clientId, UUID orgId);
 
     @Modifying
-    @Query(value = "DELETE FROM accounting_posting_jobs WHERE client_id = :clientId AND (:orgId IS NULL OR org_id = :orgId)", nativeQuery = true)
+    @Query(value = "DELETE FROM accounting_posting_jobs WHERE client_id = :clientId AND (CAST(:orgId AS UUID) IS NULL OR org_id = CAST(:orgId AS UUID))", nativeQuery = true)
     int bulkDeleteByClientIdAndOrgId(@Param("clientId") UUID clientId, @Param("orgId") UUID orgId);
 }
