@@ -9,6 +9,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Slice;
 import org.springframework.stereotype.Repository;
+import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDateTime;
 import java.util.Collection;
@@ -41,7 +42,7 @@ public interface OrderRepository extends JpaRepository<Order, UUID>, JpaSpecific
               AND (o.orderStatus IS NULL OR UPPER(o.orderStatus) NOT IN :closedStatuses)
             ORDER BY o.orderDate DESC, o.createdAt DESC
             """)
-    List<Order> findLiveOrders(UUID clientId, UUID orgId, OrderType orderType, Collection<String> closedStatuses);
+    List<Order> findLiveOrders(@Param("clientId") UUID clientId, @Param("orgId") UUID orgId, @Param("orderType") OrderType orderType, @Param("closedStatuses") Collection<String> closedStatuses);
 
     @EntityGraph(attributePaths = "lines")
     @Query("""
@@ -53,7 +54,7 @@ public interface OrderRepository extends JpaRepository<Order, UUID>, JpaSpecific
               AND o.updatedAt >= :updatedAfter
             ORDER BY o.updatedAt DESC, o.orderDate DESC
             """)
-    Slice<Order> findChangedOrders(UUID clientId, UUID orgId, OrderType orderType, LocalDateTime updatedAfter, Pageable pageable);
+    Slice<Order> findChangedOrders(@Param("clientId") UUID clientId, @Param("orgId") UUID orgId, @Param("orderType") OrderType orderType, @Param("updatedAfter") LocalDateTime updatedAfter, Pageable pageable);
 
     @EntityGraph(attributePaths = "lines")
     List<Order> findByClientIdAndOrderStatusInOrderByCreatedAtDesc(UUID clientId, List<String> statuses);
@@ -78,7 +79,7 @@ public interface OrderRepository extends JpaRepository<Order, UUID>, JpaSpecific
               AND o.orderDate BETWEEN :from AND :to
             ORDER BY o.orderDate ASC
             """)
-    List<Order> findByClientIdAndOrgIdAndOrderDateBetweenOrderByOrderDateAsc(UUID clientId, UUID orgId, java.time.Instant from, java.time.Instant to);
+    List<Order> findByClientIdAndOrgIdAndOrderDateBetweenOrderByOrderDateAsc(@Param("clientId") UUID clientId, @Param("orgId") UUID orgId, @Param("from") java.time.Instant from, @Param("to") java.time.Instant to);
 
     @Query("""
             SELECT COUNT(o) > 0 FROM Order o
@@ -86,7 +87,7 @@ public interface OrderRepository extends JpaRepository<Order, UUID>, JpaSpecific
               AND ((:orgId IS NULL AND o.orgId IS NULL) OR o.orgId = :orgId)
               AND o.orderNo = :orderNo
             """)
-    boolean existsByClientIdAndOrgIdAndOrderNo(UUID clientId, UUID orgId, String orderNo);
+    boolean existsByClientIdAndOrgIdAndOrderNo(@Param("clientId") UUID clientId, @Param("orgId") UUID orgId, @Param("orderNo") String orderNo);
 
     @EntityGraph(attributePaths = "lines")
     Optional<Order> findBySourceOperationIdAndClientId(String sourceOperationId, UUID clientId);
