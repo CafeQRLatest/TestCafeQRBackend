@@ -41,17 +41,17 @@ public interface JournalEntryRepository extends JpaRepository<JournalEntry, UUID
 
     boolean existsByClientIdAndSourceTypeAndSourceId(UUID clientId, String sourceType, UUID sourceId);
 
-    @Query("""
-            SELECT DISTINCT j FROM JournalEntry j
-            LEFT JOIN FETCH j.lines
-            WHERE j.clientId = :clientId
-              AND (:orgId IS NULL OR j.orgId = :orgId)
-              AND j.sourceType = :sourceType
-              AND j.sourceId = :sourceId
-              AND j.status = :status
+    @Query(value = """
+            SELECT DISTINCT j.* FROM journal_entries j
+            LEFT JOIN journal_lines l ON j.id = l.journal_entry_id
+            WHERE j.client_id = :clientId
+              AND (CAST(:orgId AS UUID) IS NULL OR j.org_id = CAST(:orgId AS UUID))
+              AND j.source_type = :sourceType
+              AND j.source_id = :sourceId
+              AND j.status = :#{#status.name()}
               AND COALESCE(UPPER(j.isactive), 'Y') <> 'N'
-            ORDER BY j.entryDate DESC
-            """)
+            ORDER BY j.entry_date DESC
+            """, nativeQuery = true)
     List<JournalEntry> findActiveBySource(
             @Param("clientId") UUID clientId,
             @Param("orgId") UUID orgId,
@@ -132,7 +132,7 @@ public interface JournalEntryRepository extends JpaRepository<JournalEntry, UUID
             WHERE journal_entry_id IN (
                 SELECT id FROM journal_entries
                 WHERE client_id = :clientId
-                  AND (:orgId IS NULL OR org_id = :orgId)
+                  AND (CAST(:orgId AS UUID) IS NULL OR org_id = CAST(:orgId AS UUID))
                   AND COALESCE(auto_posted, false) = true
             )
             """, nativeQuery = true)
@@ -142,7 +142,7 @@ public interface JournalEntryRepository extends JpaRepository<JournalEntry, UUID
     @Query(value = """
             DELETE FROM journal_entries
             WHERE client_id = :clientId
-              AND (:orgId IS NULL OR org_id = :orgId)
+              AND (CAST(:orgId AS UUID) IS NULL OR org_id = CAST(:orgId AS UUID))
               AND COALESCE(auto_posted, false) = true
             """, nativeQuery = true)
     int bulkDeleteAutoPostedByClientIdAndOrgId(@Param("clientId") UUID clientId, @Param("orgId") UUID orgId);
