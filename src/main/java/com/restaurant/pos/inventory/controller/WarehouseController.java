@@ -19,13 +19,13 @@ public class WarehouseController {
     private final InventoryService inventoryService;
 
     @GetMapping
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
-    public ResponseEntity<ApiResponse<List<Warehouse>>> getWarehouses() {
-        return ResponseEntity.ok(ApiResponse.success(inventoryService.getWarehouses()));
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
+    public ResponseEntity<ApiResponse<List<Warehouse>>> getWarehouses(@RequestParam(required = false) UUID orgId) {
+        return ResponseEntity.ok(ApiResponse.success(inventoryService.getWarehouses(orgId)));
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<Warehouse>> getWarehouse(@PathVariable UUID id) {
         return ResponseEntity.ok(ApiResponse.success(inventoryService.getWarehouse(id)));
     }

@@ -30,12 +30,17 @@ public class InventoryService {
 
     // --- Warehouse Management ---
 
-    public List<Warehouse> getWarehouses() {
+    public List<Warehouse> getWarehouses(UUID orgId) {
         UUID clientId = TenantContext.getCurrentTenant();
-        if (SecurityUtils.isSuperAdmin()) {
+        UUID effectiveOrgId = orgId != null ? orgId : TenantContext.getCurrentOrg();
+        if (SecurityUtils.isSuperAdmin() && orgId == null) {
             return warehouseRepository.findByClientIdOrderByCreatedAtDesc(clientId);
         }
-        return warehouseRepository.findByClientIdAndOrgIdOrGlobalOrderByCreatedAtDesc(clientId, TenantContext.getCurrentOrg());
+        return warehouseRepository.findByClientIdAndOrgIdOrGlobalOrderByCreatedAtDesc(clientId, effectiveOrgId);
+    }
+
+    public List<Warehouse> getWarehouses() {
+        return getWarehouses(null);
     }
 
     public Warehouse getWarehouse(UUID id) {
