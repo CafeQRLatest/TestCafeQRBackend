@@ -8,11 +8,25 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 public interface JournalEntryRepository extends JpaRepository<JournalEntry, UUID>, JpaSpecificationExecutor<JournalEntry> {
+
+    interface AccountMovementProjection {
+        UUID getAccountId();
+        BigDecimal getDebit();
+        BigDecimal getCredit();
+    }
+
+    interface PostedSourceProjection {
+        String getSourceType();
+        UUID getSourceId();
+    }
 
     Optional<JournalEntry> findByIdAndClientId(UUID id, UUID clientId);
 
@@ -44,6 +58,65 @@ public interface JournalEntryRepository extends JpaRepository<JournalEntry, UUID
             @Param("sourceType") String sourceType,
             @Param("sourceId") UUID sourceId,
             @Param("status") JournalStatus status);
+
+    @Query("""
+            SELECT l.accountId AS accountId,
+                   COALESCE(SUM(l.debit), 0) AS debit,
+                   COALESCE(SUM(l.credit), 0) AS credit
+            FROM JournalEntry j
+            JOIN j.lines l
+            WHERE j.clientId = :clientId
+              AND (:orgId IS NULL OR j.orgId = :orgId)
+              AND (:from IS NULL OR j.entryDate >= :from)
+              AND (:to IS NULL OR j.entryDate <= :to)
+              AND j.status = :status
+              AND COALESCE(UPPER(j.isactive), 'Y') <> 'N'
+            GROUP BY l.accountId
+            """)
+    List<AccountMovementProjection> sumLineMovements(
+            @Param("clientId") UUID clientId,
+            @Param("orgId") UUID orgId,
+            @Param("from") LocalDateTime from,
+            @Param("to") LocalDateTime to,
+            @Param("status") JournalStatus status);
+
+    @Query("""
+            SELECT COUNT(j.id)
+            FROM JournalEntry j
+            WHERE j.clientId = :clientId
+              AND (:orgId IS NULL OR j.orgId = :orgId)
+              AND (:from IS NULL OR j.entryDate >= :from)
+              AND (:to IS NULL OR j.entryDate <= :to)
+              AND j.status = :status
+              AND COALESCE(UPPER(j.isactive), 'Y') <> 'N'
+            """)
+    long countPostedActive(
+            @Param("clientId") UUID clientId,
+            @Param("orgId") UUID orgId,
+            @Param("from") LocalDateTime from,
+            @Param("to") LocalDateTime to,
+            @Param("status") JournalStatus status);
+
+    @Query("""
+            SELECT j.sourceType AS sourceType,
+                   j.sourceId AS sourceId
+            FROM JournalEntry j
+            WHERE j.clientId = :clientId
+              AND (:orgId IS NULL OR j.orgId = :orgId)
+              AND (:from IS NULL OR j.entryDate >= :from)
+              AND (:to IS NULL OR j.entryDate <= :to)
+              AND j.status = :status
+              AND COALESCE(UPPER(j.isactive), 'Y') <> 'N'
+              AND j.sourceId IS NOT NULL
+              AND j.sourceType IN :sourceTypes
+            """)
+    List<PostedSourceProjection> findPostedSources(
+            @Param("clientId") UUID clientId,
+            @Param("orgId") UUID orgId,
+            @Param("from") LocalDateTime from,
+            @Param("to") LocalDateTime to,
+            @Param("status") JournalStatus status,
+            @Param("sourceTypes") Set<String> sourceTypes);
 
     @Modifying
     @Query(value = "DELETE FROM journal_lines WHERE journal_entry_id IN (SELECT id FROM journal_entries WHERE client_id = :clientId AND org_id = :orgId)", nativeQuery = true)

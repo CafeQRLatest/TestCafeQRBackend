@@ -24,6 +24,8 @@ import com.restaurant.pos.order.repository.PaymentRepository;
 import com.restaurant.pos.order.repository.PaymentSplitRepository;
 import jakarta.persistence.criteria.Predicate;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
@@ -44,6 +46,7 @@ public class AccountingService {
 
     private static final int DEFAULT_REPORT_DAYS = 31;
     private static final int MAX_REPORT_DAYS = 366;
+    private static final int MAX_JOURNAL_ROWS = 500;
     private static final ZoneId IST = ZoneId.of("Asia/Kolkata");
     private static final Set<String> FINANCIAL_PAYMENT_METHODS = Set.of("CASH", "ONLINE", "UPI", "CARD", "BANK", "CHEQUE");
 
@@ -133,7 +136,8 @@ public class AccountingService {
         UUID clientId = requireTenant();
         UUID orgId = TenantContext.getCurrentOrg();
         Specification<JournalEntry> spec = journalSpec(clientId, orgId, range);
-        return journalEntryRepository.findAll(spec, journalSort(sortBy, sortDir));
+        Pageable page = PageRequest.of(0, MAX_JOURNAL_ROWS, journalSort(sortBy, sortDir));
+        return journalEntryRepository.findAll(spec, page).getContent();
     }
 
     @Transactional
@@ -222,19 +226,15 @@ public class AccountingService {
                         LinkedHashMap::new
                 ));
 
-        journalEntryRepository.findAll(journalSpec(clientId, orgId, range)).stream()
-                .filter(entry -> entry.getStatus() == JournalStatus.POSTED)
-                .flatMap(entry -> entry.getLines().stream())
-                .forEach(line -> {
-                    TrialBalanceRowDto row = rows.get(line.getAccountId());
+        accountMovements(clientId, orgId, range.from, range.to)
+                .forEach((accountId, movement) -> {
+                    TrialBalanceRowDto row = rows.get(accountId);
                     if (row == null) {
                         return;
                     }
-                    BigDecimal debit = row.getDebit().add(money(line.getDebit()));
-                    BigDecimal credit = row.getCredit().add(money(line.getCredit()));
-                    row.setDebit(debit);
-                    row.setCredit(credit);
-                    row.setBalance(debit.subtract(credit));
+                    row.setDebit(movement.debit());
+                    row.setCredit(movement.credit());
+                    row.setBalance(movement.debit().subtract(movement.credit()));
                 });
 
         List<TrialBalanceRowDto> result = new ArrayList<>(rows.values());
@@ -300,25 +300,21 @@ public class AccountingService {
         Map<UUID, AccountingAccount> accountsById = accounts.stream()
                 .collect(Collectors.toMap(AccountingAccount::getId, Function.identity(), (left, right) -> left));
 
-        journalEntryRepository.findAll(journalSpec(clientId, orgId, null, range.from.minusNanos(1))).stream()
-                .filter(this::isPostedActiveJournal)
-                .flatMap(entry -> entry.getLines().stream())
-                .forEach(line -> {
-                    AccountingAccount account = accountsById.get(line.getAccountId());
+        accountMovements(clientId, orgId, null, range.from.minusNanos(1))
+                .forEach((accountId, movement) -> {
+                    AccountingAccount account = accountsById.get(accountId);
                     if (account != null) {
-                        openingEffects.merge(account.getId(), accountBalanceEffect(account, money(line.getDebit()), money(line.getCredit())), BigDecimal::add);
+                        openingEffects.merge(account.getId(), accountBalanceEffect(account, movement.debit(), movement.credit()), BigDecimal::add);
                     }
                 });
 
-        journalEntryRepository.findAll(journalSpec(clientId, orgId, range.from, range.to)).stream()
-                .filter(this::isPostedActiveJournal)
-                .flatMap(entry -> entry.getLines().stream())
-                .forEach(line -> {
-                    if (!accountsById.containsKey(line.getAccountId())) {
+        accountMovements(clientId, orgId, range.from, range.to)
+                .forEach((accountId, movement) -> {
+                    if (!accountsById.containsKey(accountId)) {
                         return;
                     }
-                    periodDebits.merge(line.getAccountId(), money(line.getDebit()), BigDecimal::add);
-                    periodCredits.merge(line.getAccountId(), money(line.getCredit()), BigDecimal::add);
+                    periodDebits.merge(accountId, movement.debit(), BigDecimal::add);
+                    periodCredits.merge(accountId, movement.credit(), BigDecimal::add);
                 });
 
         List<AccountingAccountPeriodDto> list = accounts.stream()
@@ -448,9 +444,7 @@ public class AccountingService {
 
         Map<String, BigDecimal> paymentBreakdown = paymentBreakdown(clientId, orgId, range);
         BigDecimal paymentCollected = paymentBreakdown.values().stream().reduce(BigDecimal.ZERO, BigDecimal::add);
-        long transactions = journalEntryRepository.findAll(journalSpec(clientId, orgId, range)).stream()
-                .filter(this::isPostedActiveJournal)
-                .count();
+        long transactions = journalEntryRepository.countPostedActive(clientId, orgId, range.from, range.to, JournalStatus.POSTED);
 
         return AccountingSummaryDto.builder()
                 .from(range.from)
@@ -486,18 +480,22 @@ public class AccountingService {
         List<Order> salesOrders = findCompletedSaleOrdersInPeriod(clientId, orgId, range);
         List<Invoice> invoices = findInvoicesInPeriodIncludingOrderPeriod(clientId, orgId, range, salesOrders);
         List<Payment> payments = findPaymentsInPeriodIncludingOrderPeriod(clientId, orgId, range, salesOrders);
-        List<JournalEntry> entries = journalEntryRepository.findAll(journalSpec(clientId, orgId, range)).stream()
-                .filter(this::isPostedActiveJournal)
-                .toList();
+        Set<String> invoiceSourceTypes = Set.of(InvoiceType.CUSTOMER_INVOICE.name(), InvoiceType.VENDOR_BILL.name(), InvoiceType.EXPENSE_RECEIPT.name());
+        Set<String> paymentSourceTypes = Set.of("INBOUND_PAYMENT", "OUTBOUND_PAYMENT");
+        Set<String> trackedSourceTypes = new LinkedHashSet<>();
+        trackedSourceTypes.addAll(invoiceSourceTypes);
+        trackedSourceTypes.addAll(paymentSourceTypes);
+        List<JournalEntryRepository.PostedSourceProjection> postedSources =
+                journalEntryRepository.findPostedSources(clientId, orgId, range.from, range.to, JournalStatus.POSTED, trackedSourceTypes);
 
-        Set<UUID> postedInvoiceIds = entries.stream()
-                .filter(entry -> Set.of(InvoiceType.CUSTOMER_INVOICE.name(), InvoiceType.VENDOR_BILL.name(), InvoiceType.EXPENSE_RECEIPT.name()).contains(entry.getSourceType()))
-                .map(JournalEntry::getSourceId)
+        Set<UUID> postedInvoiceIds = postedSources.stream()
+                .filter(entry -> invoiceSourceTypes.contains(normalizeSourceType(entry.getSourceType())))
+                .map(JournalEntryRepository.PostedSourceProjection::getSourceId)
                 .filter(Objects::nonNull)
                 .collect(Collectors.toSet());
-        Set<UUID> postedPaymentIds = entries.stream()
-                .filter(entry -> "INBOUND_PAYMENT".equals(entry.getSourceType()) || "OUTBOUND_PAYMENT".equals(entry.getSourceType()))
-                .map(JournalEntry::getSourceId)
+        Set<UUID> postedPaymentIds = postedSources.stream()
+                .filter(entry -> paymentSourceTypes.contains(normalizeSourceType(entry.getSourceType())))
+                .map(JournalEntryRepository.PostedSourceProjection::getSourceId)
                 .filter(Objects::nonNull)
                 .collect(Collectors.toSet());
 
@@ -722,6 +720,17 @@ public class AccountingService {
             values.put(account.getId(), BigDecimal.ZERO);
         }
         return values;
+    }
+
+    private Map<UUID, AccountMovement> accountMovements(UUID clientId, UUID orgId, LocalDateTime from, LocalDateTime to) {
+        Map<UUID, AccountMovement> movements = new LinkedHashMap<>();
+        journalEntryRepository.sumLineMovements(clientId, orgId, from, to, JournalStatus.POSTED)
+                .forEach(row -> movements.put(row.getAccountId(), new AccountMovement(money(row.getDebit()), money(row.getCredit()))));
+        return movements;
+    }
+
+    private String normalizeSourceType(String sourceType) {
+        return sourceType == null ? "" : sourceType.trim().toUpperCase(Locale.ROOT);
     }
 
     private BigDecimal movement(Map<String, AccountingAccountPeriodDto> accountsBySystemKey, String systemKey) {
@@ -1019,5 +1028,8 @@ public class AccountingService {
             this.from = from;
             this.to = to;
         }
+    }
+
+    private record AccountMovement(BigDecimal debit, BigDecimal credit) {
     }
 }
