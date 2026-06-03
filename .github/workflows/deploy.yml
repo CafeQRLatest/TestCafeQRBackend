@@ -72,16 +72,10 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
+          timeout: 120s
           command_timeout: 15m
           script: |
             set -euo pipefail
             cd /home/cafeqr/app
-            git status --short
-            git pull --ff-only
-            if [ -n "$(git status --porcelain)" ]; then
-              echo "ERROR: VPS checkout still has local changes after pull. Move server-only values into .env/.env.frontend and clean tracked edits before deploying."
-              git status --short
-              exit 1
-            fi
             chmod +x scripts/hostinger/deploy.sh
-            PULL_REPO=false ./scripts/hostinger/deploy.sh backend
+            ./scripts/hostinger/deploy.sh backend
