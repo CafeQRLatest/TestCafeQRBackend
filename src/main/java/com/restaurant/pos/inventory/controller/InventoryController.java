@@ -40,6 +40,14 @@ public class InventoryController {
         return ResponseEntity.ok(ApiResponse.success(inventoryService.getStockOverview(warehouseId)));
     }
 
+    @GetMapping("/stock-overview")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
+    public ResponseEntity<ApiResponse<List<StockSnapshot>>> getConsolidatedStockOverview(
+            @RequestParam(required = false) UUID orgId,
+            @RequestParam(required = false) UUID warehouseId) {
+        return ResponseEntity.ok(ApiResponse.success(inventoryService.getConsolidatedStockOverview(orgId, warehouseId)));
+    }
+
     // --- Adjustments ---
 
     @GetMapping("/adjustments")

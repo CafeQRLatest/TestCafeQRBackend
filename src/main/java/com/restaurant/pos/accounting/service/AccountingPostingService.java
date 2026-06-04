@@ -235,6 +235,7 @@ public class AccountingPostingService {
     // NOT @Transactional: each item posts in its own independent transaction
     // to avoid statement timeout on free-tier databases during bulk backfill
     public AccountingBackfillResponse backfill(AccountingBackfillRequest request) {
+      try {
         DateRange range = boundedRange(
                 parseBackfillDateTime(request != null ? request.getFrom() : null),
                 parseBackfillDateTime(request != null ? request.getTo() : null)
@@ -243,6 +244,8 @@ public class AccountingPostingService {
         boolean dryRun = request != null && request.isDryRun();
         UUID clientId = requireClient();
         UUID orgId = TenantContext.getCurrentOrg();
+        log.info("backfill START | clientId={} | orgId={} | from={} | to={} | sources={} | dryRun={}",
+                clientId, orgId, range.from, range.to, sources, dryRun);
         AccountingBackfillResponse response = AccountingBackfillResponse.builder().dryRun(dryRun).build();
 
         List<Order> ordersInBusinessPeriod = List.of();
@@ -250,14 +253,18 @@ public class AccountingPostingService {
                 || sources.contains("PURCHASE")) {
             Instant fromInstant = range.from.atZone(IST).toInstant();
             Instant toInstant = range.to.atZone(IST).toInstant();
+            log.info("backfill loading orders | clientId={} | orgId={} | fromInstant={} | toInstant={}", clientId, orgId, fromInstant, toInstant);
             ordersInBusinessPeriod = orderRepository.findByClientIdAndOrgIdAndOrderDateBetweenOrderByOrderDateAsc(clientId, orgId, fromInstant, toInstant);
+            log.info("backfill loaded {} orders", ordersInBusinessPeriod.size());
         }
 
         List<Expense> expensesInBusinessPeriod = List.of();
         if (sources.contains("INVOICE") || sources.contains("PAYMENT") || sources.contains("EXPENSE")) {
             Instant fromInstant = range.from.atZone(IST).toInstant();
             Instant toInstant = range.to.atZone(IST).toInstant();
+            log.info("backfill loading expenses | clientId={} | orgId={} | fromInstant={} | toInstant={}", clientId, orgId, fromInstant, toInstant);
             expensesInBusinessPeriod = expenseRepository.findByClientIdAndOrgIdAndExpenseDateBetweenOrderByExpenseDateAsc(clientId, orgId, fromInstant, toInstant);
+            log.info("backfill loaded {} expenses", expensesInBusinessPeriod.size());
         }
 
         if (sources.contains("INVOICE")) {
@@ -397,6 +404,11 @@ public class AccountingPostingService {
         }
 
         return response;
+      } catch (Exception e) {
+          log.error("backfill FAILED | request={} | exception={} | message={}",
+                  request, e.getClass().getName(), e.getMessage(), e);
+          throw e;
+      }
     }
 
     // Safe cleanup: rebuild only auto-posted entries and preserve manual journals.
@@ -730,6 +742,9 @@ public class AccountingPostingService {
             TenantContext.setCurrentOrg(sourceOrgId);
             contextSwitched = true;
         }
+
+        final Exception[] originalException = new Exception[1];
+
         try {
             return inTransaction(() -> {
                 UUID clientId = requireClient();
@@ -760,12 +775,27 @@ public class AccountingPostingService {
                     return sourceType.endsWith("_REV") ? PostingOutcome.REVERSED : PostingOutcome.POSTED;
                 } catch (Exception ex) {
                     log.warn("Accounting posting failed | sourceType={} | sourceId={} | message={}", sourceType, sourceId, ex.getMessage());
+                    originalException[0] = ex;
                     markJobFailed(job, ex);
-                    return PostingOutcome.FAILED;
+                    throw ex instanceof RuntimeException ? (RuntimeException) ex : new RuntimeException(ex);
                 }
             });
         } catch (Exception ex) {
             log.error("Fatal transaction error during accounting posting | sourceType={} | sourceId={}", sourceType, sourceId, ex);
+
+            final Exception exToSave = originalException[0] != null ? originalException[0] : ex;
+
+            try {
+                inTransaction(() -> {
+                    UUID clientId = requireClient();
+                    UUID orgId = TenantContext.getCurrentOrg();
+                    AccountingPostingJob job = getOrCreatePostingJob(clientId, orgId, sourceType, sourceId);
+                    markJobFailed(job, exToSave);
+                    return null;
+                });
+            } catch (Exception writeEx) {
+                log.error("Failed to write failure status to posting job", writeEx);
+            }
             return PostingOutcome.FAILED;
         } finally {
             if (contextSwitched) {
@@ -1164,7 +1194,6 @@ public class AccountingPostingService {
         }
         return null;
     }
-
     private boolean alreadyPosted(String sourceType, UUID sourceId) {
         if (sourceType == null || sourceId == null) {
             return false;
@@ -1178,7 +1207,7 @@ public class AccountingPostingService {
         }
         UUID clientId = requireClient();
         UUID orgId = TenantContext.getCurrentOrg();
-        return journalEntryRepository.findActiveBySource(clientId, orgId, sourceType, sourceId, JournalStatus.POSTED)
+        return journalEntryRepository.findActiveBySourceWithLines(clientId, orgId, sourceType, sourceId, JournalStatus.POSTED)
                 .stream()
                 .findFirst();
     }
