@@ -237,6 +237,7 @@ public class AccountingPostingService {
     // NOT @Transactional: each item posts in its own independent transaction
     // to avoid statement timeout on free-tier databases during bulk backfill
     public AccountingBackfillResponse backfill(AccountingBackfillRequest request) {
+      try {
         DateRange range = boundedRange(
                 parseBackfillDateTime(request != null ? request.getFrom() : null),
                 parseBackfillDateTime(request != null ? request.getTo() : null)
@@ -245,6 +246,8 @@ public class AccountingPostingService {
         boolean dryRun = request != null && request.isDryRun();
         UUID clientId = requireClient();
         UUID orgId = TenantContext.getCurrentOrg();
+        log.info("backfill START | clientId={} | orgId={} | from={} | to={} | sources={} | dryRun={}",
+                clientId, orgId, range.from, range.to, sources, dryRun);
         AccountingBackfillResponse response = AccountingBackfillResponse.builder().dryRun(dryRun).build();
 
         List<Order> ordersInBusinessPeriod = List.of();
@@ -252,14 +255,18 @@ public class AccountingPostingService {
                 || sources.contains("PURCHASE")) {
             Instant fromInstant = range.from.atZone(IST).toInstant();
             Instant toInstant = range.to.atZone(IST).toInstant();
+            log.info("backfill loading orders | clientId={} | orgId={} | fromInstant={} | toInstant={}", clientId, orgId, fromInstant, toInstant);
             ordersInBusinessPeriod = orderRepository.findByClientIdAndOrgIdAndOrderDateBetweenOrderByOrderDateAsc(clientId, orgId, fromInstant, toInstant);
+            log.info("backfill loaded {} orders", ordersInBusinessPeriod.size());
         }
 
         List<Expense> expensesInBusinessPeriod = List.of();
         if (sources.contains("INVOICE") || sources.contains("PAYMENT") || sources.contains("EXPENSE")) {
             Instant fromInstant = range.from.atZone(IST).toInstant();
             Instant toInstant = range.to.atZone(IST).toInstant();
+            log.info("backfill loading expenses | clientId={} | orgId={} | fromInstant={} | toInstant={}", clientId, orgId, fromInstant, toInstant);
             expensesInBusinessPeriod = expenseRepository.findByClientIdAndOrgIdAndExpenseDateBetweenOrderByExpenseDateAsc(clientId, orgId, fromInstant, toInstant);
+            log.info("backfill loaded {} expenses", expensesInBusinessPeriod.size());
         }
 
         if (sources.contains("INVOICE")) {
@@ -399,6 +406,11 @@ public class AccountingPostingService {
         }
 
         return response;
+      } catch (Exception e) {
+          log.error("backfill FAILED | request={} | exception={} | message={}",
+                  request, e.getClass().getName(), e.getMessage(), e);
+          throw e;
+      }
     }
 
     // Safe cleanup: rebuild only auto-posted entries and preserve manual journals.
