@@ -1147,7 +1147,7 @@ public class AccountingPostingService {
         if (orderId == null) {
             return Optional.empty();
         }
-        return orderRepository.findById(orderId);
+        return orderRepository.findByIdWithLines(orderId);
     }
 
     private UUID resolvePaymentCustomerId(Order order, Payment payment) {
