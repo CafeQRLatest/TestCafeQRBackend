@@ -10,6 +10,7 @@ import com.restaurant.pos.inventory.repository.*;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import com.restaurant.pos.product.repository.ProductRepository;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -27,6 +28,7 @@ public class InventoryService {
     private final StockTransferRepository stockTransferRepository;
     private final AccountingPostingService accountingPostingService;
     private final BranchContextService branchContext;
+    private final ProductRepository productRepository;
 
     // --- Warehouse Management ---
 
@@ -127,8 +129,131 @@ public class InventoryService {
         stockLedgerRepository.save(ledger);
     }
 
+    @Transactional(readOnly = true)
     public List<StockSnapshot> getStockOverview(UUID warehouseId) {
-        return stockSnapshotRepository.findByWarehouseId(warehouseId);
+        List<StockSnapshot> snapshots = stockSnapshotRepository.findByWarehouseId(warehouseId);
+        Warehouse warehouse = warehouseRepository.findById(warehouseId).orElse(null);
+        if (warehouse == null) {
+            return snapshots;
+        }
+        return appendRecipeProductsStock(snapshots, warehouse.getClientId(), warehouse.getOrgId(), warehouseId, false);
+    }
+
+    @Transactional(readOnly = true)
+    public List<StockSnapshot> getConsolidatedStockOverview(UUID orgId, UUID warehouseId) {
+        UUID clientId = TenantContext.getCurrentTenant();
+        UUID effectiveOrgId = orgId != null ? orgId : TenantContext.getCurrentOrg();
+        
+        if (warehouseId != null) {
+            List<StockSnapshot> raw = stockSnapshotRepository.findByClientIdAndWarehouseId(clientId, warehouseId);
+            return appendRecipeProductsStock(raw, clientId, effectiveOrgId, warehouseId, false);
+        }
+        
+        List<StockSnapshot> rawSnapshots;
+        if (orgId != null) {
+            rawSnapshots = stockSnapshotRepository.findByClientIdAndOrgId(clientId, orgId);
+        } else {
+            rawSnapshots = stockSnapshotRepository.findByClientId(clientId);
+        }
+        
+        java.util.Map<String, StockSnapshot> consolidatedMap = new java.util.HashMap<>();
+        for (StockSnapshot snap : rawSnapshots) {
+            String key = snap.getProductId().toString() + "_" + (snap.getVariantId() != null ? snap.getVariantId().toString() : "null");
+            if (consolidatedMap.containsKey(key)) {
+                StockSnapshot existing = consolidatedMap.get(key);
+                existing.setCurrentQuantity(existing.getCurrentQuantity().add(snap.getCurrentQuantity()));
+            } else {
+                StockSnapshot copy = StockSnapshot.builder()
+                        .id(null)
+                        .clientId(snap.getClientId())
+                        .orgId(snap.getOrgId())
+                        .warehouseId(null)
+                        .productId(snap.getProductId())
+                        .variantId(snap.getVariantId())
+                        .currentQuantity(snap.getCurrentQuantity())
+                        .lastUpdated(snap.getLastUpdated())
+                        .build();
+                consolidatedMap.put(key, copy);
+            }
+        }
+        
+        List<StockSnapshot> consolidatedSnapshots = new java.util.ArrayList<>(consolidatedMap.values());
+        return appendRecipeProductsStock(consolidatedSnapshots, clientId, effectiveOrgId, null, true);
+    }
+
+    private List<StockSnapshot> appendRecipeProductsStock(List<StockSnapshot> snapshots, UUID clientId, UUID orgId, UUID warehouseId, boolean isConsolidated) {
+        List<StockSnapshot> resultList = new java.util.ArrayList<>(snapshots);
+        
+        // Map available stock of ingredients by productId
+        java.util.Map<UUID, BigDecimal> ingredientStockMap = new java.util.HashMap<>();
+        for (StockSnapshot snap : resultList) {
+            UUID prodId = snap.getProductId();
+            BigDecimal qty = snap.getCurrentQuantity();
+            if (prodId != null && qty != null) {
+                ingredientStockMap.merge(prodId, qty, BigDecimal::add);
+            }
+        }
+        
+        // Fetch all active products for the branch/client
+        List<com.restaurant.pos.product.domain.Product> products = productRepository.findByClientIdAndOrgIdOrGlobalAndIsActiveTrue(clientId, orgId);
+        
+        for (com.restaurant.pos.product.domain.Product p : products) {
+            if (p.getRecipeLines() != null && !p.getRecipeLines().isEmpty()) {
+                List<com.restaurant.pos.product.domain.ProductRecipe> activeLines = p.getRecipeLines().stream()
+                        .filter(com.restaurant.pos.product.domain.ProductRecipe::isActive)
+                        .collect(java.util.stream.Collectors.toList());
+                
+                if (activeLines.isEmpty()) {
+                    continue;
+                }
+                
+                BigDecimal minAvailable = null;
+                for (com.restaurant.pos.product.domain.ProductRecipe line : activeLines) {
+                    if (line.getIngredient() == null || line.getQuantity() == null || line.getQuantity().compareTo(BigDecimal.ZERO) <= 0) {
+                        continue;
+                    }
+                    
+                    UUID ingId = line.getIngredient().getId();
+                    BigDecimal ingStock = ingredientStockMap.getOrDefault(ingId, BigDecimal.ZERO);
+                    
+                    BigDecimal possible = ingStock.divide(line.getQuantity(), 3, java.math.RoundingMode.DOWN);
+                    if (minAvailable == null || possible.compareTo(minAvailable) < 0) {
+                        minAvailable = possible;
+                    }
+                }
+                
+                if (minAvailable == null || minAvailable.compareTo(BigDecimal.ZERO) < 0) {
+                    minAvailable = BigDecimal.ZERO;
+                }
+                
+                // If the product is already listed, overwrite its stock; otherwise, add virtual snapshot
+                boolean found = false;
+                for (StockSnapshot existing : resultList) {
+                    if (existing.getProductId().equals(p.getId())) {
+                        existing.setCurrentQuantity(minAvailable);
+                        existing.setLastUpdated(LocalDateTime.now());
+                        found = true;
+                        break;
+                    }
+                }
+                
+                if (!found) {
+                    StockSnapshot virtualSnap = StockSnapshot.builder()
+                            .id(null)
+                            .clientId(clientId)
+                            .orgId(orgId)
+                            .warehouseId(isConsolidated ? null : warehouseId)
+                            .productId(p.getId())
+                            .variantId(null)
+                            .currentQuantity(minAvailable)
+                            .lastUpdated(LocalDateTime.now())
+                            .build();
+                    resultList.add(virtualSnap);
+                }
+            }
+        }
+        
+        return resultList;
     }
 
     // --- Stock Adjustments ---

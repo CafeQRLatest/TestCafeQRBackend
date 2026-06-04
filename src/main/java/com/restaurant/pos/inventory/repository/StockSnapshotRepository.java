@@ -2,6 +2,8 @@ package com.restaurant.pos.inventory.repository;
 
 import com.restaurant.pos.inventory.domain.StockSnapshot;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import org.springframework.data.jpa.repository.Lock;
@@ -16,7 +18,15 @@ public interface StockSnapshotRepository extends JpaRepository<StockSnapshot, UU
     List<StockSnapshot> findByClientIdAndWarehouseId(UUID clientId, UUID warehouseId);
     
     @Lock(LockModeType.PESSIMISTIC_WRITE)
-    Optional<StockSnapshot> findByWarehouseIdAndProductIdAndVariantId(UUID warehouseId, UUID productId, UUID variantId);
+    @Query("SELECT s FROM StockSnapshot s WHERE s.warehouseId = :warehouseId AND s.productId = :productId AND ((:variantId IS NULL AND s.variantId IS NULL) OR s.variantId = :variantId)")
+    Optional<StockSnapshot> findByWarehouseIdAndProductIdAndVariantId(
+            @Param("warehouseId") UUID warehouseId, 
+            @Param("productId") UUID productId, 
+            @Param("variantId") UUID variantId);
     
     List<StockSnapshot> findByWarehouseId(UUID warehouseId);
+
+    List<StockSnapshot> findByClientId(UUID clientId);
+
+    List<StockSnapshot> findByClientIdAndOrgId(UUID clientId, UUID orgId);
 }
