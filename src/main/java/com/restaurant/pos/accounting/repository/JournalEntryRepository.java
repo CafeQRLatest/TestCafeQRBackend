@@ -5,6 +5,7 @@ import com.restaurant.pos.accounting.domain.JournalStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -53,6 +54,24 @@ public interface JournalEntryRepository extends JpaRepository<JournalEntry, UUID
             ORDER BY j.entry_date DESC
             """, nativeQuery = true)
     List<JournalEntry> findActiveBySource(
+            @Param("clientId") UUID clientId,
+            @Param("orgId") UUID orgId,
+            @Param("sourceType") String sourceType,
+            @Param("sourceId") UUID sourceId,
+            @Param("status") JournalStatus status);
+
+    @EntityGraph(attributePaths = {"lines"})
+    @Query("""
+            SELECT j FROM JournalEntry j
+            WHERE j.clientId = :clientId
+              AND (:orgId IS NULL OR j.orgId = :orgId)
+              AND j.sourceType = :sourceType
+              AND j.sourceId = :sourceId
+              AND j.status = :status
+              AND COALESCE(UPPER(j.isactive), 'Y') <> 'N'
+            ORDER BY j.entryDate DESC
+            """)
+    List<JournalEntry> findActiveBySourceWithLines(
             @Param("clientId") UUID clientId,
             @Param("orgId") UUID orgId,
             @Param("sourceType") String sourceType,

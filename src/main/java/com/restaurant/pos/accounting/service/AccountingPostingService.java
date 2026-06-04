@@ -1178,7 +1178,6 @@ public class AccountingPostingService {
         }
         return null;
     }
-
     private boolean alreadyPosted(String sourceType, UUID sourceId) {
         if (sourceType == null || sourceId == null) {
             return false;
@@ -1192,7 +1191,7 @@ public class AccountingPostingService {
         }
         UUID clientId = requireClient();
         UUID orgId = TenantContext.getCurrentOrg();
-        return journalEntryRepository.findActiveBySource(clientId, orgId, sourceType, sourceId, JournalStatus.POSTED)
+        return journalEntryRepository.findActiveBySourceWithLines(clientId, orgId, sourceType, sourceId, JournalStatus.POSTED)
                 .stream()
                 .findFirst();
     }
