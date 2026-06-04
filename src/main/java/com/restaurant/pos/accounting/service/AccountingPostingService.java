@@ -744,6 +744,9 @@ public class AccountingPostingService {
             TenantContext.setCurrentOrg(sourceOrgId);
             contextSwitched = true;
         }
+
+        final Exception[] originalException = new Exception[1];
+
         try {
             return inTransaction(() -> {
                 UUID clientId = requireClient();
@@ -774,12 +777,27 @@ public class AccountingPostingService {
                     return sourceType.endsWith("_REV") ? PostingOutcome.REVERSED : PostingOutcome.POSTED;
                 } catch (Exception ex) {
                     log.warn("Accounting posting failed | sourceType={} | sourceId={} | message={}", sourceType, sourceId, ex.getMessage());
+                    originalException[0] = ex;
                     markJobFailed(job, ex);
-                    return PostingOutcome.FAILED;
+                    throw ex instanceof RuntimeException ? (RuntimeException) ex : new RuntimeException(ex);
                 }
             });
         } catch (Exception ex) {
             log.error("Fatal transaction error during accounting posting | sourceType={} | sourceId={}", sourceType, sourceId, ex);
+
+            final Exception exToSave = originalException[0] != null ? originalException[0] : ex;
+
+            try {
+                inTransaction(() -> {
+                    UUID clientId = requireClient();
+                    UUID orgId = TenantContext.getCurrentOrg();
+                    AccountingPostingJob job = getOrCreatePostingJob(clientId, orgId, sourceType, sourceId);
+                    markJobFailed(job, exToSave);
+                    return null;
+                });
+            } catch (Exception writeEx) {
+                log.error("Failed to write failure status to posting job", writeEx);
+            }
             return PostingOutcome.FAILED;
         } finally {
             if (contextSwitched) {

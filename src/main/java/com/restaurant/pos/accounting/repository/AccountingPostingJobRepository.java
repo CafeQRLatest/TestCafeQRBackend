@@ -19,7 +19,6 @@ public interface AccountingPostingJobRepository extends JpaRepository<Accounting
     // Org-agnostic version: finds first posting job regardless of org_id value
     Optional<AccountingPostingJob> findFirstByClientIdAndSourceTypeAndSourceId(UUID clientId, String sourceType, UUID sourceId);
 
-    @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query(value = """
             SELECT * FROM accounting_posting_jobs j
             WHERE j.client_id = :clientId
