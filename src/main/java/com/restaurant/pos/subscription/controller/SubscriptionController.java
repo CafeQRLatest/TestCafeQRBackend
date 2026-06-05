@@ -42,6 +42,28 @@ public class SubscriptionController {
         return ResponseEntity.ok(ApiResponse.success(subscriptionService.activate(currentClientId(authentication), request)));
     }
 
+    @PostMapping("/api/v1/public/subscription/razorpay-callback-redirect/{clientId}")
+    public void razorpayCallbackRedirect(
+            @PathVariable UUID clientId,
+            @RequestParam("razorpay_order_id") String orderId,
+            @RequestParam("razorpay_payment_id") String paymentId,
+            @RequestParam("razorpay_signature") String signature,
+            @RequestParam("frontend_url") String frontendUrl,
+            jakarta.servlet.http.HttpServletResponse response) throws java.io.IOException {
+
+        SubscriptionActivationRequest request = new SubscriptionActivationRequest();
+        request.setRazorpayOrderId(orderId);
+        request.setRazorpayPaymentId(paymentId);
+        request.setRazorpaySignature(signature);
+
+        try {
+            subscriptionService.activate(clientId, request);
+            response.sendRedirect(frontendUrl + "?status=success&payment_id=" + paymentId);
+        } catch (Exception e) {
+            response.sendRedirect(frontendUrl + "?status=error&message=" + java.net.URLEncoder.encode(e.getMessage(), java.nio.charset.StandardCharsets.UTF_8));
+        }
+    }
+
     @PostMapping("/api/v1/public/subscription/webhook")
     public ResponseEntity<String> webhook(
             @RequestBody String rawBody,
