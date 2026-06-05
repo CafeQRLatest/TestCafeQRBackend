@@ -91,4 +91,14 @@ public class Client extends AuditableEntity {
     public void setActive(boolean active) {
         this.isactive = active ? "Y" : "N";
     }
+
+    public boolean isSubscriptionActive() {
+        if (!isActive()) {
+            return false;
+        }
+        java.time.LocalDateTime now = java.time.LocalDateTime.now();
+        String status = subscriptionStatus == null ? "EXPIRED" : subscriptionStatus.trim().toUpperCase();
+        boolean isTrialOrActive = "TRIAL".equals(status) || "ACTIVE".equals(status);
+        return isTrialOrActive && subscriptionExpiryDate != null && !subscriptionExpiryDate.isBefore(now);
+    }
 }
