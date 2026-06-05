@@ -507,6 +507,35 @@ public class ReportService {
 
         List<OrderCustomerDto> customers = linkedCustomers(order);
 
+        String voidReason = null;
+        if (invoice != null && "VOID".equalsIgnoreCase(invoice.getStatus())) {
+            String desc = invoice.getDescription();
+            if (desc != null) {
+                if (desc.startsWith("void: ")) {
+                    int pipeIdx = desc.indexOf(" | ");
+                    if (pipeIdx != -1) {
+                        voidReason = desc.substring(6, pipeIdx);
+                    } else {
+                        voidReason = desc.substring(6);
+                    }
+                } else {
+                    voidReason = desc;
+                }
+            }
+        }
+        if (voidReason == null && order != null && "CANCELLED".equalsIgnoreCase(order.getOrderStatus())) {
+            String desc = order.getDescription();
+            if (desc != null) {
+                if (desc.startsWith("Voided via invoice: ")) {
+                    voidReason = desc.substring("Voided via invoice: ".length());
+                } else if (desc.startsWith("Cancel reason: ")) {
+                    voidReason = desc.substring("Cancel reason: ".length());
+                } else {
+                    voidReason = desc;
+                }
+            }
+        }
+
         return SalesInvoiceReportDto.builder()
                 .id(id)
                 .orderId(orderId)
@@ -535,6 +564,7 @@ public class ReportService {
                 .invoiceDate(invoiceDate)
                 .createdAt(createdAt)
                 .voidable(invoice != null && !isVoidStatus(invoice.getStatus()) && !isVoidStatus(invoice.getDocStatus()))
+                .voidReason(voidReason)
                 .lines(toSalesInvoiceLines(order))
                 .build();
     }

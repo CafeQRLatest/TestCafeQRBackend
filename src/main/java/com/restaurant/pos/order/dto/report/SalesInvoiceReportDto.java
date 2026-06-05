@@ -45,6 +45,7 @@ public class SalesInvoiceReportDto {
     private LocalDateTime invoiceDate;
     private LocalDateTime createdAt;
     private boolean voidable;
+    private String voidReason;
     private List<LineDto> lines;
 
     @Data
