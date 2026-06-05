@@ -803,7 +803,7 @@ public class ReportService {
         LocalDateTime ldTo = to != null ? LocalDateTime.ofInstant(to, IST) : null;
 
         return invoiceRepository.findAll((root, query, cb) -> {
-            var predicates = new ArrayList<jakarta.persistence.Predicate>();
+            var predicates = new ArrayList<jakarta.persistence.criteria.Predicate>();
             predicates.add(cb.equal(root.get("clientId"), clientId));
             if (orgId != null) {
                 predicates.add(cb.equal(root.get("orgId"), orgId));
@@ -816,7 +816,7 @@ public class ReportService {
                 predicates.add(cb.lessThanOrEqualTo(root.get("invoiceDate"), ldTo));
             }
             query.orderBy(cb.desc(root.get("invoiceDate")));
-            return cb.and(predicates.toArray(new jakarta.persistence.Predicate[0]));
+            return cb.and(predicates.toArray(new jakarta.persistence.criteria.Predicate[0]));
         });
     }
 
@@ -825,7 +825,7 @@ public class ReportService {
         UUID orgId = reportOrgId();
 
         return orderRepository.findAll((root, query, cb) -> {
-            var predicates = new ArrayList<jakarta.persistence.Predicate>();
+            var predicates = new ArrayList<jakarta.persistence.criteria.Predicate>();
             predicates.add(cb.equal(root.get("clientId"), clientId));
             if (orgId != null) {
                 predicates.add(cb.equal(root.get("orgId"), orgId));
@@ -841,7 +841,7 @@ public class ReportService {
                 predicates.add(cb.lessThanOrEqualTo(root.get("orderDate"), to));
             }
             query.orderBy(cb.desc(root.get("orderDate")));
-            return cb.and(predicates.toArray(new jakarta.persistence.Predicate[0]));
+            return cb.and(predicates.toArray(new jakarta.persistence.criteria.Predicate[0]));
         });
     }
 
