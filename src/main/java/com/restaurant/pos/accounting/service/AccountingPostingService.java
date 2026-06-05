@@ -645,7 +645,7 @@ public class AccountingPostingService {
     }
 
     private boolean shouldRepairVoidedSalePayment(Order order, Payment payment) {
-        return isVoidedSaleOrder(order) && isActivePayment(payment);
+        return payment != null && isVoidedSaleOrder(order);
     }
 
     private boolean shouldRepairDiscountedSaleInvoice(Order order, Invoice invoice) {

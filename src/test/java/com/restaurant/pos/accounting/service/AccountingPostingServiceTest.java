@@ -6,6 +6,8 @@ import com.restaurant.pos.accounting.domain.AccountingPostingJob;
 import com.restaurant.pos.accounting.domain.JournalEntry;
 import com.restaurant.pos.accounting.domain.JournalLine;
 import com.restaurant.pos.accounting.domain.JournalStatus;
+import com.restaurant.pos.accounting.dto.AccountingBackfillRequest;
+import com.restaurant.pos.accounting.dto.AccountingBackfillResponse;
 import com.restaurant.pos.accounting.repository.AccountingAccountRepository;
 import com.restaurant.pos.accounting.repository.AccountingPostingJobRepository;
 import com.restaurant.pos.accounting.repository.JournalEntryRepository;
@@ -18,6 +20,8 @@ import com.restaurant.pos.invoice.repository.InvoiceRepository;
 import com.restaurant.pos.order.domain.Order;
 import com.restaurant.pos.order.domain.OrderLine;
 import com.restaurant.pos.order.domain.OrderType;
+import com.restaurant.pos.order.domain.Payment;
+import com.restaurant.pos.order.domain.PaymentType;
 import com.restaurant.pos.order.repository.OrderRepository;
 import com.restaurant.pos.order.repository.PaymentRepository;
 import com.restaurant.pos.order.repository.PaymentSplitRepository;
@@ -31,10 +35,12 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.SimpleTransactionStatus;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.lang.reflect.Method;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Supplier;
 
@@ -207,7 +213,7 @@ class AccountingPostingServiceTest {
         oldEntry.setClientId(clientId);
         oldEntry.setOrgId(orgId);
 
-        when(journalEntryRepository.findActiveBySource(clientId, orgId, "CUSTOMER_INVOICE", invoiceId, JournalStatus.POSTED))
+        when(journalEntryRepository.findActiveBySourceWithLines(clientId, orgId, "CUSTOMER_INVOICE", invoiceId, JournalStatus.POSTED))
                 .thenReturn(List.of(oldEntry));
         when(invoiceRepository.findById(invoiceId)).thenReturn(Optional.of(invoice));
         when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
@@ -313,6 +319,145 @@ class AccountingPostingServiceTest {
         assertThat(existingJob.getStatus()).isEqualTo("SKIPPED");
         assertThat(existingJob.getLastError()).isNull();
         verify(postingJobRepository, never()).insertIfAbsent(any(), any(), any(), any(), any(), any());
+
+        TenantContext.clear();
+    }
+
+    @Test
+    void backfillRepairsVoidedInactiveSalePaymentWithMissingReversal() {
+        UUID clientId = UUID.randomUUID();
+        UUID orgId = UUID.randomUUID();
+        UUID orderId = UUID.randomUUID();
+        UUID paymentId = UUID.randomUUID();
+        UUID originalJournalId = UUID.randomUUID();
+        TenantContext.setCurrentTenant(clientId);
+        TenantContext.setCurrentOrg(orgId);
+
+        AccountingService accountingService = mock(AccountingService.class);
+        AccountingAccountRepository accountRepository = mock(AccountingAccountRepository.class);
+        JournalEntryRepository journalEntryRepository = mock(JournalEntryRepository.class);
+        AccountingPostingJobRepository postingJobRepository = mock(AccountingPostingJobRepository.class);
+        OrderRepository orderRepository = mock(OrderRepository.class);
+        PaymentRepository paymentRepository = mock(PaymentRepository.class);
+        com.restaurant.pos.expense.repository.ExpenseRepository expenseRepository = mock(com.restaurant.pos.expense.repository.ExpenseRepository.class);
+        PlatformTransactionManager transactionManager = mock(PlatformTransactionManager.class);
+        when(transactionManager.getTransaction(any(TransactionDefinition.class))).thenReturn(new SimpleTransactionStatus());
+
+        AccountingAccount cash = account(AccountingDefaultsService.CASH, AccountType.ASSET);
+        AccountingAccount receivable = account(AccountingDefaultsService.ACCOUNTS_RECEIVABLE, AccountType.ASSET);
+        when(accountRepository.findByIdAndClientIdAndOrgId(cash.getId(), clientId, orgId)).thenReturn(Optional.of(cash));
+        when(accountRepository.findByIdAndClientIdAndOrgId(receivable.getId(), clientId, orgId)).thenReturn(Optional.of(receivable));
+
+        Order voidedOrder = Order.builder()
+                .id(orderId)
+                .orderType(OrderType.SALE)
+                .orderStatus("CANCELLED")
+                .paymentStatus("VOID")
+                .orderDate(Instant.parse("2026-06-06T01:00:00Z"))
+                .build();
+        voidedOrder.setClientId(clientId);
+        voidedOrder.setOrgId(orgId);
+
+        Payment inactiveVoidedPayment = Payment.builder()
+                .id(paymentId)
+                .orderId(orderId)
+                .paymentType(PaymentType.INBOUND)
+                .paymentMethod("CASH")
+                .amountPaid(new BigDecimal("105.00"))
+                .docStatus("VOIDED")
+                .isactive("N")
+                .paymentDate(LocalDateTime.parse("2026-06-06T06:30:00"))
+                .build();
+        inactiveVoidedPayment.setClientId(clientId);
+        inactiveVoidedPayment.setOrgId(orgId);
+
+        JournalEntry original = JournalEntry.builder()
+                .id(originalJournalId)
+                .entryNo("AUTO-INBOUND_PAYMENT-1")
+                .entryDate(LocalDateTime.parse("2026-06-06T06:30:00"))
+                .sourceType("INBOUND_PAYMENT")
+                .sourceId(paymentId)
+                .status(JournalStatus.POSTED)
+                .autoPosted(true)
+                .build();
+        original.setClientId(clientId);
+        original.setOrgId(orgId);
+        original.attachLine(JournalLine.builder()
+                .accountId(cash.getId())
+                .debit(new BigDecimal("105.00"))
+                .credit(BigDecimal.ZERO)
+                .description("Cash received")
+                .build());
+        original.attachLine(JournalLine.builder()
+                .accountId(receivable.getId())
+                .debit(BigDecimal.ZERO)
+                .credit(new BigDecimal("105.00"))
+                .description("Receivable settled")
+                .build());
+
+        when(orderRepository.findByClientIdAndOrgIdAndOrderDateBetweenOrderByOrderDateAsc(any(), any(), any(), any()))
+                .thenReturn(List.of(voidedOrder));
+        when(orderRepository.findByIdWithLines(orderId)).thenReturn(Optional.of(voidedOrder));
+        when(expenseRepository.findByClientIdAndOrgIdAndExpenseDateBetweenOrderByExpenseDateAsc(any(), any(), any(), any()))
+                .thenReturn(List.of());
+        when(paymentRepository.findByClientIdAndOrgIdAndPaymentDateBetweenOrderByPaymentDateAsc(any(), any(), any(), any()))
+                .thenReturn(List.of());
+        when(paymentRepository.findByOrderId(orderId)).thenReturn(List.of(inactiveVoidedPayment));
+        when(paymentRepository.findByExpenseId(any())).thenReturn(List.of());
+        when(journalEntryRepository.findActiveBySourceWithLines(clientId, orgId, "INBOUND_PAYMENT", paymentId, JournalStatus.POSTED))
+                .thenReturn(List.of(original));
+        when(journalEntryRepository.findActiveBySourceWithLines(clientId, orgId, "INBOUND_PAYMENT_REV", originalJournalId, JournalStatus.POSTED))
+                .thenReturn(List.of());
+        AccountingPostingJob reversalJob = AccountingPostingJob.builder()
+                .sourceType("INBOUND_PAYMENT_REV")
+                .sourceId(originalJournalId)
+                .status("PENDING")
+                .attemptCount(0)
+                .build();
+        reversalJob.setClientId(clientId);
+        reversalJob.setOrgId(orgId);
+        when(postingJobRepository.findLockedBySource(clientId, orgId, "INBOUND_PAYMENT_REV", originalJournalId))
+                .thenReturn(List.of(reversalJob));
+        when(accountingService.createJournalEntry(any(JournalEntry.class))).thenAnswer(invocation -> {
+            JournalEntry entry = invocation.getArgument(0);
+            entry.setId(UUID.randomUUID());
+            return entry;
+        });
+
+        AccountingPostingService service = new AccountingPostingService(
+                accountingService,
+                mock(AccountingDefaultsService.class),
+                accountRepository,
+                journalEntryRepository,
+                mock(PartyLedgerEntryRepository.class),
+                postingJobRepository,
+                orderRepository,
+                mock(InvoiceRepository.class),
+                paymentRepository,
+                mock(PaymentSplitRepository.class),
+                mock(ProductRepository.class),
+                mock(ExpenseCategoryRepository.class),
+                mock(StockAdjustmentRepository.class),
+                expenseRepository,
+                transactionManager
+        );
+        AccountingBackfillRequest request = new AccountingBackfillRequest();
+        request.setFrom("2026-06-06T00:00:00");
+        request.setTo("2026-06-06T23:59:59");
+        request.setSourceTypes(Set.of("PAYMENT"));
+
+        AccountingBackfillResponse response = service.backfill(request);
+
+        assertThat(response.getReversed()).isEqualTo(1);
+        ArgumentCaptor<JournalEntry> journalCaptor = ArgumentCaptor.forClass(JournalEntry.class);
+        verify(accountingService).createJournalEntry(journalCaptor.capture());
+        JournalEntry reversal = journalCaptor.getValue();
+        assertThat(reversal.getSourceType()).isEqualTo("INBOUND_PAYMENT_REV");
+        assertThat(reversal.getSourceId()).isEqualTo(originalJournalId);
+        assertThat(reversal.getReversalOfJournalEntryId()).isEqualTo(originalJournalId);
+        assertThat(debit(reversal, receivable)).isEqualByComparingTo("105.00");
+        assertThat(credit(reversal, cash)).isEqualByComparingTo("105.00");
+        verify(paymentRepository).save(inactiveVoidedPayment);
 
         TenantContext.clear();
     }
