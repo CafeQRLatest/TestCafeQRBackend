@@ -507,6 +507,35 @@ public class ReportService {
 
         List<OrderCustomerDto> customers = linkedCustomers(order);
 
+        String voidReason = null;
+        if (invoice != null && "VOID".equalsIgnoreCase(invoice.getStatus())) {
+            String desc = invoice.getDescription();
+            if (desc != null) {
+                if (desc.startsWith("void: ")) {
+                    int pipeIdx = desc.indexOf(" | ");
+                    if (pipeIdx != -1) {
+                        voidReason = desc.substring(6, pipeIdx);
+                    } else {
+                        voidReason = desc.substring(6);
+                    }
+                } else {
+                    voidReason = desc;
+                }
+            }
+        }
+        if (voidReason == null && order != null && "CANCELLED".equalsIgnoreCase(order.getOrderStatus())) {
+            String desc = order.getDescription();
+            if (desc != null) {
+                if (desc.startsWith("Voided via invoice: ")) {
+                    voidReason = desc.substring("Voided via invoice: ".length());
+                } else if (desc.startsWith("Cancel reason: ")) {
+                    voidReason = desc.substring("Cancel reason: ".length());
+                } else {
+                    voidReason = desc;
+                }
+            }
+        }
+
         return SalesInvoiceReportDto.builder()
                 .id(id)
                 .orderId(orderId)
@@ -535,6 +564,7 @@ public class ReportService {
                 .invoiceDate(invoiceDate)
                 .createdAt(createdAt)
                 .voidable(invoice != null && !isVoidStatus(invoice.getStatus()) && !isVoidStatus(invoice.getDocStatus()))
+                .voidReason(voidReason)
                 .lines(toSalesInvoiceLines(order))
                 .build();
     }
@@ -773,7 +803,7 @@ public class ReportService {
         LocalDateTime ldTo = to != null ? LocalDateTime.ofInstant(to, IST) : null;
 
         return invoiceRepository.findAll((root, query, cb) -> {
-            var predicates = new ArrayList<jakarta.persistence.criteria.Predicate>();
+            var predicates = new ArrayList<jakarta.persistence.Predicate>();
             predicates.add(cb.equal(root.get("clientId"), clientId));
             if (orgId != null) {
                 predicates.add(cb.equal(root.get("orgId"), orgId));
@@ -786,7 +816,7 @@ public class ReportService {
                 predicates.add(cb.lessThanOrEqualTo(root.get("invoiceDate"), ldTo));
             }
             query.orderBy(cb.desc(root.get("invoiceDate")));
-            return cb.and(predicates.toArray(new jakarta.persistence.criteria.Predicate[0]));
+            return cb.and(predicates.toArray(new jakarta.persistence.Predicate[0]));
         });
     }
 
@@ -795,7 +825,7 @@ public class ReportService {
         UUID orgId = reportOrgId();
 
         return orderRepository.findAll((root, query, cb) -> {
-            var predicates = new ArrayList<jakarta.persistence.criteria.Predicate>();
+            var predicates = new ArrayList<jakarta.persistence.Predicate>();
             predicates.add(cb.equal(root.get("clientId"), clientId));
             if (orgId != null) {
                 predicates.add(cb.equal(root.get("orgId"), orgId));
@@ -811,7 +841,7 @@ public class ReportService {
                 predicates.add(cb.lessThanOrEqualTo(root.get("orderDate"), to));
             }
             query.orderBy(cb.desc(root.get("orderDate")));
-            return cb.and(predicates.toArray(new jakarta.persistence.criteria.Predicate[0]));
+            return cb.and(predicates.toArray(new jakarta.persistence.Predicate[0]));
         });
     }
 
