@@ -12,6 +12,7 @@ import com.restaurant.pos.purchasing.domain.Customer;
 import com.restaurant.pos.purchasing.repository.CustomerRepository;
 import com.restaurant.pos.table.domain.RestaurantTable;
 import com.restaurant.pos.table.repository.RestaurantTableRepository;
+import com.restaurant.pos.common.exception.BusinessException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -48,6 +49,7 @@ public class PublicMenuController {
     public ResponseEntity<ApiResponse<List<Map<String, Object>>>> getMenu(
             @PathVariable UUID clientId,
             @PathVariable String orgId) {
+        validateSubscription(clientId);
 
         UUID orgUuid = (orgId == null || "null".equals(orgId)) ? null : UUID.fromString(orgId);
         List<Product> products = productRepository
@@ -83,6 +85,7 @@ public class PublicMenuController {
             @PathVariable UUID clientId,
             @PathVariable String orgId,
             @PathVariable UUID tableId) {
+        validateSubscription(clientId);
 
         UUID orgUuid = (orgId == null || "null".equals(orgId)) ? null : UUID.fromString(orgId);
         Optional<RestaurantTable> tableOpt = tableRepository.findById(tableId);
@@ -140,6 +143,7 @@ public class PublicMenuController {
             @PathVariable UUID clientId,
             @PathVariable String orgId,
             @RequestBody Map<String, Object> payload) {
+        validateSubscription(clientId);
 
         UUID orgUuid = (orgId == null || "null".equals(orgId)) ? null : UUID.fromString(orgId);
 
@@ -291,5 +295,14 @@ public class PublicMenuController {
                     .build());
             customerRepository.save(customer);
         });
+    }
+
+    private void validateSubscription(UUID clientId) {
+        if (clientId != null) {
+            com.restaurant.pos.client.domain.Client client = clientRepository.findById(clientId).orElse(null);
+            if (client == null || !client.isSubscriptionActive()) {
+                throw new BusinessException("The restaurant's subscription has expired. Online menu and ordering are currently unavailable.");
+            }
+        }
     }
 }
