@@ -176,7 +176,7 @@ public class CreditService {
                 .paymentDate(LocalDateTime.now())
                 .paymentMethod(paymentMethod)
                 .amountPaid(amount)
-                .referenceNo(sequenceService.generateNextSequence(DocumentType.INBOUND_PAYMENT))
+                .referenceNo(sequenceService.generateNextSequence(DocumentType.INBOUND_PAYMENT, orgId))
                 .description(resolvePaymentDescription(customer, request.getDescription()))
                 .build();
         payment.setClientId(clientId);
@@ -275,7 +275,11 @@ public class CreditService {
     }
 
     private void allocatePayment(CreditCustomer customer, Payment payment, CreditPaymentRequest request) {
-        String configuredMode = configurationService.getConfiguration().getCreditAllocationMode();
+        UUID orgId = customer.getOrgId() != null ? customer.getOrgId() : TenantContext.getCurrentOrg();
+        ConfigurationDto config = orgId != null 
+            ? configurationService.getEffectiveConfigurationForBranch(orgId) 
+            : configurationService.getConfiguration();
+        String configuredMode = config != null ? config.getCreditAllocationMode() : "OLDEST_FIRST";
         String requestedMode = request != null ? request.getAllocationMode() : null;
         String mode = requestedMode != null && !requestedMode.isBlank() ? requestedMode : configuredMode;
         mode = "MANUAL".equalsIgnoreCase(mode) ? "MANUAL" : "OLDEST_FIRST";

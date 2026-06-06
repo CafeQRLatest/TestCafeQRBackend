@@ -44,6 +44,11 @@ public class SystemConfigurationService {
             throw new BusinessException("Client context is required to update system configuration");
         }
 
+        UUID orgId = TenantContext.getCurrentOrg();
+        if (orgId != null) {
+            return updateBranchConfiguration(orgId, dto);
+        }
+
         SystemConfiguration config = getOrCreateTenantConfiguration(clientId);
 
         updateEntityFromDto(config, dto);
@@ -77,6 +82,26 @@ public class SystemConfigurationService {
         SystemConfiguration config = resolveConfiguration(clientId, orgId);
         ConfigurationDto dto = mapToDto(config);
         dto.setBranchOverride(config.getOrgId() != null);
+        return dto;
+    }
+
+    /**
+     * Returns the effective (resolved) configuration that a branch actually uses at runtime.
+     * Branch override is merged on top of client default — identical to what POS uses.
+     * Also sets branchOverride=true if a custom override row exists.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public ConfigurationDto getEffectiveConfigurationForBranch(UUID orgId) {
+        UUID clientId = TenantContext.getCurrentTenant();
+        if (clientId == null) {
+            throw new BusinessException("Client context is required");
+        }
+        // Check if a branch-specific row exists
+        boolean hasBranchOverride = repository.findFirstByClientIdAndOrgId(clientId, orgId).isPresent();
+        // resolveConfiguration already falls back to client default if no branch row
+        SystemConfiguration effective = resolveConfiguration(clientId, orgId);
+        ConfigurationDto dto = mapToDto(effective);
+        dto.setBranchOverride(hasBranchOverride);
         return dto;
     }
 

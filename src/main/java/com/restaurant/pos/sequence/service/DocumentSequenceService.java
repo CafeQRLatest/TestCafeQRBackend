@@ -51,7 +51,8 @@ public class DocumentSequenceService {
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public String generateNextSequence(DocumentType type, UUID orgId) {
         UUID clientId = TenantContext.getCurrentTenant();
-        return generateNextSequence(clientId, orgId, type);
+        UUID resolvedOrgId = branchContext.requireWriteOrgId(orgId);
+        return generateNextSequence(clientId, resolvedOrgId, type);
     }
 
     private String generateNextSequence(UUID clientId, UUID orgId, DocumentType type) {

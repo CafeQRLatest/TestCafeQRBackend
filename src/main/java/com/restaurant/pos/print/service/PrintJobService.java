@@ -10,6 +10,7 @@ import com.restaurant.pos.order.repository.OrderRepository;
 import com.restaurant.pos.print.domain.PrintJob;
 import com.restaurant.pos.print.domain.PrintJobKind;
 import com.restaurant.pos.print.domain.PrintJobStatus;
+import com.restaurant.pos.print.repository.PrintJobAttemptRepository;
 import com.restaurant.pos.print.repository.PrintJobRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -30,6 +31,7 @@ import java.util.UUID;
 public class PrintJobService {
 
     private final PrintJobRepository printJobRepository;
+    private final PrintJobAttemptRepository printJobAttemptRepository;
     private final OrderRepository orderRepository;
     private final ObjectMapper objectMapper;
 
@@ -104,7 +106,17 @@ public class PrintJobService {
                 clientId,
                 orderId,
                 parseKind(jobKind),
-                List.of(PrintJobStatus.PENDING, PrintJobStatus.CLAIMED, PrintJobStatus.RETRY, PrintJobStatus.FAILED)
+                List.of(
+                        PrintJobStatus.PENDING,
+                        PrintJobStatus.CLAIMED,
+                        PrintJobStatus.LEASED,
+                        PrintJobStatus.LOCAL_QUEUED,
+                        PrintJobStatus.SPOOLING,
+                        PrintJobStatus.RETRY,
+                        PrintJobStatus.RETRY_WAIT,
+                        PrintJobStatus.HELD_AMBIGUOUS,
+                        PrintJobStatus.FAILED
+                )
         );
 
         LocalDateTime now = LocalDateTime.now();
@@ -150,6 +162,46 @@ public class PrintJobService {
         } catch (Exception ex) {
             return Map.of();
         }
+    }
+
+    public Map<String, Object> describe(PrintJob job) {
+        Map<String, Object> dto = new LinkedHashMap<>();
+        dto.put("id", job.getId());
+        dto.put("orderId", job.getOrderId());
+        dto.put("offlineOperationId", job.getOfflineOperationId());
+        dto.put("sourceOperationId", job.getSourceOperationId());
+        dto.put("sourceTerminalId", job.getSourceTerminalId());
+        dto.put("targetTerminalId", job.getTargetTerminalId());
+        dto.put("claimedByTerminalId", job.getClaimedByTerminalId());
+        dto.put("leasedByStationId", job.getLeasedByStationId());
+        dto.put("leaseToken", job.getLeaseToken());
+        dto.put("leaseExpiresAt", job.getLeaseExpiresAt());
+        dto.put("jobKind", job.getJobKind() == null ? "bill" : job.getJobKind().name().toLowerCase());
+        dto.put("status", job.getStatus() == null ? "PENDING" : job.getStatus().name());
+        dto.put("attempts", job.getAttempts() == null ? 0 : job.getAttempts());
+        dto.put("errorMessage", job.getErrorMessage());
+        dto.put("failureCode", job.getFailureCode());
+        dto.put("spoolJobId", job.getSpoolJobId());
+        dto.put("printerProfileId", job.getPrinterProfileId());
+        dto.put("routeId", job.getRouteId());
+        dto.put("outputFormat", job.getOutputFormat());
+        dto.put("ambiguous", Boolean.TRUE.equals(job.getAmbiguous()));
+        dto.put("payload", payload(job));
+        dto.put("createdAt", job.getCreatedAt());
+        dto.put("updatedAt", job.getUpdatedAt());
+        dto.put("attemptHistory", printJobAttemptRepository.findAllByPrintJobIdOrderByCreatedAtAsc(job.getId()).stream()
+                .map(attempt -> {
+                    Map<String, Object> item = new LinkedHashMap<>();
+                    item.put("attempt", attempt.getAttemptNumber());
+                    item.put("status", attempt.getStatus());
+                    item.put("message", attempt.getMessage());
+                    item.put("failureCode", attempt.getFailureCode());
+                    item.put("spoolJobId", attempt.getSpoolJobId());
+                    item.put("createdAt", attempt.getCreatedAt());
+                    return item;
+                })
+                .toList());
+        return dto;
     }
 
     private PrintJob createJob(Order order, PrintJobKind kind, String reason, String dedupeKey, UUID clientId) {
@@ -281,6 +333,9 @@ public class PrintJobService {
         }
         if ("kot".equalsIgnoreCase(value)) {
             return PrintJobKind.KOT;
+        }
+        if ("invoice".equalsIgnoreCase(value)) {
+            return PrintJobKind.INVOICE;
         }
         return PrintJobKind.BILL;
     }

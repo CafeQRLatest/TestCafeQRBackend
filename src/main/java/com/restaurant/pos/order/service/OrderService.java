@@ -137,7 +137,11 @@ public class OrderService {
             );
             return requestedNumber;
         }
-        return sequenceService.generateNextSequence(documentType);
+        UUID orgId = order != null ? order.getOrgId() : null;
+        if (orgId == null) {
+            orgId = resolveOrderWriteOrgId(order);
+        }
+        return sequenceService.generateNextSequence(documentType, orgId);
     }
 
     private boolean isMainOfflineSync(Order order) {
@@ -383,7 +387,7 @@ public class OrderService {
             return;
         }
 
-        ensureCreditLedgerEnabled();
+        ensureCreditLedgerEnabled(order.getOrgId());
         CreditCustomer creditCustomer = creditCustomerRepository.findByIdAndClientId(creditCustomerId, order.getClientId())
                 .filter(customer -> !"N".equalsIgnoreCase(customer.getIsactive()))
                 .orElseThrow(() -> new ResourceNotFoundException("Credit customer not found"));
@@ -405,8 +409,10 @@ public class OrderService {
         }
     }
 
-    private void ensureCreditLedgerEnabled() {
-        ConfigurationDto config = configurationService.getConfiguration();
+    private void ensureCreditLedgerEnabled(UUID orgId) {
+        ConfigurationDto config = orgId != null 
+            ? configurationService.getEffectiveConfigurationForBranch(orgId) 
+            : configurationService.getConfiguration();
         if (config == null || !config.isCreditEnabled()) {
             throw new BusinessException("Credit Ledger is not enabled for this organization");
         }
@@ -1470,18 +1476,20 @@ public class OrderService {
         BigDecimal discountAmount = moneyValue(safeRequest.getDiscountAmount());
         BigDecimal roundOffAmount = moneyValue(safeRequest.getRoundOffAmount());
         BigDecimal currentTotal = moneyValue(order.getGrandTotal());
+        BigDecimal existingDiscount = moneyValue(order.getTotalDiscountAmount());
 
-        if (discountAmount.compareTo(BigDecimal.ZERO) > 0) {
-            order.setTotalDiscountAmount(moneyValue(order.getTotalDiscountAmount()).add(discountAmount));
+        BigDecimal additionalDiscount = discountAmount.subtract(existingDiscount);
+        if (additionalDiscount.compareTo(BigDecimal.ZERO) > 0) {
+            order.setTotalDiscountAmount(existingDiscount.add(additionalDiscount));
         }
 
-        BigDecimal payable = currentTotal.subtract(discountAmount).add(roundOffAmount);
+        BigDecimal payable = currentTotal.subtract(additionalDiscount.compareTo(BigDecimal.ZERO) > 0 ? additionalDiscount : BigDecimal.ZERO).add(roundOffAmount);
         if (payable.compareTo(BigDecimal.ZERO) < 0) {
             payable = BigDecimal.ZERO;
         }
         payable = payable.setScale(2, RoundingMode.HALF_UP);
 
-        if (discountAmount.compareTo(BigDecimal.ZERO) > 0 || roundOffAmount.compareTo(BigDecimal.ZERO) != 0) {
+        if (additionalDiscount.compareTo(BigDecimal.ZERO) > 0 || roundOffAmount.compareTo(BigDecimal.ZERO) != 0) {
             order.setGrandTotal(payable);
         }
 
@@ -1497,7 +1505,7 @@ public class OrderService {
         Order saved = orderRepository.save(order);
 
         // Fix: update existing invoice if discount/roundoff changed the total
-        if (discountAmount.compareTo(BigDecimal.ZERO) > 0 || roundOffAmount.compareTo(BigDecimal.ZERO) != 0) {
+        if (additionalDiscount.compareTo(BigDecimal.ZERO) > 0 || roundOffAmount.compareTo(BigDecimal.ZERO) != 0) {
             List<Invoice> existingInvoices = invoiceRepository.findByOrderId(saved.getId());
             for (Invoice existingInv : existingInvoices) {
                 if (!"VOID".equalsIgnoreCase(existingInv.getStatus())) {
@@ -1542,15 +1550,18 @@ public class OrderService {
         BigDecimal discountAmount = moneyValue(safeRequest.getDiscountAmount());
         BigDecimal roundOffAmount = moneyValue(safeRequest.getRoundOffAmount());
         BigDecimal currentTotal = moneyValue(order.getGrandTotal());
-        if (discountAmount.compareTo(BigDecimal.ZERO) > 0) {
-            order.setTotalDiscountAmount(moneyValue(order.getTotalDiscountAmount()).add(discountAmount));
+        BigDecimal existingDiscount = moneyValue(order.getTotalDiscountAmount());
+
+        BigDecimal additionalDiscount = discountAmount.subtract(existingDiscount);
+        if (additionalDiscount.compareTo(BigDecimal.ZERO) > 0) {
+            order.setTotalDiscountAmount(existingDiscount.add(additionalDiscount));
         }
-        BigDecimal payable = currentTotal.subtract(discountAmount).add(roundOffAmount);
+        BigDecimal payable = currentTotal.subtract(additionalDiscount.compareTo(BigDecimal.ZERO) > 0 ? additionalDiscount : BigDecimal.ZERO).add(roundOffAmount);
         if (payable.compareTo(BigDecimal.ZERO) < 0) {
             payable = BigDecimal.ZERO;
         }
         payable = payable.setScale(2, RoundingMode.HALF_UP);
-        if (discountAmount.compareTo(BigDecimal.ZERO) > 0 || roundOffAmount.compareTo(BigDecimal.ZERO) != 0) {
+        if (additionalDiscount.compareTo(BigDecimal.ZERO) > 0 || roundOffAmount.compareTo(BigDecimal.ZERO) != 0) {
             order.setGrandTotal(payable);
         }
 
@@ -1678,6 +1689,12 @@ public class OrderService {
             default -> InvoiceType.CUSTOMER_INVOICE;
         };
 
+        LocalDateTime invoiceDate = sourceBusinessDateTime(order);
+        LocalDateTime start = invoiceDate.toLocalDate().atStartOfDay();
+        LocalDateTime end = invoiceDate.toLocalDate().atTime(23, 59, 59, 999999999);
+        int maxNo = invoiceRepository.findMaxDailyBillNo(clientId, orgId, start, end);
+        int dailyBillNo = maxNo + 1;
+
         Invoice invoice = Invoice.builder()
             .invoiceType(invoiceType)
             .terminalId(order.getTerminalId())
@@ -1693,7 +1710,8 @@ public class OrderService {
             .creditCustomerId(Boolean.TRUE.equals(order.getIsCredit()) ? order.getCreditCustomerId() : null)
             .vendorId(order.getVendorId())
             .invoiceNo(invNo)
-            .invoiceDate(sourceBusinessDateTime(order))
+            .invoiceDate(invoiceDate)
+            .dailyBillNo(dailyBillNo)
             .totalAmount(order.getGrandTotal())
             .amountDue(order.getGrandTotal())
             .status("UNPAID")
