@@ -134,12 +134,14 @@ public class PrintConfigurationService {
         JsonNode root = objectMapper.valueToTree(settings);
         JsonNode profiles = root.path("profiles");
         Set<String> profileIds = new HashSet<>();
+        Map<String, JsonNode> profilesById = new LinkedHashMap<>();
         if (profiles.isArray()) {
             for (JsonNode profile : profiles) {
                 String id = profile.path("id").asText("").trim();
                 if (id.isEmpty() || !profileIds.add(id)) {
                     throw new BusinessException("Every printer profile must have a unique ID");
                 }
+                profilesById.put(id, profile);
                 String connection = profile.path("connectionType").asText("WINDOWS_QUEUE").toUpperCase();
                 if ("WINDOWS_QUEUE".equals(connection)
                         && profile.path("windowsPrinterName").asText("").isBlank()) {
@@ -155,6 +157,8 @@ public class PrintConfigurationService {
                 }
             }
         }
+
+        validateDefaultAssignments(root.path("defaults"), profilesById);
 
         Set<String> routeKeys = new HashSet<>();
         JsonNode routes = root.path("routes");
@@ -183,6 +187,87 @@ public class PrintConfigurationService {
                     + "|" + normalizedArray(route.path("orderTypes"));
             if (!routeKeys.add(key)) {
                 throw new BusinessException("Conflicting print routes use the same conditions and priority");
+            }
+        }
+    }
+
+    private void validateDefaultAssignments(JsonNode defaults, Map<String, JsonNode> profilesById) {
+        if (!defaults.isObject()) {
+            return;
+        }
+
+        validateOutput(defaults, "kotOutput", "KOT");
+        validateOutput(defaults, "billOutput", "Bill");
+        validateOutput(defaults, "invoiceOutput", "Invoice");
+        validateMode(defaults, "kotMode", "KOT");
+        validateMode(defaults, "billMode", "Bill");
+        validateMode(defaults, "invoiceMode", "Invoice");
+
+        validateAssignedProfiles(defaults.path("kotProfileIds"), "KOT", profilesById);
+        validateAssignedProfiles(defaults.path("billProfileIds"), "BILL", profilesById);
+        validateAssignedProfiles(defaults.path("invoiceProfileIds"), "INVOICE", profilesById);
+    }
+
+    private void validateOutput(JsonNode defaults, String key, String label) {
+        if (!defaults.has(key)) {
+            return;
+        }
+        String output = defaults.path(key).asText("").trim().toUpperCase();
+        if (!Set.of("THERMAL", "REGULAR", "BOTH").contains(output)) {
+            throw new BusinessException(label + " output must be THERMAL, REGULAR, or BOTH");
+        }
+    }
+
+    private void validateMode(JsonNode defaults, String key, String label) {
+        if (!defaults.has(key)) {
+            return;
+        }
+        String mode = defaults.path(key).asText("").trim().toUpperCase();
+        if (!Set.of("MIRROR", "FAILOVER").contains(mode)) {
+            throw new BusinessException(label + " default delivery mode must be MIRROR or FAILOVER");
+        }
+    }
+
+    private void validateAssignedProfiles(
+            JsonNode assignedProfileIds,
+            String documentType,
+            Map<String, JsonNode> profilesById
+    ) {
+        if (assignedProfileIds.isMissingNode() || assignedProfileIds.isNull()) {
+            return;
+        }
+        if (!assignedProfileIds.isArray()) {
+            throw new BusinessException(documentType + " default printer assignments must be a list");
+        }
+
+        Set<String> seen = new HashSet<>();
+        for (JsonNode assignedProfileId : assignedProfileIds) {
+            String profileId = assignedProfileId.asText("").trim();
+            if (profileId.isEmpty() || !seen.add(profileId)) {
+                throw new BusinessException(documentType + " default printer assignments contain an invalid profile");
+            }
+
+            JsonNode profile = profilesById.get(profileId);
+            if (profile == null) {
+                throw new BusinessException(documentType + " default printer references an unknown profile");
+            }
+            if (!profile.path("enabled").asBoolean(true)) {
+                throw new BusinessException(documentType + " default printer profile is disabled");
+            }
+
+            JsonNode documents = profile.path("documents");
+            if (documents.isArray() && !documents.isEmpty()) {
+                boolean compatible = false;
+                for (JsonNode document : documents) {
+                    if (documentType.equalsIgnoreCase(document.asText(""))) {
+                        compatible = true;
+                        break;
+                    }
+                }
+                if (!compatible) {
+                    throw new BusinessException(
+                            profile.path("name").asText(profileId) + " does not support " + documentType);
+                }
             }
         }
     }
