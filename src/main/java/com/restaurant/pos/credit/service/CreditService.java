@@ -176,7 +176,7 @@ public class CreditService {
                 .paymentDate(LocalDateTime.now())
                 .paymentMethod(paymentMethod)
                 .amountPaid(amount)
-                .referenceNo(sequenceService.generateNextSequence(DocumentType.INBOUND_PAYMENT))
+                .referenceNo(sequenceService.generateNextSequence(DocumentType.INBOUND_PAYMENT, orgId))
                 .description(resolvePaymentDescription(customer, request.getDescription()))
                 .build();
         payment.setClientId(clientId);
