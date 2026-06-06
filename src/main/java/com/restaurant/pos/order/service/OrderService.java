@@ -388,7 +388,7 @@ public class OrderService {
             return;
         }
 
-        ensureCreditLedgerEnabled();
+        ensureCreditLedgerEnabled(order.getOrgId());
         CreditCustomer creditCustomer = creditCustomerRepository.findByIdAndClientId(creditCustomerId, order.getClientId())
                 .filter(customer -> !"N".equalsIgnoreCase(customer.getIsactive()))
                 .orElseThrow(() -> new ResourceNotFoundException("Credit customer not found"));
@@ -410,8 +410,10 @@ public class OrderService {
         }
     }
 
-    private void ensureCreditLedgerEnabled() {
-        ConfigurationDto config = configurationService.getConfiguration();
+    private void ensureCreditLedgerEnabled(UUID orgId) {
+        ConfigurationDto config = orgId != null 
+            ? configurationService.getEffectiveConfigurationForBranch(orgId) 
+            : configurationService.getConfiguration();
         if (config == null || !config.isCreditEnabled()) {
             throw new BusinessException("Credit Ledger is not enabled for this organization");
         }
