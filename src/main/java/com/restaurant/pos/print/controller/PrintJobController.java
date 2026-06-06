@@ -12,7 +12,6 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.Map;
-import java.util.LinkedHashMap;
 import java.util.UUID;
 
 @RestController
@@ -80,20 +79,6 @@ public class PrintJobController {
     }
 
     private Map<String, Object> toDto(PrintJob job) {
-        Map<String, Object> dto = new LinkedHashMap<>();
-        dto.put("id", job.getId());
-        dto.put("orderId", job.getOrderId());
-        dto.put("offlineOperationId", job.getOfflineOperationId());
-        dto.put("sourceOperationId", job.getSourceOperationId());
-        dto.put("sourceTerminalId", job.getSourceTerminalId());
-        dto.put("claimedByTerminalId", job.getClaimedByTerminalId());
-        dto.put("jobKind", job.getJobKind() == null ? "bill" : job.getJobKind().name().toLowerCase());
-        dto.put("status", job.getStatus() == null ? "PENDING" : job.getStatus().name());
-        dto.put("attempts", job.getAttempts() == null ? 0 : job.getAttempts());
-        dto.put("errorMessage", job.getErrorMessage());
-        dto.put("payload", printJobService.payload(job));
-        dto.put("createdAt", job.getCreatedAt());
-        dto.put("updatedAt", job.getUpdatedAt());
-        return dto;
+        return printJobService.describe(job);
     }
 }

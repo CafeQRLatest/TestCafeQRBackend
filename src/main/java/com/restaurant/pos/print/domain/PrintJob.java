@@ -73,4 +73,35 @@ public class PrintJob extends BaseEntity {
 
     @Column(name = "next_attempt_at")
     private LocalDateTime nextAttemptAt;
+
+    @Column(name = "leased_by_station_id")
+    private UUID leasedByStationId;
+
+    @Column(name = "lease_token", length = 80)
+    private String leaseToken;
+
+    @Column(name = "lease_expires_at")
+    private LocalDateTime leaseExpiresAt;
+
+    @Column(name = "local_queued_at")
+    private LocalDateTime localQueuedAt;
+
+    @Column(name = "spool_job_id", length = 120)
+    private String spoolJobId;
+
+    @Column(name = "printer_profile_id", length = 120)
+    private String printerProfileId;
+
+    @Column(name = "route_id", length = 120)
+    private String routeId;
+
+    @Column(name = "output_format", length = 30)
+    private String outputFormat;
+
+    @Column(name = "failure_code", length = 80)
+    private String failureCode;
+
+    @Column(nullable = false)
+    @Builder.Default
+    private Boolean ambiguous = false;
 }
