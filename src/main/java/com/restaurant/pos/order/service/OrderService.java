@@ -201,10 +201,15 @@ public class OrderService {
             if (order == null || order.getOrderType() != OrderType.SALE || isMainOfflineSync(order)) {
                 return;
             }
-            if ("KITCHEN".equalsIgnoreCase(order.getOrderStatus()) || "CONFIRMED".equalsIgnoreCase(order.getOrderStatus())) {
+            String status = order.getOrderStatus();
+            if ("KITCHEN".equalsIgnoreCase(status) 
+                    || "CONFIRMED".equalsIgnoreCase(status) 
+                    || "IN_PROGRESS".equalsIgnoreCase(status) 
+                    || "READY".equalsIgnoreCase(status)) {
                 printJobService.enqueueForOrder(order, PrintJobKind.KOT, "auto");
-            } else if ("COMPLETED".equalsIgnoreCase(order.getOrderStatus())) {
+            } else if ("BILLED".equalsIgnoreCase(status)) {
                 printJobService.enqueueForOrder(order, PrintJobKind.BILL, "auto");
+                printJobService.enqueueForOrder(order, PrintJobKind.KOT, "auto");
             }
         } catch (Exception ex) {
             log.warn("Unable to enqueue cloud print job for order {}", order == null ? null : order.getId(), ex);
@@ -1477,7 +1482,9 @@ public class OrderService {
         Order saved = orderRepository.save(order);
         generateInvoice(saved);
         handleTableStatus(saved);
-        return hydrateOrder(saved);
+        Order hydrated = hydrateOrder(saved);
+        enqueueCloudPrintJobs(hydrated);
+        return hydrated;
     }
 
     @Transactional
