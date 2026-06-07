@@ -2,6 +2,7 @@ package com.restaurant.pos.invoice.domain;
 
 import com.restaurant.pos.common.entity.BaseEntity;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.restaurant.pos.order.domain.DiscountSource;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -106,6 +107,37 @@ public class Invoice extends BaseEntity {
 
     @Column(name = "amount_due", precision = 15, scale = 2, nullable = false)
     private BigDecimal amountDue;
+
+    // ─────────────────────────────────────────────────────────────
+    // GST Discount Engine Fields (V1_110 migration)
+    // NOTE: round_off_amount is intentionally NOT here — invoice is a
+    // GST document. Rounding must never modify GST document values.
+    // ─────────────────────────────────────────────────────────────
+
+    /** Pre-discount gross (sum of line gross_line_amount). */
+    @Column(name = "gross_amount", precision = 15, scale = 2)
+    private BigDecimal grossAmount;
+
+    /** Sum of line tax amounts at invoice time. */
+    @Column(name = "total_tax_amount", precision = 15, scale = 2)
+    private BigDecimal totalTaxAmount;
+
+    /** Total discount applied (line + order level, face value). */
+    @Column(name = "total_discount_amount", precision = 15, scale = 2)
+    private BigDecimal totalDiscountAmount;
+
+    /** Sum of line taxable_amount (taxable base after all discounts). */
+    @Column(name = "taxable_amount", precision = 15, scale = 2)
+    private BigDecimal taxableAmount;
+
+    /** Discount source — copied from order so it survives order archival. */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "discount_source", length = 30)
+    private DiscountSource discountSource;
+
+    /** Discount calculation algorithm version at invoice generation time. */
+    @Column(name = "discount_calculation_version", length = 30)
+    private String discountCalculationVersion;
 
     @Column(columnDefinition = "TEXT")
     private String description;

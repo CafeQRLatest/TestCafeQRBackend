@@ -92,6 +92,18 @@ public class CreateOrderRequest {
     @Schema(description = "Grand total payable", example = "118.00")
     private BigDecimal grandTotal;
 
+    @Schema(description = "Sum of gross_line_amount across all lines (pre-discount face total)", example = "200.00")
+    private BigDecimal grossAmount;
+
+    @Schema(description = "Order-level discount type entered by user: PERCENT or AMOUNT", example = "PERCENT")
+    private String orderDiscountType;
+
+    @Schema(description = "Order-level discount value entered by user (e.g. 10 for 10%, or 100.00 for flat discount)", example = "10")
+    private BigDecimal orderDiscountValue;
+
+    @Schema(description = "Originating source of this discount: MANUAL, QR, COUPON, PROMOTION, LOYALTY", example = "MANUAL")
+    private String discountSource;
+
     @NotEmpty(message = "Order lines must not be empty")
     @Valid
     @Schema(description = "List of order items/lines", requiredMode = Schema.RequiredMode.REQUIRED)
@@ -128,6 +140,38 @@ public class CreateOrderRequest {
 
         @Schema(description = "Calculated line total", example = "21.00")
         private BigDecimal lineTotal;
+
+        // ——— GST Enrichment Fields ———
+
+        @Schema(description = "qty × unit_price (face/MRP) before any discount", example = "50.00")
+        private BigDecimal grossLineAmount;
+
+        @Schema(description = "Base price excluding tax (MRP÷(1+rate/100) for inclusive; equals unit_price for exclusive)", example = "42.37")
+        private BigDecimal unitPriceExTax;
+
+        @Schema(description = "Taxable base after ALL discounts", example = "38.14")
+        private BigDecimal taxableAmount;
+
+        @Schema(description = "Tax type: INCLUSIVE | EXCLUSIVE | NONE", example = "EXCLUSIVE")
+        private String taxType;
+
+        @Schema(description = "Snapshot of the actual GST rate at bill time (e.g. 18.0)", example = "18.0")
+        private BigDecimal taxSnapshotRate;
+
+        @Schema(description = "Tax code at bill time, e.g. GST_18", example = "GST_18")
+        private String taxCode;
+
+        @Schema(description = "Human-readable tax label at bill time, e.g. GST 18%", example = "GST 18%")
+        private String taxName;
+
+        @Schema(description = "User-entered flat line discount (face value). Null if % based.", example = "5.00")
+        private BigDecimal manualDiscountAmount;
+
+        @Schema(description = "User-entered % line discount snapshot. Null if flat amount.", example = "10.0")
+        private BigDecimal manualDiscountPercent;
+
+        @Schema(description = "Order-level discount allocated to this line (base amount)", example = "4.23")
+        private BigDecimal allocatedOrderDiscount;
 
         @Schema(description = "Product name (for display/denormalization)")
         private String productName;

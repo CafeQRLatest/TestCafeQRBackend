@@ -111,7 +111,7 @@ public class PublicMenuController {
         // Attach brand color, name, and logo (Prefer Organization-specific, fallback to Client-global)
         UUID effectiveClientId = table.getClientId() != null ? table.getClientId() : clientId;
         UUID effectiveOrgId = table.getOrgId() != null ? table.getOrgId() : orgUuid;
-        info.put("onlinePaymentEnabled", systemConfigurationService.getConfigurationForClient(effectiveClientId).isOnlinePaymentEnabled());
+        info.put("onlinePaymentEnabled", systemConfigurationService.getConfigurationForClientAndBranch(effectiveClientId, effectiveOrgId).isOnlinePaymentEnabled());
 
         clientRepository.findById(effectiveClientId).ifPresent(client -> {
             info.put("brandColor", client.getBrandColor() != null ? client.getBrandColor() : "#f97316");

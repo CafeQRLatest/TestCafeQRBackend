@@ -9,6 +9,7 @@ import com.restaurant.pos.print.domain.PrintStation;
 import com.restaurant.pos.print.repository.PrintJobAttemptRepository;
 import com.restaurant.pos.print.repository.PrintJobRepository;
 import com.restaurant.pos.print.repository.PrintStationRepository;
+import com.restaurant.pos.print.exception.PrintStationAuthenticationException;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.data.domain.Pageable;
@@ -20,6 +21,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
@@ -96,6 +98,25 @@ class PrintStationServiceTest {
                         && attempt.getStatus().equals("LEASED")
                         && attempt.getAttemptNumber() == 2
         ));
+    }
+
+    @Test
+    void invalidStationTokenRequiresRepairing() {
+        PrintStationRepository stationRepository = mock(PrintStationRepository.class);
+        PrintStationService service = new PrintStationService(
+                stationRepository,
+                mock(PrintJobRepository.class),
+                mock(PrintJobAttemptRepository.class),
+                mock(TerminalRepository.class),
+                mock(PrintConfigurationService.class),
+                new ObjectMapper()
+        );
+        when(stationRepository.findByStationTokenHashAndIsactive(anyString(), eq("Y")))
+                .thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.authenticate("expired-token"))
+                .isInstanceOf(PrintStationAuthenticationException.class)
+                .hasMessage("Print station token is invalid");
     }
 
     private static String sha256(String value) throws Exception {
