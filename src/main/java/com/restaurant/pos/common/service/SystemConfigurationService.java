@@ -7,6 +7,8 @@ import com.restaurant.pos.common.repository.SystemConfigurationRepository;
 import com.restaurant.pos.common.tenant.TenantContext;
 import com.restaurant.pos.common.tenant.UserContext;
 import com.restaurant.pos.common.util.SecurityUtils;
+import com.restaurant.pos.client.repository.ClientRepository;
+import com.restaurant.pos.client.repository.OrganizationRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.core.type.TypeReference;
 import lombok.RequiredArgsConstructor;
@@ -26,6 +28,8 @@ public class SystemConfigurationService {
 
     private final SystemConfigurationRepository repository;
     private final ObjectMapper objectMapper;
+    private final ClientRepository clientRepository;
+    private final OrganizationRepository organizationRepository;
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public ConfigurationDto getConfiguration() {
@@ -275,7 +279,36 @@ public class SystemConfigurationService {
                 .build();
     }
 
+    private String resolveLogoUrl(UUID clientId, UUID orgId) {
+        String logoUrl = null;
+        if (clientId != null) {
+            var clientOpt = clientRepository.findById(clientId);
+            if (clientOpt.isPresent()) {
+                logoUrl = clientOpt.get().getLogoUrl();
+            }
+        }
+        if (orgId != null) {
+            var orgOpt = organizationRepository.findById(orgId);
+            if (orgOpt.isPresent() && orgOpt.get().getLogoUrl() != null && !orgOpt.get().getLogoUrl().isBlank()) {
+                logoUrl = orgOpt.get().getLogoUrl();
+            }
+        }
+        return logoUrl;
+    }
+
     private ConfigurationDto mapToDto(SystemConfiguration entity) {
+        UUID orgId = entity.getOrgId();
+        if (orgId == null) {
+            try {
+                orgId = SecurityUtils.isSuperAdmin()
+                        ? TenantContext.getCurrentOrg()
+                        : (UserContext.getContext() != null ? UserContext.getContext().getOrgId() : null);
+            } catch (Exception e) {
+                // Ignore context errors in background tasks or tests
+            }
+        }
+        String resolvedLogoUrl = resolveLogoUrl(entity.getClientId(), orgId);
+
         return ConfigurationDto.builder()
                 .onlinePaymentEnabled(entity.isOnlinePaymentEnabled())
                 .menuImagesEnabled(entity.isMenuImagesEnabled())
@@ -321,6 +354,7 @@ public class SystemConfigurationService {
                 .printAutoCut(entity.isPrintAutoCut())
                 .printWinListUrl(entity.getPrintWinListUrl())
                 .printWinPostUrl(entity.getPrintWinPostUrl())
+                .logoUrl(resolvedLogoUrl)
                 .build();
     }
 
