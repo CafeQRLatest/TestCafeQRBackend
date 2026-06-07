@@ -103,6 +103,21 @@ public class Payment extends BaseEntity {
     @Builder.Default
     private String docStatus = "COMPLETED";
 
+    // ─────────────────────────────────────────────────────────────
+    // GST Discount Engine Fields (V1_110 migration)
+    // Round-off lives HERE and only here.
+    // Invariant: amount_paid = invoice_total + round_off_amount
+    // Example:   2157.00    = 2156.97      + 0.03
+    // ─────────────────────────────────────────────────────────────
+
+    /** The grand_total from the linked invoice (pre-roundoff). */
+    @Column(name = "invoice_total", precision = 15, scale = 2)
+    private BigDecimal invoiceTotal;
+
+    /** Rounding adjustment applied at cash settlement (+ or −). UPI payments leave this null/zero. */
+    @Column(name = "round_off_amount", precision = 15, scale = 2)
+    private BigDecimal roundOffAmount;
+
     @Builder.Default
     @Column(name = "isactive", length = 1)
     private String isactive = "Y";

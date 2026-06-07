@@ -20,24 +20,38 @@ public class InvoiceService {
 
     private final InvoiceRepository invoiceRepository;
 
+    @Transactional(readOnly = true)
     public Invoice getInvoice(UUID id) {
         UUID tenantId = TenantContext.getCurrentTenant();
+        Invoice invoice;
         if (SecurityUtils.isSuperAdmin()) {
-            return invoiceRepository.findByIdAndClientId(id, tenantId)
+            invoice = invoiceRepository.findByIdAndClientId(id, tenantId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Invoice not found or access denied"));
+        } else {
+            invoice = invoiceRepository.findByIdAndClientIdAndOrgId(id, tenantId, TenantContext.getCurrentOrg())
                     .orElseThrow(() -> new ResourceNotFoundException("Invoice not found or access denied"));
         }
-        return invoiceRepository.findByIdAndClientIdAndOrgId(id, tenantId, TenantContext.getCurrentOrg())
-                .orElseThrow(() -> new ResourceNotFoundException("Invoice not found or access denied"));
+        if (invoice.getLines() != null) {
+            invoice.getLines().size();
+        }
+        return invoice;
     }
 
+    @Transactional(readOnly = true)
     public Invoice getInvoiceByOrder(UUID orderId) {
         UUID tenantId = TenantContext.getCurrentTenant();
+        Invoice invoice;
         if (SecurityUtils.isSuperAdmin()) {
-            return invoiceRepository.findByOrderIdAndClientId(orderId, tenantId)
+            invoice = invoiceRepository.findByOrderIdAndClientId(orderId, tenantId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Invoice not found for order or access denied"));
+        } else {
+            invoice = invoiceRepository.findByOrderIdAndClientIdAndOrgId(orderId, tenantId, TenantContext.getCurrentOrg())
                     .orElseThrow(() -> new ResourceNotFoundException("Invoice not found for order or access denied"));
         }
-        return invoiceRepository.findByOrderIdAndClientIdAndOrgId(orderId, tenantId, TenantContext.getCurrentOrg())
-                .orElseThrow(() -> new ResourceNotFoundException("Invoice not found for order or access denied"));
+        if (invoice.getLines() != null) {
+            invoice.getLines().size();
+        }
+        return invoice;
     }
 
     @Transactional

@@ -1,8 +1,11 @@
 package com.restaurant.pos.order.dto;
 
+import com.restaurant.pos.order.domain.DiscountEngineVersion;
+import com.restaurant.pos.order.domain.DiscountSource;
 import com.restaurant.pos.order.domain.Order;
 import com.restaurant.pos.order.domain.OrderLine;
 import com.restaurant.pos.order.domain.OrderType;
+import com.restaurant.pos.order.domain.TaxType;
 import com.restaurant.pos.purchasing.domain.PurchaseOrder;
 import org.springframework.stereotype.Component;
 
@@ -50,6 +53,10 @@ public class OrderDtoMapper {
                 .dailyBillNo(order.getDailyBillNo())
                 .paymentNo(order.getPaymentNo())
                 .paymentMethod(order.getPaymentMethod())
+                .grossAmount(order.getGrossAmount())
+                .orderDiscountType(order.getOrderDiscountType())
+                .orderDiscountValue(order.getOrderDiscountValue())
+                .discountSource(order.getDiscountSource() != null ? order.getDiscountSource().name() : null)
                 .lines(lines)
                 .build();
     }
@@ -69,7 +76,54 @@ public class OrderDtoMapper {
                 .taxAmount(line.getTaxAmount())
                 .discountAmount(line.getDiscountAmount())
                 .lineTotal(line.getLineTotal())
+                .grossLineAmount(line.getGrossLineAmount())
+                .unitPriceExTax(line.getUnitPriceExTax())
+                .taxableAmount(line.getTaxableAmount())
+                .taxType(line.getTaxType() != null ? line.getTaxType().name() : null)
+                .taxSnapshotRate(line.getTaxSnapshotRate())
+                .taxCode(line.getTaxCode())
+                .taxName(line.getTaxName())
+                .manualDiscountAmount(line.getManualDiscountAmount())
+                .manualDiscountPercent(line.getManualDiscountPercent())
+                .allocatedOrderDiscount(line.getAllocatedOrderDiscount())
                 .build();
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // Helper methods
+    // ─────────────────────────────────────────────────────────────
+
+    private TaxType parseTaxType(String s) {
+        if (s == null) return TaxType.NONE;
+        try { return TaxType.valueOf(s.toUpperCase()); }
+        catch (IllegalArgumentException e) { return TaxType.NONE; }
+    }
+
+    private DiscountSource parseDiscountSource(String s) {
+        if (s == null) return DiscountSource.MANUAL;
+        try { return DiscountSource.valueOf(s.toUpperCase()); }
+        catch (IllegalArgumentException e) { return DiscountSource.MANUAL; }
+    }
+
+    private void applyGstLineFields(OrderLine line, CreateOrderRequest.CreateOrderLineRequest lineReq) {
+        line.setGrossLineAmount(lineReq.getGrossLineAmount());
+        line.setUnitPriceExTax(lineReq.getUnitPriceExTax());
+        line.setTaxableAmount(lineReq.getTaxableAmount());
+        line.setTaxType(parseTaxType(lineReq.getTaxType()));
+        line.setTaxSnapshotRate(lineReq.getTaxSnapshotRate());
+        line.setTaxCode(lineReq.getTaxCode());
+        line.setTaxName(lineReq.getTaxName());
+        line.setManualDiscountAmount(lineReq.getManualDiscountAmount());
+        line.setManualDiscountPercent(lineReq.getManualDiscountPercent());
+        line.setAllocatedOrderDiscount(lineReq.getAllocatedOrderDiscount());
+    }
+
+    private void applyGstOrderFields(Order order, CreateOrderRequest request) {
+        if (request.getGrossAmount() != null)        order.setGrossAmount(request.getGrossAmount());
+        if (request.getOrderDiscountType() != null)  order.setOrderDiscountType(request.getOrderDiscountType());
+        if (request.getOrderDiscountValue() != null) order.setOrderDiscountValue(request.getOrderDiscountValue());
+        order.setDiscountSource(parseDiscountSource(request.getDiscountSource()));
+        order.setDiscountCalculationVersion(DiscountEngineVersion.CURRENT);
     }
 
     public Order toEntity(CreateOrderRequest request) {
@@ -133,9 +187,11 @@ public class OrderDtoMapper {
                 line.setTaxAmount(lineReq.getTaxAmount());
                 line.setDiscountAmount(lineReq.getDiscountAmount());
                 line.setLineTotal(lineReq.getLineTotal());
+                applyGstLineFields(line, lineReq);
                 order.addLine(line);
             }
         }
+        applyGstOrderFields(order, request);
         return order;
     }
 
@@ -191,6 +247,7 @@ public class OrderDtoMapper {
                 line.setTaxAmount(lineReq.getTaxAmount());
                 line.setDiscountAmount(lineReq.getDiscountAmount());
                 line.setLineTotal(lineReq.getLineTotal());
+                applyGstLineFields(line, lineReq);
                 existing.addLine(line);
             }
         }
@@ -240,6 +297,7 @@ public class OrderDtoMapper {
                 line.setTaxAmount(lineReq.getTaxAmount());
                 line.setDiscountAmount(lineReq.getDiscountAmount());
                 line.setLineTotal(lineReq.getLineTotal());
+                applyGstLineFields(line, lineReq);
                 order.addLine(line);
             }
         }

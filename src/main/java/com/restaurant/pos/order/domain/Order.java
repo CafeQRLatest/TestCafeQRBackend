@@ -159,6 +159,35 @@ public class Order extends BaseEntity {
     @Column(name = "grand_total", precision = 15, scale = 2)
     private BigDecimal grandTotal = BigDecimal.ZERO;
 
+    // ─────────────────────────────────────────────────────────────
+    // GST Discount Engine Fields (V1_110 migration)
+    // NOTE: round_off_amount is intentionally NOT here — it lives
+    // on Payment. The same order can be paid by UPI (no round-off)
+    // or Cash (round-off). Order must stay neutral.
+    // ─────────────────────────────────────────────────────────────
+
+    /** Sum of gross_line_amount across all lines (pre-discount face total). */
+    @Builder.Default
+    @Column(name = "gross_amount", precision = 15, scale = 2)
+    private BigDecimal grossAmount = BigDecimal.ZERO;
+
+    /** PERCENT or AMOUNT — reconstructs what the user actually typed. */
+    @Column(name = "order_discount_type", length = 10)
+    private String orderDiscountType;
+
+    /** The raw discount value entered by the user (e.g. 10 for 10%, or 100.00 for flat ₹100). */
+    @Column(name = "order_discount_value", precision = 15, scale = 2)
+    private BigDecimal orderDiscountValue;
+
+    /** Originating source of this discount — MANUAL, QR, COUPON, PROMOTION, LOYALTY. */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "discount_source", length = 30)
+    private DiscountSource discountSource;
+
+    /** Discount calculation algorithm version stamped at order creation time. */
+    @Column(name = "discount_calculation_version", length = 30)
+    private String discountCalculationVersion;
+
     @Column(columnDefinition = "TEXT")
     private String description;
 
