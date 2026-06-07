@@ -7,6 +7,9 @@ import com.restaurant.pos.common.exception.BusinessException;
 import com.restaurant.pos.common.tenant.TenantContext;
 import com.restaurant.pos.print.domain.PrintConfiguration;
 import com.restaurant.pos.print.dto.PrintConfigurationRequest;
+import com.restaurant.pos.print.dto.PrintStationConfigurationRequest;
+import com.restaurant.pos.print.domain.PrintStation;
+import com.restaurant.pos.print.exception.PrintConfigurationConflictException;
 import com.restaurant.pos.print.repository.PrintConfigurationRepository;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -19,6 +22,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.when;
 
 class PrintConfigurationServiceTest {
@@ -132,6 +136,79 @@ class PrintConfigurationServiceTest {
                 .hasMessage("Receipt does not support KOT");
     }
 
+    @Test
+    void stationSyncPersistsTerminalConfigurationWithLocalRevision() {
+        PrintConfigurationRepository repository = mock(PrintConfigurationRepository.class);
+        PrintConfigurationService service = new PrintConfigurationService(
+                repository, mock(TerminalRepository.class), new ObjectMapper());
+        UUID stationId = UUID.randomUUID();
+        PrintStation station = PrintStation.builder()
+                .id(stationId)
+                .terminalId(terminalId)
+                .name("POS Print Station")
+                .build();
+        station.setClientId(clientId);
+        station.setOrgId(orgId);
+        PrintStationConfigurationRequest request = stationRequest(7L, 0);
+
+        service.syncForStation(station, request);
+
+        verify(repository).save(org.mockito.ArgumentMatchers.argThat(entity ->
+                entity.getScopeType().equals(PrintConfigurationService.TERMINAL)
+                        && terminalId.equals(entity.getScopeId())
+                        && stationId.equals(entity.getSourceStationId())
+                        && Long.valueOf(7L).equals(entity.getSourceLocalRevision())
+                        && entity.getSettingsJson().contains("POS58 Printer")));
+    }
+
+    @Test
+    void stationSyncIsIdempotentForAlreadyAppliedLocalRevision() {
+        PrintConfigurationRepository repository = mock(PrintConfigurationRepository.class);
+        PrintConfigurationService service = new PrintConfigurationService(
+                repository, mock(TerminalRepository.class), new ObjectMapper());
+        UUID stationId = UUID.randomUUID();
+        PrintStation station = PrintStation.builder()
+                .id(stationId)
+                .terminalId(terminalId)
+                .name("POS Print Station")
+                .build();
+        station.setClientId(clientId);
+        station.setOrgId(orgId);
+        PrintConfiguration existing = layer(PrintConfigurationService.TERMINAL, terminalId, "{}");
+        existing.setSourceStationId(stationId);
+        existing.setSourceLocalRevision(9L);
+        when(repository.findByClientIdAndScopeTypeAndScopeId(
+                clientId, PrintConfigurationService.TERMINAL, terminalId))
+                .thenReturn(Optional.of(existing));
+
+        service.syncForStation(station, stationRequest(9L, 1));
+
+        verify(repository, never()).save(org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void stationSyncRejectsStaleCloudRevision() {
+        PrintConfigurationRepository repository = mock(PrintConfigurationRepository.class);
+        PrintConfigurationService service = new PrintConfigurationService(
+                repository, mock(TerminalRepository.class), new ObjectMapper());
+        PrintStation station = PrintStation.builder()
+                .id(UUID.randomUUID())
+                .terminalId(terminalId)
+                .name("POS Print Station")
+                .build();
+        station.setClientId(clientId);
+        station.setOrgId(orgId);
+        PrintConfiguration existing = layer(PrintConfigurationService.TERMINAL, terminalId, "{}");
+        existing.setRevision(5);
+        when(repository.findByClientIdAndScopeTypeAndScopeId(
+                clientId, PrintConfigurationService.TERMINAL, terminalId))
+                .thenReturn(Optional.of(existing));
+
+        assertThatThrownBy(() -> service.syncForStation(station, stationRequest(10L, 4)))
+                .isInstanceOf(PrintConfigurationConflictException.class)
+                .hasMessageContaining("Local printing remains active");
+    }
+
     private PrintConfigurationService serviceWithTenant() {
         TenantContext.setCurrentTenant(clientId);
         return new PrintConfigurationService(
@@ -144,6 +221,19 @@ class PrintConfigurationServiceTest {
         PrintConfigurationRequest request = new PrintConfigurationRequest();
         request.setScopeType(PrintConfigurationService.CLIENT);
         request.setSettings(settings);
+        return request;
+    }
+
+    private PrintStationConfigurationRequest stationRequest(long localRevision, int cloudRevision) {
+        PrintStationConfigurationRequest request = new PrintStationConfigurationRequest();
+        request.setLocalRevision(localRevision);
+        request.setCloudRevision(cloudRevision);
+        request.setSettings(Map.of(
+                "profiles", java.util.List.of(
+                        profile("receipt", "Receipt", java.util.List.of("BILL", "INVOICE", "KOT"))),
+                "routes", java.util.List.of(),
+                "defaults", Map.of()
+        ));
         return request;
     }
 

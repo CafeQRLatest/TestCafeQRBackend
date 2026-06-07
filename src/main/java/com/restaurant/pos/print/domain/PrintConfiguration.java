@@ -32,4 +32,10 @@ public class PrintConfiguration extends BaseEntity {
     @Column(name = "settings_json", nullable = false, columnDefinition = "TEXT")
     @Builder.Default
     private String settingsJson = "{}";
+
+    @Column(name = "source_station_id")
+    private UUID sourceStationId;
+
+    @Column(name = "source_local_revision")
+    private Long sourceLocalRevision;
 }

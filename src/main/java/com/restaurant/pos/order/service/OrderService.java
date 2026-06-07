@@ -23,6 +23,7 @@ import com.restaurant.pos.order.domain.PaymentStatus;
 import com.restaurant.pos.order.domain.Payment;
 import com.restaurant.pos.order.domain.PaymentSplit;
 import com.restaurant.pos.order.domain.PaymentType;
+import com.restaurant.pos.order.domain.DiscountEngineVersion;
 import com.restaurant.pos.order.dto.OrderCancelRequest;
 import com.restaurant.pos.order.dto.OrderCreditCompletionRequest;
 import com.restaurant.pos.order.dto.OrderCustomerDto;
@@ -722,6 +723,8 @@ public class OrderService {
                 .totalTaxAmount(hydrated.getTotalTaxAmount())
                 .totalDiscountAmount(hydrated.getTotalDiscountAmount())
                 .grandTotal(hydrated.getGrandTotal())
+                .grossAmount(hydrated.getGrossAmount())
+                .discountCalculationVersion(hydrated.getDiscountCalculationVersion())
                 .orderDate(hydrated.getOrderDate())
                 .createdAt(hydrated.getCreatedAt())
                 .updatedAt(hydrated.getUpdatedAt())
@@ -756,6 +759,17 @@ public class OrderService {
                         .taxAmount(line.getTaxAmount())
                         .discountAmount(line.getDiscountAmount())
                         .lineTotal(line.getLineTotal())
+                        // GST Enrichment Fields (V1_110)
+                        .grossLineAmount(line.getGrossLineAmount())
+                        .unitPriceExTax(line.getUnitPriceExTax())
+                        .taxableAmount(line.getTaxableAmount())
+                        .taxType(line.getTaxType())
+                        .taxSnapshotRate(line.getTaxSnapshotRate())
+                        .taxCode(line.getTaxCode())
+                        .taxName(line.getTaxName())
+                        .manualDiscountAmount(line.getManualDiscountAmount())
+                        .manualDiscountPercent(line.getManualDiscountPercent())
+                        .allocatedOrderDiscount(line.getAllocatedOrderDiscount())
                         .build())
                 .toList();
     }
@@ -1125,6 +1139,9 @@ public class OrderService {
             if (order.getLines() != null) {
                 order.getLines().forEach(line -> line.setOrder(order));
             }
+
+            diagnosticPhase = "validate_gst_fields";
+            validateGstFields(order);
 
             diagnosticPhase = "hydrate_order_inputs";
             hydrateOrderLines(order);
@@ -1521,8 +1538,21 @@ public class OrderService {
         BigDecimal amountPaid = safeRequest.getAmountPaid() != null
                 ? moneyValue(safeRequest.getAmountPaid())
                 : payable;
+        BigDecimal settleRoundOff = moneyValue(safeRequest.getRoundOffAmount());
+
+        // Validate payment invariant: amount_paid = invoice_total + round_off_amount
+        List<Invoice> invoicesForValidation = invoiceRepository.findByOrderId(saved.getId());
+        Invoice linkedInvoice = invoicesForValidation.stream()
+            .filter(i -> !"VOID".equalsIgnoreCase(i.getStatus()))
+            .findFirst().orElse(null);
+        BigDecimal invoiceTotal = linkedInvoice != null
+            ? moneyValue(linkedInvoice.getTotalAmount())
+            : moneyValue(saved.getGrandTotal());
+        validatePaymentInvariant(invoiceTotal, settleRoundOff, amountPaid);
+
         generatePayment(saved, paymentMethod, null, amountPaid, settlementDescription,
-                safeRequest.getCashAmount(), safeRequest.getOnlineAmount(), safeRequest.getPaymentSplits());
+                safeRequest.getCashAmount(), safeRequest.getOnlineAmount(), safeRequest.getPaymentSplits(),
+                settleRoundOff);
         accountingPostingService.postSaleCogs(saved);
 
         handleTableStatus(saved);
@@ -1718,6 +1748,13 @@ public class OrderService {
             .isPaid(false)
             .isCredit(Boolean.TRUE.equals(order.getIsCredit()))
             .originalInvoiceId(originalInvoiceId)
+            // GST Discount Engine fields (V1_110)
+            .grossAmount(order.getGrossAmount())
+            .totalTaxAmount(order.getTotalTaxAmount())
+            .totalDiscountAmount(order.getTotalDiscountAmount())
+            .taxableAmount(computeTaxableSum(order.getLines()))
+            .discountSource(order.getDiscountSource())
+            .discountCalculationVersion(DiscountEngineVersion.CURRENT)
             .build();
             
         invoice.setClientId(clientId);
@@ -1742,6 +1779,17 @@ public class OrderService {
                     .isactive(ol.getIsactive())
                     .createdBy(ol.getCreatedBy())
                     .updatedBy(ol.getUpdatedBy())
+                    // GST Enrichment snapshot (V1_110) — immutable; reuse for credit notes
+                    .grossLineAmount(ol.getGrossLineAmount())
+                    .unitPriceExTax(ol.getUnitPriceExTax())
+                    .taxableAmount(ol.getTaxableAmount())
+                    .taxType(ol.getTaxType())
+                    .taxSnapshotRate(ol.getTaxSnapshotRate())
+                    .taxCode(ol.getTaxCode())
+                    .taxName(ol.getTaxName())
+                    .manualDiscountAmount(ol.getManualDiscountAmount())
+                    .manualDiscountPercent(ol.getManualDiscountPercent())
+                    .allocatedOrderDiscount(ol.getAllocatedOrderDiscount())
                     .build();
                 invoice.addLine(il);
             }
@@ -1778,10 +1826,27 @@ public class OrderService {
         generatePayment(order, paymentMethod, requestedPaymentNo, amountPaid, description, cashAmount, onlineAmount, null);
     }
 
+    /** Overload that also records the round-off amount on the payment (cash settlement use-case). */
+    @Transactional
+    public void generatePayment(Order order, String paymentMethod, String requestedPaymentNo, BigDecimal amountPaid, String description,
+                                BigDecimal cashAmount, BigDecimal onlineAmount,
+                                List<OrderSettleRequest.PaymentSplitRequest> paymentSplits,
+                                BigDecimal roundOffAmount) {
+        generatePaymentInternal(order, paymentMethod, requestedPaymentNo, amountPaid, description, cashAmount, onlineAmount, paymentSplits, roundOffAmount);
+    }
+
     @Transactional
     public void generatePayment(Order order, String paymentMethod, String requestedPaymentNo, BigDecimal amountPaid, String description,
                                 BigDecimal cashAmount, BigDecimal onlineAmount,
                                 List<OrderSettleRequest.PaymentSplitRequest> paymentSplits) {
+        generatePaymentInternal(order, paymentMethod, requestedPaymentNo, amountPaid, description, cashAmount, onlineAmount, paymentSplits, null);
+    }
+
+    @Transactional
+    private void generatePaymentInternal(Order order, String paymentMethod, String requestedPaymentNo, BigDecimal amountPaid, String description,
+                                BigDecimal cashAmount, BigDecimal onlineAmount,
+                                List<OrderSettleRequest.PaymentSplitRequest> paymentSplits,
+                                BigDecimal roundOffAmount) {
         if (order.getPaymentNo() != null && !order.getPaymentNo().isEmpty()) return;
         if (!paymentRepository.findByOrderId(order.getId()).isEmpty()) return;
 
@@ -1829,6 +1894,10 @@ public class OrderService {
             .amountPaid(moneyValue(amountPaid))
             .referenceNo(payNo)
             .description(description)
+            // GST round-off: round_off_amount lives on Payment ONLY
+            // Invariant: amount_paid = invoice_total + round_off_amount
+            .invoiceTotal(invoice != null ? moneyValue(invoice.getTotalAmount()) : moneyValue(order.getGrandTotal()))
+            .roundOffAmount(roundOffAmount != null ? roundOffAmount.setScale(2, RoundingMode.HALF_UP) : BigDecimal.ZERO)
             .build();
             
         payment.setClientId(clientId);
@@ -2065,6 +2134,66 @@ public class OrderService {
 
     private BigDecimal moneyValue(BigDecimal value) {
         return (value == null ? BigDecimal.ZERO : value).setScale(2, RoundingMode.HALF_UP);
+    }
+
+    /**
+     * Sums the {@code taxableAmount} of all order lines.
+     * Used to populate {@code invoices.taxable_amount} at invoice generation time.
+     */
+    private BigDecimal computeTaxableSum(List<OrderLine> lines) {
+        if (lines == null) return BigDecimal.ZERO;
+        return lines.stream()
+            .filter(l -> l.getTaxableAmount() != null)
+            .map(OrderLine::getTaxableAmount)
+            .reduce(BigDecimal.ZERO, BigDecimal::add)
+            .setScale(2, RoundingMode.HALF_UP);
+    }
+
+    /**
+     * Validates GST-related business rules before saving an order.
+     * Throws {@link BusinessException} on violation.
+     */
+    private void validateGstFields(Order order) {
+        if (order.getGrossAmount() != null && order.getGrossAmount().compareTo(BigDecimal.ZERO) < 0) {
+            throw new BusinessException("gross_amount must be >= 0");
+        }
+        BigDecimal totalDiscount = moneyValue(order.getTotalDiscountAmount());
+        BigDecimal gross = moneyValue(order.getGrossAmount());
+        if (gross.compareTo(BigDecimal.ZERO) > 0 && totalDiscount.compareTo(gross) > 0) {
+            throw new BusinessException("total_discount_amount must not exceed gross_amount");
+        }
+        if (order.getLines() != null) {
+            for (OrderLine line : order.getLines()) {
+                BigDecimal lineGross = moneyValue(line.getGrossLineAmount());
+                BigDecimal lineAlloc = moneyValue(line.getAllocatedOrderDiscount());
+                if (lineAlloc.compareTo(BigDecimal.ZERO) < 0) {
+                    throw new BusinessException("allocated_order_discount must be >= 0 on line: " + line.getProductName());
+                }
+                if (lineGross.compareTo(BigDecimal.ZERO) > 0 && lineAlloc.compareTo(lineGross) > 0) {
+                    throw new BusinessException("allocated_order_discount exceeds gross_line_amount on line: " + line.getProductName());
+                }
+            }
+        }
+    }
+
+    /**
+     * Enforces the payment round-off invariant:
+     * {@code amount_paid = invoice_total + round_off_amount}
+     *
+     * A tolerance of ±0.05 is allowed to accommodate floating-point edge cases
+     * without being too strict. Throws {@link BusinessException} on violation.
+     */
+    private void validatePaymentInvariant(BigDecimal invoiceTotal, BigDecimal roundOff, BigDecimal amountPaid) {
+        if (invoiceTotal == null || amountPaid == null) return;
+        BigDecimal safeRoundOff = (roundOff == null ? BigDecimal.ZERO : roundOff);
+        BigDecimal expected = invoiceTotal.add(safeRoundOff).setScale(2, RoundingMode.HALF_UP);
+        BigDecimal actual   = amountPaid.setScale(2, RoundingMode.HALF_UP);
+        BigDecimal diff     = expected.subtract(actual).abs();
+        if (diff.compareTo(new BigDecimal("0.05")) > 0) {
+            throw new BusinessException(String.format(
+                "Payment invariant violated: invoice_total(%s) + round_off(%s) = %s but amount_paid = %s",
+                invoiceTotal, safeRoundOff, expected, actual));
+        }
     }
 
     private String buildSettlementDescription(OrderSettleRequest request, String paymentMethod) {

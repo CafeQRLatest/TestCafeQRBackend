@@ -15,6 +15,8 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.core.AuthenticationException;
+import com.restaurant.pos.print.exception.PrintConfigurationConflictException;
+import com.restaurant.pos.print.exception.PrintStationAuthenticationException;
 
 import java.util.stream.Collectors;
 
@@ -79,6 +81,24 @@ public class GlobalExceptionHandler {
         log.warn("Authentication failed: {}", ex.getMessage());
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                 .body(ApiResponse.error("Invalid email or password"));
+    }
+
+    @ExceptionHandler(PrintStationAuthenticationException.class)
+    public ResponseEntity<ApiResponse<Void>> handlePrintStationAuthentication(
+            PrintStationAuthenticationException ex
+    ) {
+        log.warn("Print station authentication failed: {}", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .body(ApiResponse.error(ex.getMessage(), "PRINT_STATION_AUTH_REQUIRED"));
+    }
+
+    @ExceptionHandler(PrintConfigurationConflictException.class)
+    public ResponseEntity<ApiResponse<Void>> handlePrintConfigurationConflict(
+            PrintConfigurationConflictException ex
+    ) {
+        log.warn("Print configuration conflict: {}", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiResponse.error(ex.getMessage(), "CONFIGURATION_CONFLICT"));
     }
 
     @ExceptionHandler(EmailDeliveryException.class)

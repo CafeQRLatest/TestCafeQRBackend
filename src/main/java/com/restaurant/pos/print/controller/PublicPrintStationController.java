@@ -4,6 +4,7 @@ import com.restaurant.pos.common.dto.ApiResponse;
 import com.restaurant.pos.print.dto.PrintJobStatusRequest;
 import com.restaurant.pos.print.dto.PrintStationHeartbeatRequest;
 import com.restaurant.pos.print.dto.PrintStationPairRequest;
+import com.restaurant.pos.print.dto.PrintStationConfigurationRequest;
 import com.restaurant.pos.print.service.PrintJobService;
 import com.restaurant.pos.print.service.PrintStationService;
 import lombok.RequiredArgsConstructor;
@@ -37,6 +38,15 @@ public class PublicPrintStationController {
             @RequestBody(required = false) PrintStationHeartbeatRequest request
     ) {
         return ResponseEntity.ok(ApiResponse.success(stationService.heartbeat(token, request)));
+    }
+
+    @PutMapping("/configuration")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> configuration(
+            @RequestHeader(TOKEN_HEADER) String token,
+            @RequestBody PrintStationConfigurationRequest request
+    ) {
+        return ResponseEntity.ok(ApiResponse.success(
+                stationService.syncConfiguration(token, request)));
     }
 
     @PostMapping("/jobs/claim")

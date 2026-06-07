@@ -322,6 +322,7 @@ class OrderServiceTest {
         when(sequenceService.generateNextSequence(DocumentType.SALE_ORDER)).thenReturn("SO-CREDIT");
         when(sequenceService.generateNextSequence(DocumentType.CUSTOMER_INVOICE)).thenReturn("INV-CREDIT");
         when(configurationService.getConfiguration()).thenReturn(ConfigurationDto.builder().creditEnabled(true).build());
+        when(configurationService.getEffectiveConfigurationForBranch(orgId)).thenReturn(ConfigurationDto.builder().creditEnabled(true).build());
         when(creditCustomerRepository.findByIdAndClientId(creditCustomerId, clientId)).thenReturn(Optional.of(creditCustomer));
         when(customerRepository.findByIdAndClientId(linkedCustomerId, clientId)).thenReturn(Optional.of(linkedCustomer));
         when(customerRepository.save(any(Customer.class))).thenAnswer(invocation -> invocation.getArgument(0));

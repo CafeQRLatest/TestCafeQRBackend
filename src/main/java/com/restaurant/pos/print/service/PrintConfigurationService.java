@@ -9,7 +9,10 @@ import com.restaurant.pos.client.repository.TerminalRepository;
 import com.restaurant.pos.common.exception.BusinessException;
 import com.restaurant.pos.common.tenant.TenantContext;
 import com.restaurant.pos.print.domain.PrintConfiguration;
+import com.restaurant.pos.print.domain.PrintStation;
 import com.restaurant.pos.print.dto.PrintConfigurationRequest;
+import com.restaurant.pos.print.dto.PrintStationConfigurationRequest;
+import com.restaurant.pos.print.exception.PrintConfigurationConflictException;
 import com.restaurant.pos.print.repository.PrintConfigurationRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -50,6 +53,8 @@ public class PrintConfigurationService {
         entity.setScopeType(scopeType);
         entity.setScopeId(scopeId);
         entity.setRevision((entity.getRevision() == null ? 0 : entity.getRevision()) + 1);
+        entity.setSourceStationId(null);
+        entity.setSourceLocalRevision(null);
         try {
             entity.setSettingsJson(objectMapper.writeValueAsString(settings));
         } catch (Exception ex) {
@@ -57,6 +62,53 @@ public class PrintConfigurationService {
         }
         repository.save(entity);
         return effective(scopeType.equals(TERMINAL) ? scopeId : null, orgId);
+    }
+
+    @Transactional
+    public Map<String, Object> syncForStation(
+            PrintStation station,
+            PrintStationConfigurationRequest request
+    ) {
+        if (station == null || request == null || request.getSettings() == null) {
+            throw new BusinessException("Print station configuration is required");
+        }
+
+        long localRevision = request.getLocalRevision() == null ? 0L : request.getLocalRevision();
+        Optional<PrintConfiguration> existingLayer = findScope(
+                station.getClientId(), TERMINAL, station.getTerminalId());
+
+        if (existingLayer.isPresent()
+                && station.getId().equals(existingLayer.get().getSourceStationId())
+                && existingLayer.get().getSourceLocalRevision() != null
+                && existingLayer.get().getSourceLocalRevision() >= localRevision) {
+            return effectiveForStation(
+                    station.getClientId(), station.getOrgId(), station.getTerminalId());
+        }
+
+        int currentRevision = existingLayer.map(PrintConfiguration::getRevision).orElse(0);
+        Integer expectedRevision = request.getCloudRevision();
+        if (expectedRevision != null && expectedRevision > 0 && expectedRevision != currentRevision) {
+            throw new PrintConfigurationConflictException(
+                    "Printing configuration changed in the cloud. Local printing remains active; review and retry synchronization.");
+        }
+
+        validateSettings(request.getSettings());
+        PrintConfiguration entity = existingLayer.orElseGet(PrintConfiguration::new);
+        entity.setClientId(station.getClientId());
+        entity.setOrgId(station.getOrgId());
+        entity.setScopeType(TERMINAL);
+        entity.setScopeId(station.getTerminalId());
+        entity.setRevision(currentRevision + 1);
+        entity.setSourceStationId(station.getId());
+        entity.setSourceLocalRevision(localRevision);
+        try {
+            entity.setSettingsJson(objectMapper.writeValueAsString(request.getSettings()));
+        } catch (Exception ex) {
+            throw new BusinessException("Invalid print configuration");
+        }
+        repository.save(entity);
+        return effectiveForStation(
+                station.getClientId(), station.getOrgId(), station.getTerminalId());
     }
 
     @Transactional(readOnly = true)
@@ -79,12 +131,7 @@ public class PrintConfigurationService {
         }
 
         Map<String, Object> result = objectMapper.convertValue(merged, new TypeReference<>() {});
-        result.put("_meta", Map.of(
-                "clientId", clientId,
-                "orgId", orgId == null ? "" : orgId,
-                "terminalId", terminalId == null ? "" : terminalId,
-                "scopeOrder", new String[]{CLIENT, ORGANIZATION, TERMINAL}
-        ));
+        result.put("_meta", metadata(clientId, orgId, terminalId));
         return result;
     }
 
@@ -95,13 +142,26 @@ public class PrintConfigurationService {
         mergeInto(merged, findScope(clientId, ORGANIZATION, orgId));
         mergeInto(merged, findScope(clientId, TERMINAL, terminalId));
         Map<String, Object> result = objectMapper.convertValue(merged, new TypeReference<>() {});
-        result.put("_meta", Map.of(
-                "clientId", clientId,
-                "orgId", orgId,
-                "terminalId", terminalId,
-                "scopeOrder", new String[]{CLIENT, ORGANIZATION, TERMINAL}
-        ));
+        result.put("_meta", metadata(clientId, orgId, terminalId));
         return result;
+    }
+
+    private Map<String, Object> metadata(UUID clientId, UUID orgId, UUID terminalId) {
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("clientId", clientId);
+        metadata.put("orgId", orgId == null ? "" : orgId);
+        metadata.put("terminalId", terminalId == null ? "" : terminalId);
+        metadata.put("scopeOrder", new String[]{CLIENT, ORGANIZATION, TERMINAL});
+        metadata.put("clientRevision", revisionOf(findScope(clientId, CLIENT, null)));
+        metadata.put("organizationRevision",
+                orgId == null ? 0 : revisionOf(findScope(clientId, ORGANIZATION, orgId)));
+        metadata.put("terminalRevision",
+                terminalId == null ? 0 : revisionOf(findScope(clientId, TERMINAL, terminalId)));
+        return metadata;
+    }
+
+    private int revisionOf(Optional<PrintConfiguration> layer) {
+        return layer.map(PrintConfiguration::getRevision).orElse(0);
     }
 
     private void mergeInto(ObjectNode target, Optional<PrintConfiguration> layer) {

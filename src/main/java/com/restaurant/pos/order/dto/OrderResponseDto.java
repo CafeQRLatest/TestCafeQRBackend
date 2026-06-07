@@ -98,6 +98,18 @@ public class OrderResponseDto {
     @Schema(description = "Associated payment method")
     private String paymentMethod;
 
+    @Schema(description = "Pre-discount gross amount")
+    private BigDecimal grossAmount;
+
+    @Schema(description = "Order discount type (PERCENT, AMOUNT)")
+    private String orderDiscountType;
+
+    @Schema(description = "Order discount value")
+    private BigDecimal orderDiscountValue;
+
+    @Schema(description = "Discount source (MANUAL, SYSTEM, etc.)")
+    private String discountSource;
+
     @Schema(description = "Sanitized, non-circular list of order item lines")
     private List<OrderLineResponseDto> lines;
 
@@ -142,5 +154,35 @@ public class OrderResponseDto {
 
         @Schema(description = "Line notes")
         private String description;
+
+        @Schema(description = "Pre-discount gross line amount")
+        private BigDecimal grossLineAmount;
+
+        @Schema(description = "Unit price ex tax")
+        private BigDecimal unitPriceExTax;
+
+        @Schema(description = "Taxable amount")
+        private BigDecimal taxableAmount;
+
+        @Schema(description = "Tax type (INCLUSIVE, EXCLUSIVE, NONE)")
+        private String taxType;
+
+        @Schema(description = "Tax snapshot rate")
+        private BigDecimal taxSnapshotRate;
+
+        @Schema(description = "Tax code")
+        private String taxCode;
+
+        @Schema(description = "Tax name")
+        private String taxName;
+
+        @Schema(description = "Manual discount amount")
+        private BigDecimal manualDiscountAmount;
+
+        @Schema(description = "Manual discount percent")
+        private BigDecimal manualDiscountPercent;
+
+        @Schema(description = "Allocated order discount")
+        private BigDecimal allocatedOrderDiscount;
     }
 }

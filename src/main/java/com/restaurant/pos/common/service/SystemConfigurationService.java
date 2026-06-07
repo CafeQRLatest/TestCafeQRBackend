@@ -5,6 +5,8 @@ import com.restaurant.pos.common.entity.SystemConfiguration;
 import com.restaurant.pos.common.exception.BusinessException;
 import com.restaurant.pos.common.repository.SystemConfigurationRepository;
 import com.restaurant.pos.common.tenant.TenantContext;
+import com.restaurant.pos.common.tenant.UserContext;
+import com.restaurant.pos.common.util.SecurityUtils;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.core.type.TypeReference;
 import lombok.RequiredArgsConstructor;
@@ -32,7 +34,9 @@ public class SystemConfigurationService {
             return mapToDto(getGlobalConfiguration());
         }
         // Branch-aware resolution: try branch config first, then client default
-        UUID orgId = TenantContext.getCurrentOrg();
+        UUID orgId = SecurityUtils.isSuperAdmin()
+                ? TenantContext.getCurrentOrg()
+                : UserContext.getContext().getOrgId();
         SystemConfiguration config = resolveConfiguration(clientId, orgId);
         return mapToDto(config);
     }
@@ -44,7 +48,9 @@ public class SystemConfigurationService {
             throw new BusinessException("Client context is required to update system configuration");
         }
 
-        UUID orgId = TenantContext.getCurrentOrg();
+        UUID orgId = SecurityUtils.isSuperAdmin()
+                ? TenantContext.getCurrentOrg()
+                : UserContext.getContext().getOrgId();
         if (orgId != null) {
             return updateBranchConfiguration(orgId, dto);
         }
@@ -55,6 +61,15 @@ public class SystemConfigurationService {
         SystemConfiguration saved = repository.save(config);
         log.info("System configuration updated successfully. clientId={}", clientId);
         return mapToDto(saved);
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public ConfigurationDto getConfigurationForClientAndBranch(UUID clientId, UUID orgId) {
+        if (clientId == null) {
+            return mapToDto(getGlobalConfiguration());
+        }
+        SystemConfiguration config = resolveConfiguration(clientId, orgId);
+        return mapToDto(config);
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)

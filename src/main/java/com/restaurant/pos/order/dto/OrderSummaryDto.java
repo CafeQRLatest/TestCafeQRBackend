@@ -39,6 +39,8 @@ public class OrderSummaryDto {
     private BigDecimal totalTaxAmount;
     private BigDecimal totalDiscountAmount;
     private BigDecimal grandTotal;
+    private BigDecimal grossAmount;
+    private String discountCalculationVersion;
     private Instant orderDate;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
