@@ -105,8 +105,8 @@ ssh cafeqr@YOUR_VPS_IP
 
 1. Go to your domain registrar (GoDaddy, Namecheap, Hostinger Domains, etc.)
 2. Add an **A Record**:
-   - **Name:** `@` (or `app` for a subdomain like `app.cafeqr.in`)
-   - **Value:** `YOUR_VPS_IP`
+   - **Name:** `app`
+   - **Value:** `69.62.83.147`
    - **TTL:** 300 (5 minutes)
 3. Wait for DNS propagation (usually 5–30 minutes)
 4. Verify: `ping YOUR_DOMAIN`
@@ -151,11 +151,13 @@ Fill in all values:
 - `DB_PASSWORD` — generate a strong password: `openssl rand -base64 24`
 - `RABBITMQ_PASSWORD` — generate: `openssl rand -base64 24`
 - `JWT_PRIVATE_KEY` / `JWT_PUBLIC_KEY` — your RSA keys
-- `CADDY_SITE_ADDRESS` — keep `:80` for IP-first deployment; use your real domain after DNS is ready
-- `ALLOWED_ORIGINS` — `http://YOUR_VPS_IP` for IP-first deployment
-- `FRONTEND_URL` — `http://YOUR_VPS_IP` for IP-first deployment
-- `.env.frontend` `NEXT_PUBLIC_API_URL` — `http://YOUR_VPS_IP`
-- `.env.frontend` `NEXT_PUBLIC_AI_PARSE_URL` — `http://YOUR_VPS_IP/api/ai/parse-menu`
+- `CADDY_SITE_ADDRESS` — `app.cafeqr.in` after the DNS record resolves
+- `CADDY_REDIRECT_SITE_ADDRESS` — `http://69.62.83.147`
+- `CADDY_CANONICAL_ORIGIN` — `https://app.cafeqr.in`
+- `ALLOWED_ORIGINS` — `https://app.cafeqr.in`
+- `FRONTEND_URL` — `https://app.cafeqr.in`
+- `.env.frontend` `NEXT_PUBLIC_API_URL` — `https://app.cafeqr.in`
+- `.env.frontend` `NEXT_PUBLIC_AI_PARSE_URL` — `https://app.cafeqr.in/api/ai/parse-menu`
 - Gmail, Razorpay credentials
 
 If any generated secret contains `$`, wrap the whole value in single quotes, for example:
@@ -163,11 +165,12 @@ If any generated secret contains `$`, wrap the whole value in single quotes, for
 
 ### Step 3: Configure Caddy
 
-No Caddyfile edit is required for IP-first deployment. The default
-`CADDY_SITE_ADDRESS=:80` serves the app at `http://YOUR_VPS_IP`.
-
-After DNS is ready, set `CADDY_SITE_ADDRESS=app.cafeqr.in`, update frontend/API
-URLs to `https://app.cafeqr.in`, rebuild the frontend image, and redeploy.
+Before changing the VPS environment, confirm that `app.cafeqr.in` resolves to
+`69.62.83.147` and that ports 80 and 443 are open. Then apply the canonical
+values from the example files, rebuild the frontend image because
+`NEXT_PUBLIC_*` values are compile-time settings, and redeploy. Caddy will
+provision TLS automatically and redirect requests for the old IP URL to
+`https://app.cafeqr.in`.
 
 ### Step 4: Start Everything
 

@@ -20,6 +20,10 @@ services:
       # Defaults to HTTP on any host/IP. Set CADDY_SITE_ADDRESS=your-domain.com
       # in .env after DNS is ready to enable automatic HTTPS.
       - CADDY_SITE_ADDRESS=${CADDY_SITE_ADDRESS:-:80}
+      # The inert default does not affect IP-first deployments. At HTTPS
+      # cutover set this to http://69.62.83.147.
+      - CADDY_REDIRECT_SITE_ADDRESS=${CADDY_REDIRECT_SITE_ADDRESS:-http://redirect.invalid}
+      - CADDY_CANONICAL_ORIGIN=${CADDY_CANONICAL_ORIGIN:-https://app.cafeqr.in}
     ports:
       - "80:80"
       - "443:443"

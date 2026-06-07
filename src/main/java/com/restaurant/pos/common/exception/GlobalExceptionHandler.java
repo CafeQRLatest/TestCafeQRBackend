@@ -4,6 +4,8 @@ import com.restaurant.pos.common.dto.ApiResponse;
 import com.restaurant.pos.common.diagnostics.RuntimeEndpointLoggingInterceptor;
 import com.restaurant.pos.common.tenant.TenantContext;
 import com.restaurant.pos.common.util.SecurityUtils;
+import com.restaurant.pos.print.exception.PrintConfigurationConflictException;
+import com.restaurant.pos.print.exception.PrintStationAuthenticationException;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
