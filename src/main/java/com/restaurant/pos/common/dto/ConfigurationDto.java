@@ -79,6 +79,8 @@ public class ConfigurationDto {
     private String printWinListUrl;
     private String printWinPostUrl;
 
+    private String logoUrl;
+
     // Branch override metadata (not persisted — set by service layer)
     @Builder.Default
     private boolean branchOverride = false;

@@ -198,17 +198,107 @@ public class OrderService {
     }
 
     private void enqueueCloudPrintJobs(Order order) {
+        enqueueCloudPrintJobs(order, null, null);
+    }
+
+    private void enqueueCloudPrintJobs(Order order, List<OrderLine> addedLines, List<OrderLine> removedLines) {
         try {
             if (order == null || order.getOrderType() != OrderType.SALE || isMainOfflineSync(order)) {
                 return;
             }
-            if ("KITCHEN".equalsIgnoreCase(order.getOrderStatus()) || "CONFIRMED".equalsIgnoreCase(order.getOrderStatus())) {
+            String status = order.getOrderStatus();
+            if ("KITCHEN".equalsIgnoreCase(status) 
+                    || "CONFIRMED".equalsIgnoreCase(status) 
+                    || "IN_PROGRESS".equalsIgnoreCase(status) 
+                    || "READY".equalsIgnoreCase(status)) {
+                if (addedLines != null || removedLines != null) {
+                    if (!addedLines.isEmpty() || !removedLines.isEmpty()) {
+                        printJobService.enqueueKotEditJob(order, addedLines, removedLines, "auto");
+                    }
+                } else {
+                    printJobService.enqueueForOrder(order, PrintJobKind.KOT, "auto");
+                }
+            } else if ("BILLED".equalsIgnoreCase(status)) {
+                printJobService.enqueueForOrder(order, PrintJobKind.BILL, "auto");
                 printJobService.enqueueForOrder(order, PrintJobKind.KOT, "auto");
-            } else if ("COMPLETED".equalsIgnoreCase(order.getOrderStatus())) {
+            } else if ("COMPLETED".equalsIgnoreCase(status)) {
                 printJobService.enqueueForOrder(order, PrintJobKind.BILL, "auto");
             }
         } catch (Exception ex) {
             log.warn("Unable to enqueue cloud print job for order {}", order == null ? null : order.getId(), ex);
+        }
+    }
+
+    private void calculateKotDelta(Order oldOrder, Order newOrder, List<OrderLine> addedLines, List<OrderLine> removedLines) {
+        if (oldOrder == null || newOrder == null) {
+            return;
+        }
+        java.util.Map<String, java.math.BigDecimal> oldQtyMap = new java.util.HashMap<>();
+        java.util.Map<String, OrderLine> oldLineMap = new java.util.HashMap<>();
+        if (oldOrder.getLines() != null) {
+            for (OrderLine line : oldOrder.getLines()) {
+                if (line.getProductId() == null) continue;
+                String key = line.getProductId() + ":" + (line.getVariantId() != null ? line.getVariantId() : "null");
+                oldQtyMap.put(key, oldQtyMap.getOrDefault(key, java.math.BigDecimal.ZERO).add(line.getQuantity() != null ? line.getQuantity() : java.math.BigDecimal.ZERO));
+                oldLineMap.put(key, line);
+            }
+        }
+
+        java.util.Map<String, java.math.BigDecimal> newQtyMap = new java.util.HashMap<>();
+        java.util.Map<String, OrderLine> newLineMap = new java.util.HashMap<>();
+        if (newOrder.getLines() != null) {
+            for (OrderLine line : newOrder.getLines()) {
+                if (line.getProductId() == null) continue;
+                String key = line.getProductId() + ":" + (line.getVariantId() != null ? line.getVariantId() : "null");
+                newQtyMap.put(key, newQtyMap.getOrDefault(key, java.math.BigDecimal.ZERO).add(line.getQuantity() != null ? line.getQuantity() : java.math.BigDecimal.ZERO));
+                newLineMap.put(key, line);
+            }
+        }
+
+        // 1. Added or increased items
+        for (java.util.Map.Entry<String, java.math.BigDecimal> entry : newQtyMap.entrySet()) {
+            String key = entry.getKey();
+            java.math.BigDecimal newQty = entry.getValue();
+            java.math.BigDecimal oldQty = oldQtyMap.getOrDefault(key, java.math.BigDecimal.ZERO);
+            if (newQty.compareTo(oldQty) > 0) {
+                java.math.BigDecimal diffQty = newQty.subtract(oldQty);
+                OrderLine baseLine = newLineMap.get(key);
+                OrderLine copy = OrderLine.builder()
+                        .productId(baseLine.getProductId())
+                        .variantId(baseLine.getVariantId())
+                        .productName(baseLine.getProductName())
+                        .categoryName(baseLine.getCategoryName())
+                        .isPackagedGood(baseLine.getIsPackagedGood())
+                        .quantity(diffQty)
+                        .unitOfMeasure(baseLine.getUnitOfMeasure())
+                        .unitPrice(baseLine.getUnitPrice())
+                        .taxRate(baseLine.getTaxRate())
+                        .build();
+                addedLines.add(copy);
+            }
+        }
+
+        // 2. Removed or decreased items
+        for (java.util.Map.Entry<String, java.math.BigDecimal> entry : oldQtyMap.entrySet()) {
+            String key = entry.getKey();
+            java.math.BigDecimal oldQty = entry.getValue();
+            java.math.BigDecimal newQty = newQtyMap.getOrDefault(key, java.math.BigDecimal.ZERO);
+            if (oldQty.compareTo(newQty) > 0) {
+                java.math.BigDecimal diffQty = oldQty.subtract(newQty);
+                OrderLine baseLine = oldLineMap.get(key);
+                OrderLine copy = OrderLine.builder()
+                        .productId(baseLine.getProductId())
+                        .variantId(baseLine.getVariantId())
+                        .productName(baseLine.getProductName())
+                        .categoryName(baseLine.getCategoryName())
+                        .isPackagedGood(baseLine.getIsPackagedGood())
+                        .quantity(diffQty)
+                        .unitOfMeasure(baseLine.getUnitOfMeasure())
+                        .unitPrice(baseLine.getUnitPrice())
+                        .taxRate(baseLine.getTaxRate())
+                        .build();
+                removedLines.add(copy);
+            }
         }
     }
 
@@ -1378,7 +1468,10 @@ public class OrderService {
         }
         
         Order hydrated = hydrateOrder(saved);
-        enqueueCloudPrintJobs(hydrated);
+        List<OrderLine> addedLines = new java.util.ArrayList<>();
+        List<OrderLine> removedLines = new java.util.ArrayList<>();
+        calculateKotDelta(oldOrder, hydrated, addedLines, removedLines);
+        enqueueCloudPrintJobs(hydrated, addedLines, removedLines);
         return hydrated;
     }
 
@@ -1481,7 +1574,9 @@ public class OrderService {
         Order saved = orderRepository.save(order);
         generateInvoice(saved);
         handleTableStatus(saved);
-        return hydrateOrder(saved);
+        Order hydrated = hydrateOrder(saved);
+        enqueueCloudPrintJobs(hydrated);
+        return hydrated;
     }
 
     @Transactional
@@ -1565,7 +1660,9 @@ public class OrderService {
             processInventoryForOrder(saved);
         }
 
-        return hydrateOrder(saved);
+        Order hydrated = hydrateOrder(saved);
+        enqueueCloudPrintJobs(hydrated);
+        return hydrated;
     }
 
     @Transactional

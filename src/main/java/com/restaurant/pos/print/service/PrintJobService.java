@@ -235,6 +235,69 @@ public class PrintJobService {
         }
     }
 
+    @Transactional
+    public PrintJob enqueueKotEditJob(Order order, List<OrderLine> addedLines, List<OrderLine> removedLines, String reason) {
+        if (order == null || order.getId() == null) {
+            throw new BusinessException("Invalid print job request");
+        }
+
+        UUID clientId = order.getClientId() != null ? order.getClientId() : TenantContext.getCurrentTenant();
+        if (clientId == null) {
+            throw new BusinessException("Print job tenant is missing");
+        }
+        String dedupeKey = buildDedupeKey(order, PrintJobKind.KOT, reason);
+
+        return printJobRepository.findByClientIdAndDedupeKey(clientId, dedupeKey)
+                .orElseGet(() -> createKotEditJob(order, addedLines, removedLines, reason, dedupeKey, clientId));
+    }
+
+    private PrintJob createKotEditJob(Order order, List<OrderLine> addedLines, List<OrderLine> removedLines, String reason, String dedupeKey, UUID clientId) {
+        try {
+            Map<String, Object> orderSnap = orderSnapshot(order);
+            List<Map<String, Object>> addedSnaps = addedLines == null
+                    ? List.of()
+                    : addedLines.stream().map(this::lineSnapshot).toList();
+            orderSnap.put("lines", addedSnaps);
+            orderSnap.put("orderLines", addedSnaps);
+            orderSnap.put("order_items", addedSnaps);
+
+            List<Map<String, Object>> removedSnaps = removedLines == null
+                    ? List.of()
+                    : removedLines.stream().map(this::lineSnapshot).toList();
+            orderSnap.put("removed_items", removedSnaps);
+            orderSnap.put("removedItems", removedSnaps);
+            orderSnap.put("is_edited", true);
+            orderSnap.put("isEdited", true);
+
+            String payloadJson = objectMapper.writeValueAsString(Map.of(
+                    "order", orderSnap,
+                    "jobKind", "kot",
+                    "reason", reason == null ? "auto" : reason
+            ));
+
+            PrintJob job = PrintJob.builder()
+                    .orderId(order.getId())
+                    .offlineOperationId(order.getSourceOfflineId())
+                    .sourceOperationId(order.getSourceOperationId())
+                    .sourceTerminalId(order.getSourceTerminalId() != null ? order.getSourceTerminalId() : order.getTerminalId())
+                    .sourceDeviceId(order.getSourceDeviceId())
+                    .jobKind(PrintJobKind.KOT)
+                    .status(PrintJobStatus.PENDING)
+                    .dedupeKey(dedupeKey)
+                    .payloadJson(payloadJson)
+                    .build();
+            job.setClientId(clientId);
+            job.setOrgId(order.getOrgId());
+            return printJobRepository.save(job);
+        } catch (DataIntegrityViolationException ex) {
+            return printJobRepository.findByClientIdAndDedupeKey(clientId, dedupeKey)
+                    .orElseThrow(() -> ex);
+        } catch (Exception ex) {
+            log.warn("Unable to create print job for order {}", order.getId(), ex);
+            throw new BusinessException("Unable to create print job");
+        }
+    }
+
     private PrintJob getJob(UUID id) {
         UUID clientId = TenantContext.getCurrentTenant();
         return printJobRepository.findById(id)

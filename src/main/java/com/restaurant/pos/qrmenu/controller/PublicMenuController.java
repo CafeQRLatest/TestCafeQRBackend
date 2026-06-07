@@ -13,6 +13,8 @@ import com.restaurant.pos.purchasing.repository.CustomerRepository;
 import com.restaurant.pos.table.domain.RestaurantTable;
 import com.restaurant.pos.table.repository.RestaurantTableRepository;
 import com.restaurant.pos.common.exception.BusinessException;
+import com.restaurant.pos.print.domain.PrintJobKind;
+import com.restaurant.pos.print.service.PrintJobService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -40,6 +42,7 @@ public class PublicMenuController {
     private final com.restaurant.pos.client.repository.OrganizationRepository organizationRepository;
     private final SystemConfigurationService systemConfigurationService;
     private final CustomerRepository customerRepository;
+    private final PrintJobService printJobService;
 
     /**
      * GET /api/v1/public/menu/{clientId}/{orgId}
@@ -239,6 +242,12 @@ public class PublicMenuController {
 
         Order saved = orderRepository.save(order);
         linkCustomerToOrder(saved);
+
+        try {
+            printJobService.enqueueForOrder(saved, PrintJobKind.KOT, "auto");
+        } catch (Exception ex) {
+            // Silence print queue failures to avoid blocking guest order placement
+        }
 
         // Update table status to OCCUPIED
         if (tableIdStr != null && !tableIdStr.isBlank()) {
