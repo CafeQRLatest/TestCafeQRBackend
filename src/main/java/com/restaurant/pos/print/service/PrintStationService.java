@@ -11,11 +11,13 @@ import com.restaurant.pos.print.domain.PrintJobStatus;
 import com.restaurant.pos.print.domain.PrintStation;
 import com.restaurant.pos.print.dto.PrintJobStatusRequest;
 import com.restaurant.pos.print.dto.PrintStationEnrollmentRequest;
+import com.restaurant.pos.print.dto.PrintStationConfigurationRequest;
 import com.restaurant.pos.print.dto.PrintStationHeartbeatRequest;
 import com.restaurant.pos.print.dto.PrintStationPairRequest;
 import com.restaurant.pos.print.repository.PrintJobAttemptRepository;
 import com.restaurant.pos.print.repository.PrintJobRepository;
 import com.restaurant.pos.print.repository.PrintStationRepository;
+import com.restaurant.pos.print.exception.PrintStationAuthenticationException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
@@ -129,6 +131,19 @@ public class PrintStationService {
         response.put("configuration", configurationService.effectiveForStation(
                 station.getClientId(), station.getOrgId(), station.getTerminalId()));
         return response;
+    }
+
+    @Transactional
+    public Map<String, Object> syncConfiguration(
+            String rawToken,
+            PrintStationConfigurationRequest request
+    ) {
+        PrintStation station = authenticate(rawToken);
+        Map<String, Object> configuration = configurationService.syncForStation(station, request);
+        station.setLastHeartbeatAt(LocalDateTime.now());
+        station.setStatus("ONLINE");
+        stationRepository.save(station);
+        return configuration;
     }
 
     @Transactional
@@ -253,10 +268,10 @@ public class PrintStationService {
 
     public PrintStation authenticate(String rawToken) {
         if (rawToken == null || rawToken.isBlank()) {
-            throw new BusinessException("Print station token is required");
+            throw new PrintStationAuthenticationException("Print station token is required");
         }
         return stationRepository.findByStationTokenHashAndIsactive(hash(rawToken.trim()), "Y")
-                .orElseThrow(() -> new BusinessException("Print station token is invalid"));
+                .orElseThrow(() -> new PrintStationAuthenticationException("Print station token is invalid"));
     }
 
     public Map<String, Object> stationDto(PrintStation station) {

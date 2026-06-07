@@ -23,11 +23,14 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import java.util.UUID;
 
 @Component
 @RequiredArgsConstructor
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
+    private static final Logger log = LoggerFactory.getLogger(JwtAuthenticationFilter.class);
 
     private final JwtService jwtService;
     private final UserDetailsService userDetailsService;
@@ -154,9 +157,25 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             System.out.println("===> [DEBUG] JWT Filter: Invalid signature: " + e.getMessage());
             sendErrorResponse(request, response, "JWT signature match failed", HttpServletResponse.SC_UNAUTHORIZED);
         } catch (Exception e) {
-            System.out.println("===> [DEBUG] JWT Filter: FATAL ERROR: " + e.getMessage());
-            e.printStackTrace();
-            sendErrorResponse(request, response, "Authentication failed: " + e.getMessage(), HttpServletResponse.SC_UNAUTHORIZED);
+            if (isClientDisconnect(e)) {
+                log.debug("Client disconnected before authentication response completed: {}", e.getMessage());
+                return;
+            }
+            log.error("JWT authentication failed", e);
+            if (!response.isCommitted()) {
+                try {
+                    sendErrorResponse(request, response,
+                            "Authentication failed: " + e.getMessage(),
+                            HttpServletResponse.SC_UNAUTHORIZED);
+                } catch (IOException writeFailure) {
+                    if (isClientDisconnect(writeFailure)) {
+                        log.debug("Client disconnected while writing authentication failure: {}",
+                                writeFailure.getMessage());
+                        return;
+                    }
+                    throw writeFailure;
+                }
+            }
         } finally {
             TenantContext.clear();
         }
@@ -173,6 +192,32 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
         
         ApiResponse<Object> apiResponse = ApiResponse.error(message);
-        response.getWriter().write(objectMapper.writeValueAsString(apiResponse));
+        try {
+            response.getWriter().write(objectMapper.writeValueAsString(apiResponse));
+        } catch (IOException writeFailure) {
+            if (isClientDisconnect(writeFailure)) {
+                log.debug("Client disconnected while writing authentication response: {}",
+                        writeFailure.getMessage());
+                return;
+            }
+            throw writeFailure;
+        }
+    }
+
+    private boolean isClientDisconnect(Throwable error) {
+        Throwable current = error;
+        while (current != null) {
+            String className = current.getClass().getName();
+            String message = current.getMessage() == null
+                    ? ""
+                    : current.getMessage().toLowerCase();
+            if (className.contains("ClientAbortException")
+                    || message.contains("broken pipe")
+                    || message.contains("connection reset by peer")) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 }
