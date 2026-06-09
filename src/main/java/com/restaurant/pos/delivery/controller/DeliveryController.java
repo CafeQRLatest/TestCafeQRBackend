@@ -166,6 +166,9 @@ public class DeliveryController {
         String orderNo = "DEL-" + System.currentTimeMillis();
         String description = buildDescription(customerEmail, customerName, customerPhone, deliveryAddress, note);
 
+        // FIX 1: clientId and orgId live in BaseEntity and are not reachable via
+        // the Lombok @Builder generated on Order itself. Build without them, then
+        // set via the inherited Lombok setters.
         Order order = Order.builder()
                 .id(UUID.randomUUID())
                 .orderNo(orderNo)
@@ -176,9 +179,10 @@ public class DeliveryController {
                 .fulfillmentType(fulfillment)
                 .description(description)
                 .orderDate(Instant.now())
-                .clientId(clientId)
-                .orgId(orgUuid)
                 .build();
+
+        order.setClientId(clientId);
+        order.setOrgId(orgUuid);
 
         BigDecimal grandTotal = BigDecimal.ZERO;
 
@@ -256,8 +260,10 @@ public class DeliveryController {
             @RequestParam UUID clientId,
             @RequestParam String email) {
 
-        // Filter DELIVERY_WEB orders whose description contains the email
-        List<Order> orders = orderRepository.findByClientIdAndOrderStatusIn(
+        // FIX 2: findByClientIdAndOrderStatusIn(UUID, List) does not exist in
+        // OrderRepository — the no-Pageable variant is named
+        // findByClientIdAndOrderStatusInOrderByCreatedAtDesc.
+        List<Order> orders = orderRepository.findByClientIdAndOrderStatusInOrderByCreatedAtDesc(
                         clientId,
                         List.of("CONFIRMED", "PREPARING", "OUT_FOR_DELIVERY", "DELIVERED", "COMPLETED", "CANCELLED"))
                 .stream()
