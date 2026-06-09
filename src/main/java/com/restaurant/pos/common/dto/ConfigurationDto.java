@@ -57,6 +57,7 @@ public class ConfigurationDto {
     // Locale
     private String currencySymbol;
     private String currencyPosition;
+    private Integer currencyDecimalPlaces;
 
     // Round-off
     private boolean roundOffEnabled;

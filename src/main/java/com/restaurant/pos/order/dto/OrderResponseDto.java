@@ -101,6 +101,9 @@ public class OrderResponseDto {
     @Schema(description = "Pre-discount gross amount")
     private BigDecimal grossAmount;
 
+    @Schema(description = "Round-off adjustment applied at settlement")
+    private BigDecimal roundOffAmount;
+
     @Schema(description = "Order discount type (PERCENT, AMOUNT)")
     private String orderDiscountType;
 

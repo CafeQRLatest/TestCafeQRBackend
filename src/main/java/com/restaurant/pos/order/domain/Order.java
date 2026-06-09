@@ -108,8 +108,8 @@ public class Order extends BaseEntity {
     @Transient
     private BigDecimal amountPaid;
 
-    /** Transient: round-off applied at direct-settle time. */
-    @Transient
+    /** Formula: round-off loaded from the linked payment. Transient value is kept in memory for creation. */
+    @Formula("(SELECT p.round_off_amount FROM payments p WHERE p.order_id = id ORDER BY p.created_at DESC LIMIT 1)")
     private BigDecimal roundOffAmount;
 
     @Column(name = "customer_id")

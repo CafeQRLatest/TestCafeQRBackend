@@ -54,6 +54,7 @@ public class OrderDtoMapper {
                 .paymentNo(order.getPaymentNo())
                 .paymentMethod(order.getPaymentMethod())
                 .grossAmount(order.getGrossAmount())
+                .roundOffAmount(order.getRoundOffAmount())
                 .orderDiscountType(order.getOrderDiscountType())
                 .orderDiscountValue(order.getOrderDiscountValue())
                 .discountSource(order.getDiscountSource() != null ? order.getDiscountSource().name() : null)

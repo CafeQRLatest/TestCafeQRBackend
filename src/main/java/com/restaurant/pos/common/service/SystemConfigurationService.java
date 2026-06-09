@@ -9,6 +9,8 @@ import com.restaurant.pos.common.tenant.UserContext;
 import com.restaurant.pos.common.util.SecurityUtils;
 import com.restaurant.pos.client.repository.ClientRepository;
 import com.restaurant.pos.client.repository.OrganizationRepository;
+import com.restaurant.pos.purchasing.domain.Currency;
+import com.restaurant.pos.purchasing.repository.CurrencyRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.core.type.TypeReference;
 import lombok.RequiredArgsConstructor;
@@ -30,6 +32,7 @@ public class SystemConfigurationService {
     private final ObjectMapper objectMapper;
     private final ClientRepository clientRepository;
     private final OrganizationRepository organizationRepository;
+    private final CurrencyRepository currencyRepository;
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public ConfigurationDto getConfiguration() {
@@ -309,6 +312,19 @@ public class SystemConfigurationService {
         }
         String resolvedLogoUrl = resolveLogoUrl(entity.getClientId(), orgId);
 
+        Integer decimalPlaces = 2;
+        if (entity.getClientId() != null) {
+            try {
+                decimalPlaces = currencyRepository.findByClientIdAndIsDefaultTrue(entity.getClientId())
+                        .stream()
+                        .findFirst()
+                        .map(c -> c.getDecimalPlaces() != null ? c.getDecimalPlaces() : 2)
+                        .orElse(2);
+            } catch (Exception e) {
+                log.warn("Failed to fetch default currency decimal places for client {}", entity.getClientId(), e);
+            }
+        }
+
         return ConfigurationDto.builder()
                 .onlinePaymentEnabled(entity.isOnlinePaymentEnabled())
                 .menuImagesEnabled(entity.isMenuImagesEnabled())
@@ -343,6 +359,7 @@ public class SystemConfigurationService {
                 .taxSplitEnabled(entity.isTaxSplitEnabled())
                 .currencySymbol(entity.getCurrencySymbol())
                 .currencyPosition(entity.getCurrencyPosition())
+                .currencyDecimalPlaces(decimalPlaces)
                 .billFooter(entity.getBillFooter())
                 .printLogoBitmap(entity.getPrintLogoBitmap())
                 .printLogoCols(entity.getPrintLogoCols())
