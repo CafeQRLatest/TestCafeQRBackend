@@ -28,18 +28,22 @@ public class ReportController {
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
     public ResponseEntity<ApiResponse<SalesSummaryDto>> getSalesSummary(
             @RequestParam(required = false) Instant from,
-            @RequestParam(required = false) Instant to) {
+            @RequestParam(required = false) Instant to,
+            @RequestParam(required = false) UUID orgId,
+            @RequestParam(required = false) UUID terminalId) {
         validateReportRange(from, to);
-        return ResponseEntity.ok(ApiResponse.success(reportService.getSalesSummary(from, to)));
+        return ResponseEntity.ok(ApiResponse.success(reportService.getSalesSummary(from, to, orgId, terminalId)));
     }
 
     @GetMapping("/sales-orders")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
     public ResponseEntity<ApiResponse<List<OrderReportDto>>> getSalesOrders(
             @RequestParam(required = false) Instant from,
-            @RequestParam(required = false) Instant to) {
+            @RequestParam(required = false) Instant to,
+            @RequestParam(required = false) UUID orgId,
+            @RequestParam(required = false) UUID terminalId) {
         validateReportRange(from, to);
-        return ResponseEntity.ok(ApiResponse.success(reportService.getSalesOrders(from, to)));
+        return ResponseEntity.ok(ApiResponse.success(reportService.getSalesOrders(from, to, orgId, terminalId)));
     }
 
     @GetMapping("/sales-invoices")
@@ -47,45 +51,55 @@ public class ReportController {
     public ResponseEntity<ApiResponse<List<SalesInvoiceReportDto>>> getSalesInvoices(
             @RequestParam(required = false) Instant from,
             @RequestParam(required = false) Instant to,
-            @RequestParam(defaultValue = "ALL") String type) {
+            @RequestParam(defaultValue = "ALL") String type,
+            @RequestParam(required = false) UUID orgId,
+            @RequestParam(required = false) UUID terminalId) {
         validateReportRange(from, to);
-        return ResponseEntity.ok(ApiResponse.success(reportService.getSalesInvoices(from, to, type)));
+        return ResponseEntity.ok(ApiResponse.success(reportService.getSalesInvoices(from, to, type, orgId, terminalId)));
     }
 
     @GetMapping("/item-wise")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
     public ResponseEntity<ApiResponse<List<ItemSalesDto>>> getItemWiseSales(
             @RequestParam(required = false) Instant from,
-            @RequestParam(required = false) Instant to) {
+            @RequestParam(required = false) Instant to,
+            @RequestParam(required = false) UUID orgId,
+            @RequestParam(required = false) UUID terminalId) {
         validateReportRange(from, to);
-        return ResponseEntity.ok(ApiResponse.success(reportService.getItemWiseSales(from, to)));
+        return ResponseEntity.ok(ApiResponse.success(reportService.getItemWiseSales(from, to, orgId, terminalId)));
     }
 
     @GetMapping("/payment-breakdown")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
     public ResponseEntity<ApiResponse<List<PaymentBreakdownDto>>> getPaymentBreakdown(
             @RequestParam(required = false) Instant from,
-            @RequestParam(required = false) Instant to) {
+            @RequestParam(required = false) Instant to,
+            @RequestParam(required = false) UUID orgId,
+            @RequestParam(required = false) UUID terminalId) {
         validateReportRange(from, to);
-        return ResponseEntity.ok(ApiResponse.success(reportService.getPaymentBreakdown(from, to)));
+        return ResponseEntity.ok(ApiResponse.success(reportService.getPaymentBreakdown(from, to, orgId, terminalId)));
     }
 
     @GetMapping("/tax-summary")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
     public ResponseEntity<ApiResponse<List<TaxSummaryDto>>> getTaxSummary(
             @RequestParam(required = false) Instant from,
-            @RequestParam(required = false) Instant to) {
+            @RequestParam(required = false) Instant to,
+            @RequestParam(required = false) UUID orgId,
+            @RequestParam(required = false) UUID terminalId) {
         validateReportRange(from, to);
-        return ResponseEntity.ok(ApiResponse.success(reportService.getTaxSummary(from, to)));
+        return ResponseEntity.ok(ApiResponse.success(reportService.getTaxSummary(from, to, orgId, terminalId)));
     }
 
     @GetMapping("/hourly")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
     public ResponseEntity<ApiResponse<List<HourlySalesDto>>> getHourlySales(
             @RequestParam(required = false) Instant from,
-            @RequestParam(required = false) Instant to) {
+            @RequestParam(required = false) Instant to,
+            @RequestParam(required = false) UUID orgId,
+            @RequestParam(required = false) UUID terminalId) {
         validateReportRange(from, to);
-        return ResponseEntity.ok(ApiResponse.success(reportService.getHourlySales(from, to)));
+        return ResponseEntity.ok(ApiResponse.success(reportService.getHourlySales(from, to, orgId, terminalId)));
     }
 
     @GetMapping("/invoices")
@@ -93,18 +107,22 @@ public class ReportController {
     public ResponseEntity<ApiResponse<List<InvoiceReportDto>>> getInvoices(
             @RequestParam(required = false) Instant from,
             @RequestParam(required = false) Instant to,
-            @RequestParam(defaultValue = "ALL") String type) {
+            @RequestParam(defaultValue = "ALL") String type,
+            @RequestParam(required = false) UUID orgId,
+            @RequestParam(required = false) UUID terminalId) {
         validateReportRange(from, to);
-        return ResponseEntity.ok(ApiResponse.success(reportService.getInvoices(from, to, type)));
+        return ResponseEntity.ok(ApiResponse.success(reportService.getInvoices(from, to, type, orgId, terminalId)));
     }
 
     @GetMapping("/profit-loss")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
     public ResponseEntity<ApiResponse<ProfitLossDto>> getProfitLoss(
             @RequestParam(required = false) Instant from,
-            @RequestParam(required = false) Instant to) {
+            @RequestParam(required = false) Instant to,
+            @RequestParam(required = false) UUID orgId,
+            @RequestParam(required = false) UUID terminalId) {
         validateReportRange(from, to);
-        return ResponseEntity.ok(ApiResponse.success(reportService.getProfitLoss(from, to)));
+        return ResponseEntity.ok(ApiResponse.success(reportService.getProfitLoss(from, to, orgId, terminalId)));
     }
 
     @PostMapping("/invoices/{id}/void")

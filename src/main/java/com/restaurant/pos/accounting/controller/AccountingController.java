@@ -125,9 +125,11 @@ public class AccountingController {
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
     public ResponseEntity<ApiResponse<AccountingReconciliationDto>> getReconciliation(
             @RequestParam(required = false) String from,
-            @RequestParam(required = false) String to
+            @RequestParam(required = false) String to,
+            @RequestParam(required = false) UUID orgId,
+            @RequestParam(required = false) UUID terminalId
     ) {
-        return ResponseEntity.ok(ApiResponse.success(accountingService.getReconciliation(parseAccountingDateTime(from), parseAccountingDateTime(to))));
+        return ResponseEntity.ok(ApiResponse.success(accountingService.getReconciliation(parseAccountingDateTime(from), parseAccountingDateTime(to), orgId, terminalId)));
     }
 
     @PostMapping("/payment-allocations")

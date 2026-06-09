@@ -118,13 +118,14 @@ public class OrderController {
             @Parameter(description = "Filter history from date-time (ISO-8601 UTC Instant)", example = "2026-05-24T00:00:00Z") @RequestParam(required = false) Instant fromDate,
             @Parameter(description = "Filter history to date-time (ISO-8601 UTC Instant)", example = "2026-05-24T23:59:59Z") @RequestParam(required = false) Instant toDate,
             @Parameter(description = "Search term to match customer name or phone") @RequestParam(required = false) String q,
+            @Parameter(description = "Filter by order status (e.g. 'DRAFT', 'COMPLETED', 'PAID', 'CANCELLED')") @RequestParam(required = false) String status,
             @Parameter(description = "Zero-indexed page number", example = "0") @RequestParam(defaultValue = "0") @Min(0) int page,
             @Parameter(description = "Page size (maximum 50)", example = "20") @RequestParam(defaultValue = "20") @Min(1) @Max(value = 50, message = "Page size cannot exceed 50") int size) {
         if (type != null && type != OrderType.SALE) {
             log.warn("Legacy type parameter '{}' passed to /history is ignored. This endpoint exclusively retrieves SALE history.", type);
         }
         return ResponseEntity
-                .ok(ApiResponse.success(orderService.getSalesOrderHistory(fromDate, toDate, page, size, q)));
+                .ok(ApiResponse.success(orderService.getSalesOrderHistory(fromDate, toDate, page, size, q, status)));
     }
 
     @GetMapping("/search")

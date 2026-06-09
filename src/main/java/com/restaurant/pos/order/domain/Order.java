@@ -4,6 +4,7 @@ import com.restaurant.pos.common.entity.BaseEntity;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.restaurant.pos.order.dto.OrderCustomerDto;
+import com.restaurant.pos.order.dto.CreateOrderRequest;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.Formula;
@@ -98,6 +99,18 @@ public class Order extends BaseEntity {
 
     @Transient
     private String offlinePaymentNo;
+
+    /** Transient: payment splits for direct-settle MIXED orders (not persisted). */
+    @Transient
+    private List<CreateOrderRequest.PaymentSplitRequest> paymentSplits;
+
+    /** Transient: explicit amount paid (used when splits differ from grand total due to round-off). */
+    @Transient
+    private BigDecimal amountPaid;
+
+    /** Transient: round-off applied at direct-settle time. */
+    @Transient
+    private BigDecimal roundOffAmount;
 
     @Column(name = "customer_id")
     private UUID customerId;
