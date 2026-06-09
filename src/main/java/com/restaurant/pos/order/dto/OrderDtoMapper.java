@@ -59,6 +59,8 @@ public class OrderDtoMapper {
                 .orderDiscountValue(order.getOrderDiscountValue())
                 .discountSource(order.getDiscountSource() != null ? order.getDiscountSource().name() : null)
                 .lines(lines)
+                .revisionNumber(order.getRevisionNumber())
+                .originalOrderId(order.getOriginalOrderId())
                 .build();
     }
 

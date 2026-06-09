@@ -116,6 +116,12 @@ public class OrderResponseDto {
     @Schema(description = "Sanitized, non-circular list of order item lines")
     private List<OrderLineResponseDto> lines;
 
+    @Schema(description = "Revision number — 0 for original, incremented on each edit")
+    private Integer revisionNumber;
+
+    @Schema(description = \"UUID of the original order this was revised from (null if not a revision)\")
+    private UUID originalOrderId;
+
     @Data
     @Builder
     @NoArgsConstructor
