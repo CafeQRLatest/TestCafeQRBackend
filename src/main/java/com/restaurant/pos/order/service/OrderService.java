@@ -1353,9 +1353,12 @@ public class OrderService {
         
         // 1. Create a deep copy of the old order as a VOID record
         String originalOrderNo = oldOrder.getOrderNo();
+        UUID oldTableId = oldOrder.getTableId();
         oldOrder.setOrderNo(originalOrderNo + "_VOID_" + (oldOrder.getRevisionNumber() != null ? oldOrder.getRevisionNumber() : 0));
         oldOrder.setOrderStatus("VOID");
         oldOrder.setIsactive("N");
+        oldOrder.setTableId(null);
+        oldOrder.setTableNumber(null);
         orderRepository.saveAndFlush(oldOrder);
         
         // 2. VOID the linked invoice
@@ -1501,6 +1504,9 @@ public class OrderService {
             }
         }
         
+        if (oldTableId != null && !oldTableId.equals(saved.getTableId())) {
+            setTableStatus(oldTableId, "AVAILABLE", saved.getOrgId());
+        }
         handleTableStatus(saved);
 
         // Inventory Hook: If PURCHASE order is COMPLETED, update stock
