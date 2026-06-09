@@ -1347,6 +1347,26 @@ public class OrderService {
                 .map(this::hydrateOrder);
     }
 
+    /**
+     * Returns all revisions (current + all VOID predecessors) for the given order,
+     * ordered from oldest to newest by revisionNumber.
+     */
+    @Transactional(readOnly = true)
+    public java.util.List<Order> getOrderRevisions(UUID id) {
+        UUID clientId = TenantContext.getCurrentTenant();
+        Order current = orderRepository.findByIdAndClientId(id, clientId)
+                .orElseThrow(() -> new com.restaurant.pos.common.exception.BusinessException("Order not found"));
+        // Base orderNo is the part before the first _VOID_ suffix
+        String baseOrderNo = current.getOrderNo();
+        if (baseOrderNo != null && baseOrderNo.contains("_VOID_")) {
+            baseOrderNo = baseOrderNo.substring(0, baseOrderNo.indexOf("_VOID_"));
+        }
+        String voidPrefix = baseOrderNo + "_VOID_%";
+        return orderRepository.findAllRevisionsByOrderNo(clientId, baseOrderNo, voidPrefix)
+                .stream().map(this::hydrateOrder).toList();
+    }
+
+
     @Transactional
     public Order updateOrder(UUID id, Order updates) {
         Order oldOrder = getOrder(id);

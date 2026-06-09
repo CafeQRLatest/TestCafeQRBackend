@@ -181,6 +181,19 @@ public class OrderController {
         return ResponseEntity.ok(ApiResponse.success(orderDtoMapper.toResponseDto(order)));
     }
 
+    @GetMapping("/{id}/revisions")
+    @Operation(summary = "Get order revision history", description = "Returns all revisions of an order (current + all prior VOID records), ordered from oldest to newest.")
+    @ApiResponses(value = {
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Successfully retrieved order revision history"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "Order not found", content = @Content)
+    })
+    public ResponseEntity<ApiResponse<List<OrderResponseDto>>> getOrderRevisions(
+            @Parameter(description = "Unique UUID of the order", required = true) @PathVariable UUID id) {
+        List<OrderResponseDto> revisions = orderService.getOrderRevisions(id)
+                .stream().map(orderDtoMapper::toResponseDto).toList();
+        return ResponseEntity.ok(ApiResponse.success(revisions));
+    }
+
     @PostMapping
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF') or hasAuthority('ORDER_WRITE')")
     @Operation(summary = "Create order", description = "Creates a new order. The orderType field determines SALE, PURCHASE, or EXPENSE routing.")
