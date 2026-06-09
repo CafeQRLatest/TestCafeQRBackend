@@ -119,7 +119,7 @@ public class OrderResponseDto {
     @Schema(description = "Revision number — 0 for original, incremented on each edit")
     private Integer revisionNumber;
 
-    @Schema(description = \"UUID of the original order this was revised from (null if not a revision)\")
+    @Schema(description = "UUID of the original order this was revised from (null if not a revision)")
     private UUID originalOrderId;
 
     @Data
@@ -152,7 +152,7 @@ public class OrderResponseDto {
         @Schema(description = "Total discount amount for this line")
         private BigDecimal discountAmount;
 
-        @Schema(description = "Calculated line total (quantity × unitPrice + tax - discount)")
+        @Schema(description = "Calculated line total (quantity x unitPrice + tax - discount)")
         private BigDecimal lineTotal;
 
         @Schema(description = "Product name (denormalized for display)")
