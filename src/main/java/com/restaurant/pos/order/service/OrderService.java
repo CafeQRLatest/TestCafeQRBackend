@@ -1573,10 +1573,15 @@ public class OrderService {
     )
     public Order updateOrderStatus(UUID id, String status, String paymentStatus, String description) {
         Order order = getOrder(id);
+        String oldStatus = order.getOrderStatus();
         if (status != null) order.setOrderStatus(status);
         if (paymentStatus != null) order.setPaymentStatus(paymentStatus);
         if (description != null) order.setDescription(description);
         prepareCreditCustomer(order, Boolean.TRUE.equals(order.getIsCredit()));
+        
+        if ("CONFIRMED".equalsIgnoreCase(status) && "PENDING".equalsIgnoreCase(oldStatus) && order.getCustomerId() == null) {
+            registerCustomerForAcceptedDeliveryOrder(order);
+        }
         
         Order result = orderRepository.save(order);
         
@@ -1617,6 +1622,74 @@ public class OrderService {
         Order hydrated = hydrateOrder(result);
         enqueueCloudPrintJobs(hydrated);
         return hydrated;
+    }
+
+    private void registerCustomerForAcceptedDeliveryOrder(Order order) {
+        String description = order.getDescription();
+        if (description == null || description.isBlank()) {
+            return;
+        }
+
+        String email = parseField(description, "email");
+        String name = parseField(description, "name");
+        String phone = parseField(description, "phone");
+        String address = parseField(description, "address");
+
+        String normalizedPhone = phone != null ? phone.trim().replaceAll("[\\s()\\-]", "") : null;
+        if (normalizedPhone == null || normalizedPhone.isBlank()) {
+            return;
+        }
+
+        UUID clientId = order.getClientId();
+        java.util.Optional<Customer> existingOpt = customerRepository.findFirstByPhoneAndClientIdOrderByCreatedAtAsc(normalizedPhone, clientId);
+        Customer customer;
+        if (existingOpt.isPresent()) {
+            customer = existingOpt.get();
+            if ((customer.getName() == null || customer.getName().isBlank()) && name != null && !name.isBlank()) {
+                customer.setName(name);
+            }
+            if ((customer.getEmail() == null || customer.getEmail().isBlank()) && email != null && !email.isBlank()) {
+                customer.setEmail(email);
+            }
+            if ((customer.getAddress() == null || customer.getAddress().isBlank()) && address != null && !address.isBlank()) {
+                customer.setAddress(address);
+            }
+        } else {
+            customer = Customer.builder()
+                    .name(name == null || name.isBlank() ? "Guest" : name)
+                    .phone(normalizedPhone)
+                    .email(email)
+                    .address(address)
+                    .customerCategory("REGULAR")
+                    .orderLinks(new java.util.ArrayList<>())
+                    .build();
+            customer.setClientId(clientId);
+            customer.setOrgId(null);
+        }
+
+        if (customer.getOrderLinks() == null) {
+            customer.setOrderLinks(new java.util.ArrayList<>());
+        }
+        boolean alreadyLinked = customer.getOrderLinks().stream()
+                .anyMatch(link -> java.util.Objects.equals(order.getId(), link.getOrderId()));
+        if (!alreadyLinked) {
+            customer.getOrderLinks().add(Customer.OrderLink.builder()
+                    .orderId(order.getId())
+                    .isPrimary(true)
+                    .attachedAt(java.time.Instant.now().toString())
+                    .build());
+        }
+        Customer savedCustomer = customerRepository.save(customer);
+        order.setCustomerId(savedCustomer.getId());
+    }
+
+    private String parseField(String text, String field) {
+        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile(field + ":(.*?)(?=\\s+\\w+:|$)");
+        java.util.regex.Matcher matcher = pattern.matcher(text);
+        if (matcher.find()) {
+            return matcher.group(1).trim();
+        }
+        return null;
     }
 
     @Transactional
