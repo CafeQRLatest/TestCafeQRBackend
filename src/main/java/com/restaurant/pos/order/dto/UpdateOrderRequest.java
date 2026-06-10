@@ -65,6 +65,9 @@ public class UpdateOrderRequest {
     @Schema(description = "Grand total payable", example = "118.00")
     private BigDecimal grandTotal;
 
+    @Schema(description = "Round-off adjustment applied to this settlement", example = "0.00")
+    private BigDecimal roundOffAmount;
+
     @Valid
     @Schema(description = "List of updated order lines")
     private List<CreateOrderRequest.CreateOrderLineRequest> lines;

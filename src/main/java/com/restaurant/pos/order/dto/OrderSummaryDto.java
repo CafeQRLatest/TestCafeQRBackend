@@ -44,6 +44,8 @@ public class OrderSummaryDto {
     private Instant orderDate;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
+    private String createdBy;
+    private String updatedBy;
     private String invoiceNo;
     private Integer dailyBillNo;
     private String paymentNo;

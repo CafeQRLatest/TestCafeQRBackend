@@ -8,11 +8,15 @@ import org.springframework.stereotype.Repository;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 @Repository
 public interface ProductRepository extends JpaRepository<Product, UUID> {
     List<Product> findByClientId(UUID clientId);
+
+    @EntityGraph(attributePaths = {"category"})
+    Optional<Product> findWithCategoryById(UUID id);
 
     @EntityGraph(attributePaths = {"category", "uom", "defaultPricelist"})
     @Query("SELECT p FROM Product p WHERE p.clientId = :clientId AND (:orgId IS NULL OR p.orgId IS NULL OR p.orgId = :orgId)")

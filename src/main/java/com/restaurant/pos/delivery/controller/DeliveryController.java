@@ -239,7 +239,7 @@ public class DeliveryController {
                 UUID productId = UUID.fromString((String) cartItem.get("productId"));
                 int qty = ((Number) cartItem.get("quantity")).intValue();
 
-                Optional<Product> productOpt = productRepository.findById(productId)
+                Optional<Product> productOpt = productRepository.findWithCategoryById(productId)
                         .filter(p -> clientId.equals(p.getClientId()))
                         .filter(p -> orgUuid == null || p.getOrgId() == null || orgUuid.equals(p.getOrgId()))
                         .filter(Product::isActive)

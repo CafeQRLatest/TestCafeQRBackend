@@ -13,7 +13,29 @@ import java.math.BigDecimal;
 import java.util.List;
 
 @Component
+@lombok.RequiredArgsConstructor
 public class OrderDtoMapper {
+
+    private final com.restaurant.pos.auth.repository.UserRepository userRepository;
+
+    private java.time.Instant toInstant(java.time.LocalDateTime ldt) {
+        if (ldt == null) return null;
+        return ldt.atZone(java.time.ZoneId.systemDefault()).toInstant();
+    }
+
+    private String resolveUserDisplayName(String uidStr) {
+        if (uidStr == null || uidStr.isBlank() || "SYSTEM".equalsIgnoreCase(uidStr)) {
+            return "SYSTEM";
+        }
+        try {
+            java.util.UUID userId = java.util.UUID.fromString(uidStr);
+            return userRepository.findById(userId)
+                    .map(u -> u.getFirstName() + (u.getLastName() != null && !u.getLastName().isBlank() ? " " + u.getLastName() : ""))
+                    .orElse(uidStr);
+        } catch (Exception e) {
+            return uidStr;
+        }
+    }
 
     public OrderResponseDto toResponseDto(Order order) {
         if (order == null)
@@ -61,6 +83,10 @@ public class OrderDtoMapper {
                 .lines(lines)
                 .revisionNumber(order.getRevisionNumber())
                 .originalOrderId(order.getOriginalOrderId())
+                .createdBy(resolveUserDisplayName(order.getCreatedBy()))
+                .updatedBy(resolveUserDisplayName(order.getUpdatedBy()))
+                .createdAt(toInstant(order.getCreatedAt()))
+                .updatedAt(toInstant(order.getUpdatedAt()))
                 .build();
     }
 
@@ -243,6 +269,8 @@ public class OrderDtoMapper {
             existing.setTotalDiscountAmount(request.getTotalDiscountAmount());
         if (request.getGrandTotal() != null)
             existing.setGrandTotal(request.getGrandTotal());
+        if (request.getRoundOffAmount() != null)
+            existing.setRoundOffAmount(request.getRoundOffAmount());
 
         if (request.getLines() != null) {
             existing.getLines().clear();
@@ -293,6 +321,9 @@ public class OrderDtoMapper {
         }
         if (request.getGrandTotal() != null) {
             order.setGrandTotal(request.getGrandTotal());
+        }
+        if (request.getRoundOffAmount() != null) {
+            order.setRoundOffAmount(request.getRoundOffAmount());
         }
 
         if (request.getLines() != null) {

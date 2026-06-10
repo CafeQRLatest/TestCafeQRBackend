@@ -383,19 +383,21 @@ public class ReportService {
         String ft = filterType != null ? filterType.toUpperCase() : "ALL";
         if ("PAID".equals(ft)) {
             filtered = allInvoices.stream()
-                    .filter(i -> "PAID".equalsIgnoreCase(i.getStatus()) && !Boolean.TRUE.equals(i.getIsCredit()))
+                    .filter(i -> "PAID".equalsIgnoreCase(i.getStatus()) && !Boolean.TRUE.equals(i.getIsCredit()) && !"VOID".equalsIgnoreCase(i.getStatus()) && !"N".equalsIgnoreCase(i.getIsactive()))
                     .collect(Collectors.toList());
         } else if ("CREDIT".equals(ft)) {
             filtered = allInvoices.stream()
                     .filter(i -> Boolean.TRUE.equals(i.getIsCredit()) || "UNPAID".equalsIgnoreCase(i.getStatus()))
-                    .filter(i -> !"VOID".equalsIgnoreCase(i.getStatus()))
+                    .filter(i -> !"VOID".equalsIgnoreCase(i.getStatus()) && !"N".equalsIgnoreCase(i.getIsactive()))
                     .collect(Collectors.toList());
         } else if ("VOIDED".equals(ft)) {
             filtered = allInvoices.stream()
-                    .filter(i -> "VOID".equalsIgnoreCase(i.getStatus()))
+                    .filter(i -> "VOID".equalsIgnoreCase(i.getStatus()) || "N".equalsIgnoreCase(i.getIsactive()))
                     .collect(Collectors.toList());
         } else {
-            filtered = allInvoices;
+            filtered = allInvoices.stream()
+                    .filter(i -> !"VOID".equalsIgnoreCase(i.getStatus()) && !"N".equalsIgnoreCase(i.getIsactive()))
+                    .collect(Collectors.toList());
         }
 
         return filtered.stream().map(inv -> {
@@ -776,7 +778,7 @@ public class ReportService {
         if ("VOIDED".equals(ft)) {
             return isVoided;
         }
-        return true;
+        return !isVoided;
     }
 
     private boolean isCustomerInvoice(Invoice invoice) {

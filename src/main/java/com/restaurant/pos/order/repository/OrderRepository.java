@@ -126,4 +126,28 @@ public interface OrderRepository extends JpaRepository<Order, UUID>, JpaSpecific
             @Param("clientId") UUID clientId,
             @Param("orderNo") String orderNo,
             @Param("voidPrefix") String voidPrefix);
+
+    @Query("""
+            SELECT o FROM Order o
+            WHERE o.clientId = :clientId
+              AND (:orgId IS NULL OR o.orgId = :orgId)
+              AND o.orderNo = :orderNo
+              AND o.isactive = 'Y'
+              AND o.orderStatus != 'VOID'
+            """)
+    Optional<Order> findActiveByOrderNoAndClientIdAndOrgId(
+            @Param("orderNo") String orderNo,
+            @Param("clientId") UUID clientId,
+            @Param("orgId") UUID orgId);
+
+    @Query("""
+            SELECT o FROM Order o
+            WHERE o.clientId = :clientId
+              AND o.orderNo = :orderNo
+              AND o.isactive = 'Y'
+              AND o.orderStatus != 'VOID'
+            """)
+    Optional<Order> findActiveByOrderNoAndClientId(
+            @Param("orderNo") String orderNo,
+            @Param("clientId") UUID clientId);
 }
