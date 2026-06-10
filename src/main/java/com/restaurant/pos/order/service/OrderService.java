@@ -1221,12 +1221,28 @@ public class OrderService {
     public Order getOrder(UUID id) {
         UUID tenantId = TenantContext.getCurrentTenant();
         UUID orgId = branchContext.getReadOrgId(null);
+        Order order;
         if (orgId == null) {
-            return hydrateOrder(orderRepository.findByIdAndClientId(id, tenantId)
+            order = hydrateOrder(orderRepository.findByIdAndClientId(id, tenantId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Order not found or access denied")));
+        } else {
+            order = hydrateOrder(orderRepository.findByIdAndClientIdAndOrgId(id, tenantId, orgId)
                     .orElseThrow(() -> new ResourceNotFoundException("Order not found or access denied")));
         }
-        return hydrateOrder(orderRepository.findByIdAndClientIdAndOrgId(id, tenantId, orgId)
-                .orElseThrow(() -> new ResourceNotFoundException("Order not found or access denied")));
+
+        if ("VOID".equalsIgnoreCase(order.getOrderStatus()) || "N".equalsIgnoreCase(order.getIsactive())) {
+            String baseOrderNo = order.getOrderNo();
+            if (baseOrderNo != null && baseOrderNo.contains("_VOID_")) {
+                baseOrderNo = baseOrderNo.substring(0, baseOrderNo.indexOf("_VOID_"));
+            }
+            Optional<Order> activeOrder = orgId == null
+                    ? orderRepository.findActiveByOrderNoAndClientId(baseOrderNo, tenantId)
+                    : orderRepository.findActiveByOrderNoAndClientIdAndOrgId(baseOrderNo, tenantId, orgId);
+            if (activeOrder.isPresent()) {
+                return hydrateOrder(activeOrder.get());
+            }
+        }
+        return order;
     }
 
     @Transactional
@@ -1669,9 +1685,12 @@ public class OrderService {
         }
         BigDecimal discountAmount = moneyValue(safeRequest.getDiscountAmount());
         BigDecimal roundOffAmount = moneyValue(safeRequest.getRoundOffAmount());
-        BigDecimal currentTotal = moneyValue(order.getTotalAmount() != null && order.getTotalAmount().compareTo(BigDecimal.ZERO) > 0
-                ? order.getTotalAmount()
-                : order.getGrandTotal());
+        BigDecimal currentTotal = calculateUnroundedLinesTotal(order);
+        if (currentTotal.compareTo(BigDecimal.ZERO) <= 0) {
+            currentTotal = moneyValue(order.getTotalAmount() != null && order.getTotalAmount().compareTo(BigDecimal.ZERO) > 0
+                    ? order.getTotalAmount()
+                    : order.getGrandTotal());
+        }
         BigDecimal existingDiscount = moneyValue(order.getTotalDiscountAmount());
 
         BigDecimal additionalDiscount = discountAmount.subtract(existingDiscount);
@@ -1701,6 +1720,7 @@ public class OrderService {
         Order saved = orderRepository.save(order);
 
         // Fix: update existing invoice if discount/roundoff changed the total
+        Invoice linkedInvoice = null;
         if (additionalDiscount.compareTo(BigDecimal.ZERO) > 0 || roundOffAmount.compareTo(BigDecimal.ZERO) != 0) {
             List<Invoice> existingInvoices = invoiceRepository.findByOrderId(saved.getId());
             for (Invoice existingInv : existingInvoices) {
@@ -1709,11 +1729,15 @@ public class OrderService {
                     existingInv.setAmountDue(saved.getGrandTotal().subtract(roundOffAmount));
                     invoiceRepository.save(existingInv);
                     accountingPostingService.replaceInvoiceJournal(saved, existingInv, "Invoice amount corrected after discount/roundoff");
+                    linkedInvoice = existingInv;
                 }
             }
         }
         saved.setRoundOffAmount(roundOffAmount);
-        generateInvoice(saved);
+        Invoice generatedInv = generateInvoice(saved);
+        if (linkedInvoice == null) {
+            linkedInvoice = generatedInv;
+        }
 
         BigDecimal amountPaid = safeRequest.getAmountPaid() != null
                 ? moneyValue(safeRequest.getAmountPaid())
@@ -1721,13 +1745,9 @@ public class OrderService {
         BigDecimal settleRoundOff = moneyValue(safeRequest.getRoundOffAmount());
 
         // Validate payment invariant: amount_paid = invoice_total + round_off_amount
-        List<Invoice> invoicesForValidation = invoiceRepository.findByOrderId(saved.getId());
-        Invoice linkedInvoice = invoicesForValidation.stream()
-            .filter(i -> !"VOID".equalsIgnoreCase(i.getStatus()))
-            .findFirst().orElse(null);
         BigDecimal invoiceTotal = linkedInvoice != null
             ? moneyValue(linkedInvoice.getTotalAmount())
-            : moneyValue(saved.getGrandTotal());
+            : moneyValue(saved.getGrandTotal()).subtract(settleRoundOff);
         validatePaymentInvariant(invoiceTotal, settleRoundOff, amountPaid);
 
         generatePayment(saved, paymentMethod, null, amountPaid, settlementDescription,
@@ -2358,6 +2378,16 @@ public class OrderService {
         }
     }
 
+    private BigDecimal calculateUnroundedLinesTotal(Order order) {
+        if (order.getLines() == null || order.getLines().isEmpty()) {
+            return BigDecimal.ZERO;
+        }
+        return order.getLines().stream()
+                .filter(OrderLine::isActive)
+                .map(line -> line.getLineTotal() != null ? line.getLineTotal() : BigDecimal.ZERO)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
     /**
      * Enforces the payment round-off invariant:
      * {@code amount_paid = invoice_total + round_off_amount}
@@ -2441,6 +2471,16 @@ public class OrderService {
                 );
             }
         }
+    }
+
+    private BigDecimal calculateUnroundedLinesTotal(Order order) {
+        if (order == null || order.getLines() == null) {
+            return BigDecimal.ZERO;
+        }
+        return order.getLines().stream()
+                .filter(ol -> ol.isActive())
+                .map(ol -> ol.getLineTotal() != null ? ol.getLineTotal() : BigDecimal.ZERO)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 
     private String resolveUserDisplayName(String uidStr) {

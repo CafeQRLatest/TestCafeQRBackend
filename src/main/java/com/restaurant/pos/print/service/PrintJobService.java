@@ -40,6 +40,16 @@ public class PrintJobService {
         UUID clientId = TenantContext.getCurrentTenant();
         Order order = orderRepository.findByIdAndClientId(orderId, clientId)
                 .orElseThrow(() -> new BusinessException("Order not found"));
+        if ("VOID".equalsIgnoreCase(order.getOrderStatus()) || "N".equalsIgnoreCase(order.getIsactive())) {
+            String baseOrderNo = order.getOrderNo();
+            if (baseOrderNo != null && baseOrderNo.contains("_VOID_")) {
+                baseOrderNo = baseOrderNo.substring(0, baseOrderNo.indexOf("_VOID_"));
+            }
+            java.util.Optional<Order> activeOrder = orderRepository.findByOrderNoAndClientId(baseOrderNo, clientId);
+            if (activeOrder.isPresent()) {
+                order = activeOrder.get();
+            }
+        }
         return enqueueForOrder(order, parseKind(jobKind), "manual");
     }
 

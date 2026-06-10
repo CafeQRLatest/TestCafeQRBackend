@@ -611,6 +611,103 @@ class OrderServiceTest {
         verify(accountingPostingService).reverseSaleCogs(order, "Order cancelled");
     }
 
+    @Test
+    void getOrderResolvesToActiveCounterpartWhenVoided() {
+        UUID voidedOrderId = UUID.randomUUID();
+        UUID activeOrderId = UUID.randomUUID();
+        String orderNo = "ORD-001";
+        
+        Order voidedOrder = Order.builder()
+                .id(voidedOrderId)
+                .orderNo(orderNo + "_VOID_0")
+                .orderStatus("VOID")
+                .isactive("N")
+                .build();
+        voidedOrder.setClientId(clientId);
+        voidedOrder.setOrgId(orgId);
+
+        Order activeOrder = Order.builder()
+                .id(activeOrderId)
+                .orderNo(orderNo)
+                .orderStatus("COMPLETED")
+                .isactive("Y")
+                .build();
+        activeOrder.setClientId(clientId);
+        activeOrder.setOrgId(orgId);
+
+        when(orderRepository.findByIdAndClientIdAndOrgId(eq(voidedOrderId), eq(clientId), eq(orgId)))
+                .thenReturn(Optional.of(voidedOrder));
+        when(orderRepository.findActiveByOrderNoAndClientIdAndOrgId(eq(orderNo), eq(clientId), eq(orgId)))
+                .thenReturn(Optional.of(activeOrder));
+
+        Order result = orderService.getOrder(voidedOrderId);
+
+        assertThat(result).isNotNull();
+        assertThat(result.getId()).isEqualTo(activeOrderId);
+        assertThat(result.getOrderNo()).isEqualTo(orderNo);
+        assertThat(result.getOrderStatus()).isEqualTo("COMPLETED");
+    }
+
+    @Test
+    void settleKitchenOrderWithRoundOffAppliedSucceeds() {
+        UUID orderId = UUID.randomUUID();
+        UUID invoiceId = UUID.randomUUID();
+
+        // Create active order lines with unrounded total: 9550.60
+        com.restaurant.pos.order.domain.OrderLine line = com.restaurant.pos.order.domain.OrderLine.builder()
+                .lineTotal(new BigDecimal("9550.60"))
+                .isactive("Y")
+                .build();
+
+        Order order = Order.builder()
+                .id(orderId)
+                .orderNo("SO-1")
+                .orderType(OrderType.SALE)
+                .orderStatus("BILLED")
+                .paymentStatus("PENDING")
+                .grandTotal(new BigDecimal("9551.00")) // Rounded Grand Total
+                .totalAmount(new BigDecimal("9551.00")) // Rounded Total Amount
+                .totalTaxAmount(new BigDecimal("868.23"))
+                .lines(new java.util.ArrayList<>(List.of(line)))
+                .build();
+        line.setOrder(order);
+        order.setClientId(clientId);
+        order.setOrgId(orgId);
+
+        Invoice invoice = Invoice.builder()
+                .id(invoiceId)
+                .orderId(orderId)
+                .invoiceNo("INV-1")
+                .status("UNPAID")
+                .docStatus("COMPLETED")
+                .isPaid(false)
+                .totalAmount(new BigDecimal("9551.00"))
+                .amountDue(new BigDecimal("9551.00"))
+                .build();
+        invoice.setClientId(clientId);
+        invoice.setOrgId(orgId);
+
+        when(orderRepository.findByIdAndClientIdAndOrgId(orderId, clientId, orgId)).thenReturn(Optional.of(order));
+        when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(invoiceRepository.findByOrderId(orderId)).thenReturn(List.of(invoice));
+        when(invoiceRepository.save(any(Invoice.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(sequenceService.generateNextSequence(DocumentType.INBOUND_PAYMENT)).thenReturn("PAY-1");
+        when(paymentRepository.save(any(Payment.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(customerRepository.findByClientIdAndOrderLink(eq(clientId), any(), any())).thenReturn(List.of());
+
+        OrderSettleRequest request = new OrderSettleRequest();
+        request.setPaymentMethod("CASH");
+        request.setRoundOffAmount(new BigDecimal("0.40"));
+        request.setAmountPaid(new BigDecimal("9551.00"));
+
+        Order settled = orderService.settleOrder(orderId, request);
+
+        // Grand total should remain 9551.00 (not 9551.40)
+        assertThat(settled.getGrandTotal()).isEqualByComparingTo("9551.00");
+        // Invoice total should be corrected to the unrounded total 9550.60
+        assertThat(invoice.getTotalAmount()).isEqualByComparingTo("9550.60");
+    }
+
     @SuppressWarnings({"rawtypes", "unchecked"})
     private List<Specification<Order>> capturedSalesHistorySpecs(int count) {
         ArgumentCaptor<Specification<Order>> specCaptor = ArgumentCaptor.forClass((Class) Specification.class);
