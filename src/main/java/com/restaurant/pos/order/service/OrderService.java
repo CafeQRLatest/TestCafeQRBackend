@@ -105,6 +105,7 @@ public class OrderService {
     private final SystemConfigurationService configurationService;
     private final ObjectMapper objectMapper;
     private final BranchContextService branchContext;
+    private final com.restaurant.pos.auth.repository.UserRepository userRepository;
 
     private void prepareSourceFields(Order order) {
         UUID terminalId = TenantContext.getCurrentTerminal();
@@ -818,6 +819,8 @@ public class OrderService {
                 .orderDate(hydrated.getOrderDate())
                 .createdAt(hydrated.getCreatedAt())
                 .updatedAt(hydrated.getUpdatedAt())
+                .createdBy(resolveUserDisplayName(hydrated.getCreatedBy()))
+                .updatedBy(resolveUserDisplayName(hydrated.getUpdatedBy()))
                 .invoiceNo(hydrated.getInvoiceNo())
                 .dailyBillNo(hydrated.getDailyBillNo())
                 .paymentNo(hydrated.getPaymentNo())
@@ -1214,12 +1217,28 @@ public class OrderService {
     public Order getOrder(UUID id) {
         UUID tenantId = TenantContext.getCurrentTenant();
         UUID orgId = branchContext.getReadOrgId(null);
+        Order order;
         if (orgId == null) {
-            return hydrateOrder(orderRepository.findByIdAndClientId(id, tenantId)
+            order = hydrateOrder(orderRepository.findByIdAndClientId(id, tenantId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Order not found or access denied")));
+        } else {
+            order = hydrateOrder(orderRepository.findByIdAndClientIdAndOrgId(id, tenantId, orgId)
                     .orElseThrow(() -> new ResourceNotFoundException("Order not found or access denied")));
         }
-        return hydrateOrder(orderRepository.findByIdAndClientIdAndOrgId(id, tenantId, orgId)
-                .orElseThrow(() -> new ResourceNotFoundException("Order not found or access denied")));
+
+        if ("VOID".equalsIgnoreCase(order.getOrderStatus()) || "N".equalsIgnoreCase(order.getIsactive())) {
+            String baseOrderNo = order.getOrderNo();
+            if (baseOrderNo != null && baseOrderNo.contains("_VOID_")) {
+                baseOrderNo = baseOrderNo.substring(0, baseOrderNo.indexOf("_VOID_"));
+            }
+            Optional<Order> activeOrder = orgId == null
+                    ? orderRepository.findActiveByOrderNoAndClientId(baseOrderNo, tenantId)
+                    : orderRepository.findActiveByOrderNoAndClientIdAndOrgId(baseOrderNo, tenantId, orgId);
+            if (activeOrder.isPresent()) {
+                return hydrateOrder(activeOrder.get());
+            }
+        }
+        return order;
     }
 
     @Transactional
@@ -1266,6 +1285,11 @@ public class OrderService {
 
             diagnosticPhase = "link_customers";
             linkCustomersToSavedOrder(saved);
+
+            // Copy transient payment fields from request order object to saved entity
+            saved.setRoundOffAmount(order.getRoundOffAmount());
+            saved.setAmountPaid(order.getAmountPaid());
+            saved.setPaymentSplits(order.getPaymentSplits());
 
             diagnosticPhase = "generate_invoice";
             if (shouldGenerateInvoice(saved)) {
@@ -1453,6 +1477,7 @@ public class OrderService {
         newOrder.setTotalTaxAmount(updates.getTotalTaxAmount() != null ? updates.getTotalTaxAmount() : oldOrder.getTotalTaxAmount());
         newOrder.setTotalDiscountAmount(updates.getTotalDiscountAmount() != null ? updates.getTotalDiscountAmount() : oldOrder.getTotalDiscountAmount());
         newOrder.setGrandTotal(updates.getGrandTotal() != null ? updates.getGrandTotal() : oldOrder.getGrandTotal());
+        newOrder.setRoundOffAmount(updates.getRoundOffAmount() != null ? updates.getRoundOffAmount() : oldOrder.getRoundOffAmount());
         newOrder.setDescription(updates.getDescription() != null ? updates.getDescription() : oldOrder.getDescription());
 
         // Tenant fields
@@ -1487,6 +1512,8 @@ public class OrderService {
         Order saved = orderRepository.save(newOrder);
         linkCustomersToSavedOrder(saved);
         
+        saved.setRoundOffAmount(newOrder.getRoundOffAmount());
+
         // 4. Generate new ERP documents (Invoice/Payment)
         UUID oldInvId = oldInvoiceIdList.isEmpty() ? null : oldInvoiceIdList.get(0);
         if (shouldGenerateInvoice(saved)) {
@@ -1654,7 +1681,12 @@ public class OrderService {
         }
         BigDecimal discountAmount = moneyValue(safeRequest.getDiscountAmount());
         BigDecimal roundOffAmount = moneyValue(safeRequest.getRoundOffAmount());
-        BigDecimal currentTotal = moneyValue(order.getGrandTotal());
+        BigDecimal currentTotal = calculateUnroundedLinesTotal(order);
+        if (currentTotal.compareTo(BigDecimal.ZERO) <= 0) {
+            currentTotal = moneyValue(order.getTotalAmount() != null && order.getTotalAmount().compareTo(BigDecimal.ZERO) > 0
+                    ? order.getTotalAmount()
+                    : order.getGrandTotal());
+        }
         BigDecimal existingDiscount = moneyValue(order.getTotalDiscountAmount());
 
         BigDecimal additionalDiscount = discountAmount.subtract(existingDiscount);
@@ -1684,18 +1716,24 @@ public class OrderService {
         Order saved = orderRepository.save(order);
 
         // Fix: update existing invoice if discount/roundoff changed the total
+        Invoice linkedInvoice = null;
         if (additionalDiscount.compareTo(BigDecimal.ZERO) > 0 || roundOffAmount.compareTo(BigDecimal.ZERO) != 0) {
             List<Invoice> existingInvoices = invoiceRepository.findByOrderId(saved.getId());
             for (Invoice existingInv : existingInvoices) {
                 if (!"VOID".equalsIgnoreCase(existingInv.getStatus())) {
-                    existingInv.setTotalAmount(saved.getGrandTotal());
-                    existingInv.setAmountDue(saved.getGrandTotal());
+                    existingInv.setTotalAmount(saved.getGrandTotal().subtract(roundOffAmount));
+                    existingInv.setAmountDue(saved.getGrandTotal().subtract(roundOffAmount));
                     invoiceRepository.save(existingInv);
                     accountingPostingService.replaceInvoiceJournal(saved, existingInv, "Invoice amount corrected after discount/roundoff");
+                    linkedInvoice = existingInv;
                 }
             }
         }
-        generateInvoice(saved);
+        saved.setRoundOffAmount(roundOffAmount);
+        Invoice generatedInv = generateInvoice(saved);
+        if (linkedInvoice == null) {
+            linkedInvoice = generatedInv;
+        }
 
         BigDecimal amountPaid = safeRequest.getAmountPaid() != null
                 ? moneyValue(safeRequest.getAmountPaid())
@@ -1703,13 +1741,9 @@ public class OrderService {
         BigDecimal settleRoundOff = moneyValue(safeRequest.getRoundOffAmount());
 
         // Validate payment invariant: amount_paid = invoice_total + round_off_amount
-        List<Invoice> invoicesForValidation = invoiceRepository.findByOrderId(saved.getId());
-        Invoice linkedInvoice = invoicesForValidation.stream()
-            .filter(i -> !"VOID".equalsIgnoreCase(i.getStatus()))
-            .findFirst().orElse(null);
         BigDecimal invoiceTotal = linkedInvoice != null
             ? moneyValue(linkedInvoice.getTotalAmount())
-            : moneyValue(saved.getGrandTotal());
+            : moneyValue(saved.getGrandTotal()).subtract(settleRoundOff);
         validatePaymentInvariant(invoiceTotal, settleRoundOff, amountPaid);
 
         generatePayment(saved, paymentMethod, null, amountPaid, settlementDescription,
@@ -1906,8 +1940,8 @@ public class OrderService {
             .invoiceNo(invNo)
             .invoiceDate(invoiceDate)
             .dailyBillNo(dailyBillNo)
-            .totalAmount(order.getGrandTotal())
-            .amountDue(order.getGrandTotal())
+            .totalAmount(order.getGrandTotal().subtract(order.getRoundOffAmount() != null ? order.getRoundOffAmount() : BigDecimal.ZERO))
+            .amountDue(order.getGrandTotal().subtract(order.getRoundOffAmount() != null ? order.getRoundOffAmount() : BigDecimal.ZERO))
             .status("UNPAID")
             .isPaid(false)
             .isCredit(Boolean.TRUE.equals(order.getIsCredit()))
@@ -2340,6 +2374,16 @@ public class OrderService {
         }
     }
 
+    private BigDecimal calculateUnroundedLinesTotal(Order order) {
+        if (order.getLines() == null || order.getLines().isEmpty()) {
+            return BigDecimal.ZERO;
+        }
+        return order.getLines().stream()
+                .filter(OrderLine::isActive)
+                .map(line -> line.getLineTotal() != null ? line.getLineTotal() : BigDecimal.ZERO)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
     /**
      * Enforces the payment round-off invariant:
      * {@code amount_paid = invoice_total + round_off_amount}
@@ -2422,6 +2466,22 @@ public class OrderService {
                     order.getOrgId()
                 );
             }
+        }
+    }
+
+
+    private String resolveUserDisplayName(String uidStr) {
+        if (uidStr == null || uidStr.isBlank() || "SYSTEM".equalsIgnoreCase(uidStr)) {
+            return "SYSTEM";
+        }
+        try {
+            UUID userId = UUID.fromString(uidStr);
+            return userRepository.findById(userId)
+                    .map(u -> u.getFirstName()
+                            + (u.getLastName() != null && !u.getLastName().isBlank() ? " " + u.getLastName() : ""))
+                    .orElse(uidStr);
+        } catch (Exception e) {
+            return uidStr;
         }
     }
 }

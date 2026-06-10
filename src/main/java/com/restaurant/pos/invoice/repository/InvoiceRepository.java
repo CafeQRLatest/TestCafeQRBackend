@@ -56,4 +56,42 @@ public interface InvoiceRepository extends JpaRepository<Invoice, UUID>, JpaSpec
     boolean existsByClientIdAndOrgIdAndInvoiceNo(@Param("clientId") UUID clientId, @Param("orgId") UUID orgId, @Param("invoiceNo") String invoiceNo);
     
     long countByClientId(UUID clientId);
+
+    @Query("""
+            SELECT i FROM Invoice i
+            WHERE i.orderId = :orderId
+              AND i.clientId = :clientId
+              AND i.status != 'VOID'
+              AND i.isactive = 'Y'
+            """)
+    Optional<Invoice> findActiveByOrderIdAndClientId(@Param("orderId") UUID orderId, @Param("clientId") UUID clientId);
+
+    @Query("""
+            SELECT i FROM Invoice i
+            WHERE i.orderId = :orderId
+              AND i.clientId = :clientId
+              AND (:orgId IS NULL OR i.orgId = :orgId)
+              AND i.status != 'VOID'
+              AND i.isactive = 'Y'
+            """)
+    Optional<Invoice> findActiveByOrderIdAndClientIdAndOrgId(@Param("orderId") UUID orderId, @Param("clientId") UUID clientId, @Param("orgId") UUID orgId);
+
+    @Query("""
+            SELECT i FROM Invoice i
+            WHERE i.invoiceNo = :invoiceNo
+              AND i.clientId = :clientId
+              AND i.status != 'VOID'
+              AND i.isactive = 'Y'
+            """)
+    Optional<Invoice> findActiveByInvoiceNoAndClientId(@Param("invoiceNo") String invoiceNo, @Param("clientId") UUID clientId);
+
+    @Query("""
+            SELECT i FROM Invoice i
+            WHERE i.invoiceNo = :invoiceNo
+              AND i.clientId = :clientId
+              AND (:orgId IS NULL OR i.orgId = :orgId)
+              AND i.status != 'VOID'
+              AND i.isactive = 'Y'
+            """)
+    Optional<Invoice> findActiveByInvoiceNoAndClientIdAndOrgId(@Param("invoiceNo") String invoiceNo, @Param("clientId") UUID clientId, @Param("orgId") UUID orgId);
 }

@@ -122,6 +122,18 @@ public class OrderResponseDto {
     @Schema(description = "UUID of the original order this was revised from (null if not a revision)")
     private UUID originalOrderId;
 
+    @Schema(description = "User who created the order")
+    private String createdBy;
+
+    @Schema(description = "User who last updated the order")
+    private String updatedBy;
+
+    @Schema(description = "Date and time the order was created")
+    private Instant createdAt;
+
+    @Schema(description = "Date and time the order was last updated")
+    private Instant updatedAt;
+
     @Data
     @Builder
     @NoArgsConstructor
