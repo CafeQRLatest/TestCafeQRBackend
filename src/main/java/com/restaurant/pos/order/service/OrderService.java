@@ -106,6 +106,7 @@ public class OrderService {
     private final SystemConfigurationService configurationService;
     private final ObjectMapper objectMapper;
     private final BranchContextService branchContext;
+    private final com.restaurant.pos.auth.repository.UserRepository userRepository;
 
     private void prepareSourceFields(Order order) {
         UUID terminalId = TenantContext.getCurrentTerminal();
@@ -819,6 +820,8 @@ public class OrderService {
                 .orderDate(hydrated.getOrderDate())
                 .createdAt(hydrated.getCreatedAt())
                 .updatedAt(hydrated.getUpdatedAt())
+                .createdBy(resolveUserDisplayName(hydrated.getCreatedBy()))
+                .updatedBy(resolveUserDisplayName(hydrated.getUpdatedBy()))
                 .invoiceNo(hydrated.getInvoiceNo())
                 .dailyBillNo(hydrated.getDailyBillNo())
                 .paymentNo(hydrated.getPaymentNo())
@@ -2426,6 +2429,21 @@ public class OrderService {
                     order.getOrgId()
                 );
             }
+        }
+    }
+
+    private String resolveUserDisplayName(String uidStr) {
+        if (uidStr == null || uidStr.isBlank() || "SYSTEM".equalsIgnoreCase(uidStr)) {
+            return "SYSTEM";
+        }
+        try {
+            UUID userId = UUID.fromString(uidStr);
+            return userRepository.findById(userId)
+                    .map(u -> u.getFirstName()
+                            + (u.getLastName() != null && !u.getLastName().isBlank() ? " " + u.getLastName() : ""))
+                    .orElse(uidStr);
+        } catch (Exception e) {
+            return uidStr;
         }
     }
 }
