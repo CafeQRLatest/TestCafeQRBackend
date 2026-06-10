@@ -12,6 +12,7 @@ import com.restaurant.pos.order.repository.OrderRepository;
 import com.restaurant.pos.product.domain.Product;
 import com.restaurant.pos.product.repository.ProductRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -39,6 +40,7 @@ import java.util.stream.Collectors;
  *   GET  /delivery/addresses?clientId=&email=            — list saved addresses (stub)
  *   POST /delivery/addresses                             — save a delivery address (stub)
  */
+@Slf4j
 @RestController
 @RequestMapping("/api/delivery")
 @RequiredArgsConstructor
@@ -169,113 +171,122 @@ public class DeliveryController {
     public ResponseEntity<ApiResponse<Map<String, Object>>> placeOrder(
             @RequestBody Map<String, Object> payload) {
 
-        UUID clientId = UUID.fromString((String) payload.get("clientId"));
-        validateSubscription(clientId);
+        try {
+            UUID clientId = UUID.fromString((String) payload.get("clientId"));
+            validateSubscription(clientId);
 
-        UUID orgUuid          = parseOrgId((String) payload.get("orgId"));
-        String fulfillment    = String.valueOf(payload.getOrDefault("fulfillmentType", "DELIVERY")).toUpperCase();
-        String customerEmail  = (String) payload.getOrDefault("customerEmail", "");
-        String customerName   = (String) payload.getOrDefault("customerName",  "");
-        String customerPhone  = (String) payload.getOrDefault("customerPhone", "");
-        String deliveryAddress= (String) payload.getOrDefault("deliveryAddress", "");
-        String note           = (String) payload.getOrDefault("note", "");
+            UUID orgUuid          = parseOrgId((String) payload.get("orgId"));
+            String fulfillment    = String.valueOf(payload.getOrDefault("fulfillmentType", "DELIVERY")).toUpperCase();
+            String customerEmail  = (String) payload.getOrDefault("customerEmail", "");
+            String customerName   = (String) payload.getOrDefault("customerName",  "");
+            String customerPhone  = (String) payload.getOrDefault("customerPhone", "");
+            String deliveryAddress= (String) payload.getOrDefault("deliveryAddress", "");
+            String note           = (String) payload.getOrDefault("note", "");
 
-        @SuppressWarnings("unchecked")
-        List<Map<String, Object>> items = (List<Map<String, Object>>) payload.get("items");
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> items = (List<Map<String, Object>>) payload.get("items");
 
-        if (items == null || items.isEmpty()) {
-            return ResponseEntity.badRequest()
-                    .body(ApiResponse.success(Map.of("error", "No items in order")));
-        }
-
-        String orderNo = "DEL-" + System.currentTimeMillis();
-        String description = buildDescription(customerEmail, customerName, customerPhone, deliveryAddress, note);
-
-        BigDecimal latitude = null;
-        BigDecimal longitude = null;
-        if (payload.get("latitude") != null) {
-            try {
-                latitude = new BigDecimal(String.valueOf(payload.get("latitude")));
-            } catch (Exception e) {
-                // Ignore parsing errors
-            }
-        }
-        if (payload.get("longitude") != null) {
-            try {
-                longitude = new BigDecimal(String.valueOf(payload.get("longitude")));
-            } catch (Exception e) {
-                // Ignore parsing errors
-            }
-        }
-
-        // FIX 1: clientId and orgId live in BaseEntity and are not reachable via
-        // the Lombok @Builder generated on Order itself. Build without them, then
-        // set via the inherited Lombok setters.
-        Order order = Order.builder()
-                .id(UUID.randomUUID())
-                .orderNo(orderNo)
-                .orderType(OrderType.SALE)
-                .orderStatus("CONFIRMED")
-                .paymentStatus("PENDING")
-                .orderSource("DELIVERY_WEB")
-                .fulfillmentType(fulfillment)
-                .description(description)
-                .orderDate(Instant.now())
-                .build();
-
-        order.setClientId(clientId);
-        order.setOrgId(orgUuid);
-        order.setLatitude(latitude);
-        order.setLongitude(longitude);
-
-        BigDecimal grandTotal = BigDecimal.ZERO;
-
-        for (Map<String, Object> cartItem : items) {
-            UUID productId = UUID.fromString((String) cartItem.get("productId"));
-            int qty = ((Number) cartItem.get("quantity")).intValue();
-
-            Optional<Product> productOpt = productRepository.findById(productId)
-                    .filter(p -> clientId.equals(p.getClientId()))
-                    .filter(p -> orgUuid == null || p.getOrgId() == null || orgUuid.equals(p.getOrgId()))
-                    .filter(Product::isActive)
-                    .filter(Product::isAvailable);
-
-            if (productOpt.isEmpty()) {
+            if (items == null || items.isEmpty()) {
                 return ResponseEntity.badRequest()
-                        .body(ApiResponse.success(Map.of("error", "Invalid or unavailable item: " + productId)));
+                        .body(ApiResponse.success(Map.of("error", "No items in order")));
             }
 
-            Product p = productOpt.get();
-            BigDecimal lineTotal = p.getPrice().multiply(BigDecimal.valueOf(qty));
+            String orderNo = "DEL-" + System.currentTimeMillis();
+            String description = buildDescription(customerEmail, customerName, customerPhone, deliveryAddress, note);
 
-            OrderLine line = OrderLine.builder()
-                    .productId(productId)
-                    .productName(p.getName())
-                    .categoryName(p.getCategory() != null ? p.getCategory().getName() : null)
-                    .isPackagedGood(p.isPackagedGood())
-                    .quantity(BigDecimal.valueOf(qty))
-                    .unitPrice(p.getPrice())
-                    .lineTotal(lineTotal)
+            BigDecimal latitude = null;
+            BigDecimal longitude = null;
+            if (payload.get("latitude") != null) {
+                try {
+                    latitude = new BigDecimal(String.valueOf(payload.get("latitude")));
+                } catch (Exception e) {
+                    // Ignore parsing errors
+                }
+            }
+            if (payload.get("longitude") != null) {
+                try {
+                    longitude = new BigDecimal(String.valueOf(payload.get("longitude")));
+                } catch (Exception e) {
+                    // Ignore parsing errors
+                }
+            }
+
+            // FIX 1: clientId and orgId live in BaseEntity and are not reachable via
+            // the Lombok @Builder generated on Order itself. Build without them, then
+            // set via the inherited Lombok setters.
+            Order order = Order.builder()
+                    .id(UUID.randomUUID())
+                    .orderNo(orderNo)
+                    .orderType(OrderType.SALE)
+                    .orderStatus("CONFIRMED")
+                    .paymentStatus("PENDING")
+                    .orderSource("DELIVERY_WEB")
+                    .fulfillmentType(fulfillment)
+                    .description(description)
+                    .orderDate(Instant.now())
                     .build();
 
-            order.addLine(line);
-            grandTotal = grandTotal.add(lineTotal);
+            order.setClientId(clientId);
+            order.setOrgId(orgUuid);
+            order.setLatitude(latitude);
+            order.setLongitude(longitude);
+
+            BigDecimal grandTotal = BigDecimal.ZERO;
+
+            for (Map<String, Object> cartItem : items) {
+                UUID productId = UUID.fromString((String) cartItem.get("productId"));
+                int qty = ((Number) cartItem.get("quantity")).intValue();
+
+                Optional<Product> productOpt = productRepository.findById(productId)
+                        .filter(p -> clientId.equals(p.getClientId()))
+                        .filter(p -> orgUuid == null || p.getOrgId() == null || orgUuid.equals(p.getOrgId()))
+                        .filter(Product::isActive)
+                        .filter(Product::isAvailable);
+
+                if (productOpt.isEmpty()) {
+                    log.warn("[Delivery] Invalid/unavailable product {} for client {} org {}",
+                            productId, clientId, orgUuid);
+                    return ResponseEntity.badRequest()
+                            .body(ApiResponse.success(Map.of("error", "Invalid or unavailable item: " + productId)));
+                }
+
+                Product p = productOpt.get();
+                BigDecimal lineTotal = p.getPrice().multiply(BigDecimal.valueOf(qty));
+
+                OrderLine line = OrderLine.builder()
+                        .productId(productId)
+                        .productName(p.getName())
+                        .categoryName(p.getCategory() != null ? p.getCategory().getName() : null)
+                        .isPackagedGood(p.isPackagedGood())
+                        .quantity(BigDecimal.valueOf(qty))
+                        .unitPrice(p.getPrice())
+                        .lineTotal(lineTotal)
+                        .build();
+
+                order.addLine(line);
+                grandTotal = grandTotal.add(lineTotal);
+            }
+
+            order.setTotalAmount(grandTotal);
+            order.setGrandTotal(grandTotal);
+
+            Order saved = orderRepository.save(order);
+            log.info("[Delivery] Order placed: {} (orderNo={}) for client={} org={}",
+                    saved.getId(), saved.getOrderNo(), clientId, orgUuid);
+
+            Map<String, Object> response = new LinkedHashMap<>();
+            response.put("orderId",         saved.getId());
+            response.put("orderNo",         saved.getOrderNo());
+            response.put("status",          saved.getOrderStatus());
+            response.put("paymentStatus",   saved.getPaymentStatus());
+            response.put("fulfillmentType", saved.getFulfillmentType());
+            response.put("grandTotal",      saved.getGrandTotal());
+
+            return ResponseEntity.ok(ApiResponse.success(response));
+        } catch (Exception ex) {
+            log.error("[Delivery] Failed to place order: {}", ex.getMessage(), ex);
+            throw ex;
         }
-
-        order.setTotalAmount(grandTotal);
-        order.setGrandTotal(grandTotal);
-
-        Order saved = orderRepository.save(order);
-
-        Map<String, Object> response = new LinkedHashMap<>();
-        response.put("orderId",         saved.getId());
-        response.put("orderNo",         saved.getOrderNo());
-        response.put("status",          saved.getOrderStatus());
-        response.put("paymentStatus",   saved.getPaymentStatus());
-        response.put("fulfillmentType", saved.getFulfillmentType());
-        response.put("grandTotal",      saved.getGrandTotal());
-
-        return ResponseEntity.ok(ApiResponse.success(response));
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -285,11 +296,21 @@ public class DeliveryController {
     // ─────────────────────────────────────────────────────────────────────────
     @GetMapping("/orders/{orderId}")
     public ResponseEntity<ApiResponse<Map<String, Object>>> getOrder(
-            @PathVariable UUID orderId,
+            @PathVariable String orderId,
             @RequestParam UUID clientId) {
 
-        Order order = orderRepository.findByIdAndClientId(orderId, clientId)
-                .orElseThrow(() -> new ResourceNotFoundException("Order not found"));
+        // Try UUID lookup first, then fall back to orderNo lookup
+        Optional<Order> orderOpt;
+        try {
+            UUID uuid = UUID.fromString(orderId);
+            orderOpt = orderRepository.findByIdAndClientId(uuid, clientId);
+        } catch (IllegalArgumentException e) {
+            // Not a UUID — treat as orderNo
+            orderOpt = orderRepository.findByOrderNoAndClientId(orderId, clientId);
+        }
+
+        Order order = orderOpt
+                .orElseThrow(() -> new ResourceNotFoundException("Order not found: " + orderId));
 
         return ResponseEntity.ok(ApiResponse.success(toOrderMap(order)));
     }
