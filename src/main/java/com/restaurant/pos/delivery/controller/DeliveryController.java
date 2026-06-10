@@ -40,7 +40,7 @@ import java.util.stream.Collectors;
  *   POST /delivery/addresses                             — save a delivery address (stub)
  */
 @RestController
-@RequestMapping("/delivery")
+@RequestMapping("/api/delivery")
 @RequiredArgsConstructor
 public class DeliveryController {
 
@@ -55,7 +55,8 @@ public class DeliveryController {
     // ─────────────────────────────────────────────────────────────────────────
     @GetMapping("/restaurant/{clientId}/settings")
     public ResponseEntity<ApiResponse<Map<String, Object>>> getSettings(
-            @PathVariable UUID clientId) {
+            @PathVariable UUID clientId,
+            @RequestParam(required = false) String orgId) {
 
         var client = clientRepository.findById(clientId)
                 .orElseThrow(() -> new ResourceNotFoundException("Restaurant not found"));
@@ -81,6 +82,19 @@ public class DeliveryController {
         settings.put("takeawayEnabled",  true);
         settings.put("minOrderAmount",   BigDecimal.ZERO);
         settings.put("estimatedDeliveryMinutes", 45);
+
+        // Branch-wise settings override
+        UUID orgUuid = parseOrgId(orgId);
+        if (orgUuid != null) {
+            organizationRepository.findById(orgUuid).ifPresent(org -> {
+                if (org.getName() != null && !org.getName().isBlank()) {
+                    settings.put("restaurantName", org.getName());
+                }
+                if (org.getLogoUrl() != null && !org.getLogoUrl().isBlank()) {
+                    settings.put("logoUrl", org.getLogoUrl());
+                }
+            });
+        }
 
         return ResponseEntity.ok(ApiResponse.success(settings));
     }
@@ -166,6 +180,23 @@ public class DeliveryController {
         String orderNo = "DEL-" + System.currentTimeMillis();
         String description = buildDescription(customerEmail, customerName, customerPhone, deliveryAddress, note);
 
+        BigDecimal latitude = null;
+        BigDecimal longitude = null;
+        if (payload.get("latitude") != null) {
+            try {
+                latitude = new BigDecimal(String.valueOf(payload.get("latitude")));
+            } catch (Exception e) {
+                // Ignore parsing errors
+            }
+        }
+        if (payload.get("longitude") != null) {
+            try {
+                longitude = new BigDecimal(String.valueOf(payload.get("longitude")));
+            } catch (Exception e) {
+                // Ignore parsing errors
+            }
+        }
+
         // FIX 1: clientId and orgId live in BaseEntity and are not reachable via
         // the Lombok @Builder generated on Order itself. Build without them, then
         // set via the inherited Lombok setters.
@@ -183,6 +214,8 @@ public class DeliveryController {
 
         order.setClientId(clientId);
         order.setOrgId(orgUuid);
+        order.setLatitude(latitude);
+        order.setLongitude(longitude);
 
         BigDecimal grandTotal = BigDecimal.ZERO;
 
@@ -358,6 +391,8 @@ public class DeliveryController {
         map.put("grandTotal",      order.getGrandTotal());
         map.put("orderDate",       order.getOrderDate());
         map.put("description",     order.getDescription());
+        map.put("latitude",        order.getLatitude());
+        map.put("longitude",       order.getLongitude());
 
         if (order.getLines() != null) {
             List<Map<String, Object>> lines = order.getLines().stream().map(l -> {
