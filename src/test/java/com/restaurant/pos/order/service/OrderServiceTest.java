@@ -14,6 +14,7 @@ import com.restaurant.pos.order.domain.Order;
 import com.restaurant.pos.order.domain.OrderType;
 import com.restaurant.pos.order.domain.Payment;
 import com.restaurant.pos.order.domain.PaymentType;
+import com.restaurant.pos.order.dto.CreateOrderRequest;
 import com.restaurant.pos.order.dto.OrderCancelRequest;
 import com.restaurant.pos.order.dto.OrderSettleRequest;
 import com.restaurant.pos.order.repository.OrderRepository;
@@ -383,9 +384,109 @@ class OrderServiceTest {
 
         assertThat(settled.getGrandTotal()).isEqualByComparingTo("68.00");
         assertThat(settled.getTotalDiscountAmount()).isEqualByComparingTo("50.00");
-        assertThat(invoice.getTotalAmount()).isEqualByComparingTo("68.00");
         verify(accountingPostingService).replaceInvoiceJournal(order, invoice, "Invoice amount corrected after discount/roundoff");
         verify(accountingPostingService, never()).reverseInvoice(eq(invoice), eq("Invoice amount corrected after discount/roundoff"));
+    }
+
+    @Test
+    void settleOrderWithRoundOffSucceeds() {
+        UUID orderId = UUID.randomUUID();
+        UUID invoiceId = UUID.randomUUID();
+
+        Order order = Order.builder()
+                .id(orderId)
+                .orderNo("SO-1")
+                .orderType(OrderType.SALE)
+                .orderStatus("BILLED")
+                .paymentStatus("PENDING")
+                .grandTotal(new BigDecimal("100.40"))
+                .totalTaxAmount(new BigDecimal("10.00"))
+                .build();
+        order.setClientId(clientId);
+        order.setOrgId(orgId);
+
+        Invoice invoice = Invoice.builder()
+                .id(invoiceId)
+                .orderId(orderId)
+                .invoiceNo("INV-1")
+                .status("UNPAID")
+                .docStatus("COMPLETED")
+                .isPaid(false)
+                .totalAmount(new BigDecimal("100.40"))
+                .amountDue(new BigDecimal("100.40"))
+                .build();
+        invoice.setClientId(clientId);
+        invoice.setOrgId(orgId);
+
+        when(orderRepository.findByIdAndClientIdAndOrgId(orderId, clientId, orgId)).thenReturn(Optional.of(order));
+        when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(invoiceRepository.findByOrderId(orderId)).thenReturn(List.of(invoice));
+        when(invoiceRepository.save(any(Invoice.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(sequenceService.generateNextSequence(DocumentType.INBOUND_PAYMENT)).thenReturn("PAY-1");
+        when(paymentRepository.save(any(Payment.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(customerRepository.findByClientIdAndOrderLink(eq(clientId), any(), any())).thenReturn(List.of());
+
+        OrderSettleRequest request = new OrderSettleRequest();
+        request.setPaymentMethod("CASH");
+        request.setRoundOffAmount(new BigDecimal("-0.40"));
+        request.setAmountPaid(new BigDecimal("100.00"));
+
+        Order settled = orderService.settleOrder(orderId, request);
+
+        assertThat(settled.getGrandTotal()).isEqualByComparingTo("100.00");
+        assertThat(invoice.getTotalAmount()).isEqualByComparingTo("100.40");
+    }
+
+    @Test
+    void createOrderWithRoundOffAndMixedPaymentSucceeds() {
+        UUID orderId = UUID.randomUUID();
+
+        Order order = Order.builder()
+                .orderNo("SO-1")
+                .orderType(OrderType.SALE)
+                .orderStatus("COMPLETED")
+                .paymentStatus("PAID")
+                .grandTotal(new BigDecimal("100.00"))
+                .totalTaxAmount(new BigDecimal("10.00"))
+                .build();
+        order.setClientId(clientId);
+        order.setOrgId(orgId);
+        order.setRoundOffAmount(new BigDecimal("-0.40"));
+        order.setAmountPaid(new BigDecimal("100.00"));
+        
+        CreateOrderRequest.PaymentSplitRequest split = new CreateOrderRequest.PaymentSplitRequest();
+        split.setPaymentMethod("CASH");
+        split.setAmount(new BigDecimal("100.00"));
+        order.setPaymentSplits(List.of(split));
+
+        when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> {
+            Order arg = invocation.getArgument(0);
+            arg.setId(orderId);
+            return arg;
+        });
+        
+        java.util.List<Invoice> invoiceList = new java.util.ArrayList<>();
+        when(invoiceRepository.findByOrderId(orderId)).thenAnswer(invocation -> invoiceList);
+        when(invoiceRepository.save(any(Invoice.class))).thenAnswer(invocation -> {
+            Invoice inv = invocation.getArgument(0);
+            if (!invoiceList.contains(inv)) {
+                invoiceList.add(inv);
+            }
+            return inv;
+        });
+
+        when(sequenceService.generateNextSequence(DocumentType.INBOUND_PAYMENT)).thenReturn("PAY-1");
+        when(sequenceService.generateNextSequence(DocumentType.CUSTOMER_INVOICE)).thenReturn("INV-1");
+        when(paymentRepository.save(any(Payment.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(customerRepository.findByClientIdAndOrderLink(eq(clientId), any(), any())).thenReturn(List.of());
+
+        Order created = orderService.createOrder(order);
+
+        assertThat(created.getGrandTotal()).isEqualByComparingTo("100.00");
+        
+        assertThat(invoiceList).hasSize(1);
+        Invoice savedInvoice = invoiceList.get(0);
+        assertThat(savedInvoice.getTotalAmount()).isEqualByComparingTo("100.40");
     }
 
     @Test

@@ -1274,6 +1274,11 @@ public class OrderService {
             diagnosticPhase = "link_customers";
             linkCustomersToSavedOrder(saved);
 
+            // Copy transient payment fields from request order object to saved entity
+            saved.setRoundOffAmount(order.getRoundOffAmount());
+            saved.setAmountPaid(order.getAmountPaid());
+            saved.setPaymentSplits(order.getPaymentSplits());
+
             diagnosticPhase = "generate_invoice";
             if (shouldGenerateInvoice(saved)) {
                 generateInvoice(saved, null, requestedInvoiceNo);
@@ -1695,13 +1700,14 @@ public class OrderService {
             List<Invoice> existingInvoices = invoiceRepository.findByOrderId(saved.getId());
             for (Invoice existingInv : existingInvoices) {
                 if (!"VOID".equalsIgnoreCase(existingInv.getStatus())) {
-                    existingInv.setTotalAmount(saved.getGrandTotal());
-                    existingInv.setAmountDue(saved.getGrandTotal());
+                    existingInv.setTotalAmount(saved.getGrandTotal().subtract(roundOffAmount));
+                    existingInv.setAmountDue(saved.getGrandTotal().subtract(roundOffAmount));
                     invoiceRepository.save(existingInv);
                     accountingPostingService.replaceInvoiceJournal(saved, existingInv, "Invoice amount corrected after discount/roundoff");
                 }
             }
         }
+        saved.setRoundOffAmount(roundOffAmount);
         generateInvoice(saved);
 
         BigDecimal amountPaid = safeRequest.getAmountPaid() != null
@@ -1913,8 +1919,8 @@ public class OrderService {
             .invoiceNo(invNo)
             .invoiceDate(invoiceDate)
             .dailyBillNo(dailyBillNo)
-            .totalAmount(order.getGrandTotal())
-            .amountDue(order.getGrandTotal())
+            .totalAmount(order.getGrandTotal().subtract(order.getRoundOffAmount() != null ? order.getRoundOffAmount() : BigDecimal.ZERO))
+            .amountDue(order.getGrandTotal().subtract(order.getRoundOffAmount() != null ? order.getRoundOffAmount() : BigDecimal.ZERO))
             .status("UNPAID")
             .isPaid(false)
             .isCredit(Boolean.TRUE.equals(order.getIsCredit()))
