@@ -207,6 +207,12 @@ public class Order extends BaseEntity {
     @Column(length = 100)
     private String reference;
 
+    @Column(name = "latitude", precision = 10, scale = 8)
+    private BigDecimal latitude;
+
+    @Column(name = "longitude", precision = 11, scale = 8)
+    private BigDecimal longitude;
+
     @Column(name = "fulfillment_type", length = 20)
     @Builder.Default
     private String fulfillmentType = "DINE_IN"; // DINE_IN, TAKEAWAY, DELIVERY
