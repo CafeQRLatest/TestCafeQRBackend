@@ -118,13 +118,14 @@ public class OrderController {
             @Parameter(description = "Filter history from date-time (ISO-8601 UTC Instant)", example = "2026-05-24T00:00:00Z") @RequestParam(required = false) Instant fromDate,
             @Parameter(description = "Filter history to date-time (ISO-8601 UTC Instant)", example = "2026-05-24T23:59:59Z") @RequestParam(required = false) Instant toDate,
             @Parameter(description = "Search term to match customer name or phone") @RequestParam(required = false) String q,
+            @Parameter(description = "Filter by order status (e.g. 'DRAFT', 'COMPLETED', 'PAID', 'CANCELLED')") @RequestParam(required = false) String status,
             @Parameter(description = "Zero-indexed page number", example = "0") @RequestParam(defaultValue = "0") @Min(0) int page,
             @Parameter(description = "Page size (maximum 50)", example = "20") @RequestParam(defaultValue = "20") @Min(1) @Max(value = 50, message = "Page size cannot exceed 50") int size) {
         if (type != null && type != OrderType.SALE) {
             log.warn("Legacy type parameter '{}' passed to /history is ignored. This endpoint exclusively retrieves SALE history.", type);
         }
         return ResponseEntity
-                .ok(ApiResponse.success(orderService.getSalesOrderHistory(fromDate, toDate, page, size, q)));
+                .ok(ApiResponse.success(orderService.getSalesOrderHistory(fromDate, toDate, page, size, q, status)));
     }
 
     @GetMapping("/search")
@@ -178,6 +179,19 @@ public class OrderController {
             @Parameter(description = "Unique UUID of the order", required = true) @PathVariable UUID id) {
         Order order = orderService.getOrder(id);
         return ResponseEntity.ok(ApiResponse.success(orderDtoMapper.toResponseDto(order)));
+    }
+
+    @GetMapping("/{id}/revisions")
+    @Operation(summary = "Get order revision history", description = "Returns all revisions of an order (current + all prior VOID records), ordered from oldest to newest.")
+    @ApiResponses(value = {
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Successfully retrieved order revision history"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "Order not found", content = @Content)
+    })
+    public ResponseEntity<ApiResponse<List<OrderResponseDto>>> getOrderRevisions(
+            @Parameter(description = "Unique UUID of the order", required = true) @PathVariable UUID id) {
+        List<OrderResponseDto> revisions = orderService.getOrderRevisions(id)
+                .stream().map(orderDtoMapper::toResponseDto).toList();
+        return ResponseEntity.ok(ApiResponse.success(revisions));
     }
 
     @PostMapping

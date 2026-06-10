@@ -86,6 +86,7 @@ public interface JournalEntryRepository extends JpaRepository<JournalEntry, UUID
             JOIN journal_lines l ON j.id = l.journal_entry_id
             WHERE j.client_id = :clientId
               AND (CAST(:orgId AS UUID) IS NULL OR j.org_id = CAST(:orgId AS UUID))
+              AND (CAST(:terminalId AS UUID) IS NULL OR j.terminal_id = CAST(:terminalId AS UUID))
               AND (CAST(:from AS TIMESTAMP) IS NULL OR j.entry_date >= CAST(:from AS TIMESTAMP))
               AND (CAST(:to AS TIMESTAMP) IS NULL OR j.entry_date <= CAST(:to AS TIMESTAMP))
               AND j.status = :#{#status.name()}
@@ -95,6 +96,7 @@ public interface JournalEntryRepository extends JpaRepository<JournalEntry, UUID
     List<AccountMovementProjection> sumLineMovements(
             @Param("clientId") UUID clientId,
             @Param("orgId") UUID orgId,
+            @Param("terminalId") UUID terminalId,
             @Param("from") LocalDateTime from,
             @Param("to") LocalDateTime to,
             @Param("status") JournalStatus status);
@@ -104,6 +106,7 @@ public interface JournalEntryRepository extends JpaRepository<JournalEntry, UUID
             FROM journal_entries j
             WHERE j.client_id = :clientId
               AND (CAST(:orgId AS UUID) IS NULL OR j.org_id = CAST(:orgId AS UUID))
+              AND (CAST(:terminalId AS UUID) IS NULL OR j.terminal_id = CAST(:terminalId AS UUID))
               AND (CAST(:from AS TIMESTAMP) IS NULL OR j.entry_date >= CAST(:from AS TIMESTAMP))
               AND (CAST(:to AS TIMESTAMP) IS NULL OR j.entry_date <= CAST(:to AS TIMESTAMP))
               AND j.status = :#{#status.name()}
@@ -112,6 +115,7 @@ public interface JournalEntryRepository extends JpaRepository<JournalEntry, UUID
     long countPostedActive(
             @Param("clientId") UUID clientId,
             @Param("orgId") UUID orgId,
+            @Param("terminalId") UUID terminalId,
             @Param("from") LocalDateTime from,
             @Param("to") LocalDateTime to,
             @Param("status") JournalStatus status);
@@ -122,6 +126,7 @@ public interface JournalEntryRepository extends JpaRepository<JournalEntry, UUID
             FROM journal_entries j
             WHERE j.client_id = :clientId
               AND (CAST(:orgId AS UUID) IS NULL OR j.org_id = CAST(:orgId AS UUID))
+              AND (CAST(:terminalId AS UUID) IS NULL OR j.terminal_id = CAST(:terminalId AS UUID))
               AND (CAST(:from AS TIMESTAMP) IS NULL OR j.entry_date >= CAST(:from AS TIMESTAMP))
               AND (CAST(:to AS TIMESTAMP) IS NULL OR j.entry_date <= CAST(:to AS TIMESTAMP))
               AND j.status = :#{#status.name()}
@@ -132,6 +137,7 @@ public interface JournalEntryRepository extends JpaRepository<JournalEntry, UUID
     List<PostedSourceProjection> findPostedSources(
             @Param("clientId") UUID clientId,
             @Param("orgId") UUID orgId,
+            @Param("terminalId") UUID terminalId,
             @Param("from") LocalDateTime from,
             @Param("to") LocalDateTime to,
             @Param("status") JournalStatus status,

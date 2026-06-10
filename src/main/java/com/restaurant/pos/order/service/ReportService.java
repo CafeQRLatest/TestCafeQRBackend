@@ -55,8 +55,8 @@ public class ReportService {
 
     // ─── Sales Summary ──────────────────────────────────────────────────────
 
-    public SalesSummaryDto getSalesSummary(Instant from, Instant to) {
-        List<Order> orders = fetchSaleOrders(from, to);
+    public SalesSummaryDto getSalesSummary(Instant from, Instant to, UUID orgId, UUID terminalId) {
+        List<Order> orders = fetchSaleOrders(from, to, orgId, terminalId);
 
         long totalOrders = orders.size();
         BigDecimal totalRevenue = BigDecimal.ZERO;
@@ -97,8 +97,8 @@ public class ReportService {
 
     // ─── Sales Orders (with lines) ──────────────────────────────────────────
 
-    public List<OrderReportDto> getSalesOrders(Instant from, Instant to) {
-        List<Order> orders = fetchSaleOrders(from, to);
+    public List<OrderReportDto> getSalesOrders(Instant from, Instant to, UUID orgId, UUID terminalId) {
+        List<Order> orders = fetchSaleOrders(from, to, orgId, terminalId);
 
         return orders.stream().map(o -> {
             List<OrderReportDto.OrderLineReportDto> lines = (o.getLines() == null) ? List.of()
@@ -144,11 +144,11 @@ public class ReportService {
 
     // ─── Unified Sales + Invoices ───────────────────────────────────────────
 
-    public List<SalesInvoiceReportDto> getSalesInvoices(Instant from, Instant to, String filterType) {
+    public List<SalesInvoiceReportDto> getSalesInvoices(Instant from, Instant to, String filterType, UUID orgId, UUID terminalId) {
         List<SalesInvoiceReportDto> rows = new ArrayList<>();
         Set<UUID> includedOrderIds = new HashSet<>();
 
-        for (Order order : fetchSaleOrders(from, to)) {
+        for (Order order : fetchSaleOrders(from, to, orgId, terminalId)) {
             includedOrderIds.add(order.getId());
             Invoice invoice = selectDisplayInvoice(invoiceRepository.findByOrderId(order.getId()));
             Payment payment = latestPayment(paymentRepository.findByOrderId(order.getId()));
@@ -158,7 +158,7 @@ public class ReportService {
             }
         }
 
-        for (Invoice invoice : fetchCustomerInvoices(from, to)) {
+        for (Invoice invoice : fetchCustomerInvoices(from, to, orgId, terminalId)) {
             UUID orderId = invoice.getOrderId();
             if (orderId != null && includedOrderIds.contains(orderId)) {
                 continue;
@@ -187,8 +187,8 @@ public class ReportService {
 
     // ─── Item-wise Sales ────────────────────────────────────────────────────
 
-    public List<ItemSalesDto> getItemWiseSales(Instant from, Instant to) {
-        List<Order> orders = fetchSaleOrders(from, to);
+    public List<ItemSalesDto> getItemWiseSales(Instant from, Instant to, UUID orgId, UUID terminalId) {
+        List<Order> orders = fetchSaleOrders(from, to, orgId, terminalId);
 
         Map<String, BigDecimal[]> itemMap = new LinkedHashMap<>();
 
@@ -223,8 +223,8 @@ public class ReportService {
 
     // ─── Payment Breakdown ──────────────────────────────────────────────────
 
-    public List<PaymentBreakdownDto> getPaymentBreakdown(Instant from, Instant to) {
-        List<Order> orders = fetchSaleOrders(from, to);
+    public List<PaymentBreakdownDto> getPaymentBreakdown(Instant from, Instant to, UUID orgId, UUID terminalId) {
+        List<Order> orders = fetchSaleOrders(from, to, orgId, terminalId);
 
         BigDecimal totalRevenue = BigDecimal.ZERO;
         Map<String, BigDecimal[]> payMethodMap = new LinkedHashMap<>();
@@ -283,8 +283,8 @@ public class ReportService {
 
     // ─── Tax Summary ────────────────────────────────────────────────────────
 
-    public List<TaxSummaryDto> getTaxSummary(Instant from, Instant to) {
-        List<Order> orders = fetchSaleOrders(from, to);
+    public List<TaxSummaryDto> getTaxSummary(Instant from, Instant to, UUID orgId, UUID terminalId) {
+        List<Order> orders = fetchSaleOrders(from, to, orgId, terminalId);
 
         Map<BigDecimal, BigDecimal[]> taxMap = new TreeMap<>();
 
@@ -321,8 +321,8 @@ public class ReportService {
 
     // ─── Hourly Sales ───────────────────────────────────────────────────────
 
-    public List<HourlySalesDto> getHourlySales(Instant from, Instant to) {
-        List<Order> orders = fetchSaleOrders(from, to);
+    public List<HourlySalesDto> getHourlySales(Instant from, Instant to, UUID orgId, UUID terminalId) {
+        List<Order> orders = fetchSaleOrders(from, to, orgId, terminalId);
 
         Map<Integer, BigDecimal[]> hourlyMap = new TreeMap<>();
 
@@ -347,9 +347,14 @@ public class ReportService {
 
     // ─── Invoices (with filter) ─────────────────────────────────────────────
 
-    public List<InvoiceReportDto> getInvoices(Instant from, Instant to, String filterType) {
+    public List<InvoiceReportDto> getInvoices(Instant from, Instant to, String filterType, UUID orgId, UUID terminalId) {
         UUID clientId = TenantContext.getCurrentTenant();
-        UUID orgId = reportOrgId();
+        UUID resolvedOrgId;
+        if (SecurityUtils.isSuperAdmin()) {
+            resolvedOrgId = orgId;
+        } else {
+            resolvedOrgId = TenantContext.getCurrentOrg();
+        }
 
         // invoiceDate is LocalDateTime — convert Instant to LocalDateTime for comparison
         LocalDateTime ldFrom = from != null ? LocalDateTime.ofInstant(from, IST) : null;
@@ -358,8 +363,11 @@ public class ReportService {
         List<Invoice> allInvoices = invoiceRepository.findAll((root, query, cb) -> {
             var predicates = new ArrayList<jakarta.persistence.criteria.Predicate>();
             predicates.add(cb.equal(root.get("clientId"), clientId));
-            if (orgId != null) {
-                predicates.add(cb.equal(root.get("orgId"), orgId));
+            if (resolvedOrgId != null) {
+                predicates.add(cb.equal(root.get("orgId"), resolvedOrgId));
+            }
+            if (terminalId != null) {
+                predicates.add(cb.equal(root.get("terminalId"), terminalId));
             }
             if (ldFrom != null) {
                 predicates.add(cb.greaterThanOrEqualTo(root.get("invoiceDate"), ldFrom));
@@ -433,10 +441,10 @@ public class ReportService {
 
     // ─── Profit & Loss ──────────────────────────────────────────────────────
 
-    public ProfitLossDto getProfitLoss(Instant from, Instant to) {
+    public ProfitLossDto getProfitLoss(Instant from, Instant to, UUID orgId, UUID terminalId) {
         LocalDateTime ldFrom = from != null ? LocalDateTime.ofInstant(from, IST) : null;
         LocalDateTime ldTo = to != null ? LocalDateTime.ofInstant(to, IST) : null;
-        AccountingSummaryDto summary = accountingService.getSummary(ldFrom, ldTo);
+        AccountingSummaryDto summary = accountingService.getSummary(ldFrom, ldTo, orgId, terminalId);
         BigDecimal cashCollectedAfterExpenses = safe(summary.getPaymentCollected())
                 .subtract(safe(summary.getExpenses()))
                 .subtract(safe(summary.getCogsPurchases()));
@@ -796,17 +804,25 @@ public class ReportService {
         return null;
     }
 
-    private List<Invoice> fetchCustomerInvoices(Instant from, Instant to) {
+    private List<Invoice> fetchCustomerInvoices(Instant from, Instant to, UUID orgId, UUID terminalId) {
         UUID clientId = TenantContext.getCurrentTenant();
-        UUID orgId = reportOrgId();
+        UUID resolvedOrgId;
+        if (SecurityUtils.isSuperAdmin()) {
+            resolvedOrgId = orgId;
+        } else {
+            resolvedOrgId = TenantContext.getCurrentOrg();
+        }
         LocalDateTime ldFrom = from != null ? LocalDateTime.ofInstant(from, IST) : null;
         LocalDateTime ldTo = to != null ? LocalDateTime.ofInstant(to, IST) : null;
 
         return invoiceRepository.findAll((root, query, cb) -> {
             var predicates = new ArrayList<jakarta.persistence.criteria.Predicate>();
             predicates.add(cb.equal(root.get("clientId"), clientId));
-            if (orgId != null) {
-                predicates.add(cb.equal(root.get("orgId"), orgId));
+            if (resolvedOrgId != null) {
+                predicates.add(cb.equal(root.get("orgId"), resolvedOrgId));
+            }
+            if (terminalId != null) {
+                predicates.add(cb.equal(root.get("terminalId"), terminalId));
             }
             predicates.add(cb.equal(root.get("invoiceType"), InvoiceType.CUSTOMER_INVOICE));
             if (ldFrom != null) {
@@ -820,15 +836,23 @@ public class ReportService {
         });
     }
 
-    private List<Order> fetchSaleOrders(Instant from, Instant to) {
+    private List<Order> fetchSaleOrders(Instant from, Instant to, UUID orgId, UUID terminalId) {
         UUID clientId = TenantContext.getCurrentTenant();
-        UUID orgId = reportOrgId();
+        UUID resolvedOrgId;
+        if (SecurityUtils.isSuperAdmin()) {
+            resolvedOrgId = orgId;
+        } else {
+            resolvedOrgId = TenantContext.getCurrentOrg();
+        }
 
         return orderRepository.findAll((root, query, cb) -> {
             var predicates = new ArrayList<jakarta.persistence.criteria.Predicate>();
             predicates.add(cb.equal(root.get("clientId"), clientId));
-            if (orgId != null) {
-                predicates.add(cb.equal(root.get("orgId"), orgId));
+            if (resolvedOrgId != null) {
+                predicates.add(cb.equal(root.get("orgId"), resolvedOrgId));
+            }
+            if (terminalId != null) {
+                predicates.add(cb.equal(root.get("terminalId"), terminalId));
             }
             predicates.add(cb.equal(root.get("orderType"), OrderType.SALE));
             predicates.add(cb.equal(root.get("orderStatus"), "COMPLETED"));

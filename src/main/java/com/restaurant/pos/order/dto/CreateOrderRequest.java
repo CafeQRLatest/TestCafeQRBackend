@@ -104,10 +104,30 @@ public class CreateOrderRequest {
     @Schema(description = "Originating source of this discount: MANUAL, QR, COUPON, PROMOTION, LOYALTY", example = "MANUAL")
     private String discountSource;
 
+    @Schema(description = "Amount paid by customer (used for MIXED payment tracking)", example = "118.00")
+    private BigDecimal amountPaid;
+
+    @Schema(description = "Round-off adjustment applied at settlement", example = "0.00")
+    private BigDecimal roundOffAmount;
+
+    @Schema(description = "Split payment details when paymentMethod is MIXED")
+    private List<PaymentSplitRequest> paymentSplits;
+
     @NotEmpty(message = "Order lines must not be empty")
     @Valid
     @Schema(description = "List of order items/lines", requiredMode = Schema.RequiredMode.REQUIRED)
     private List<CreateOrderLineRequest> lines;
+
+    @Data
+    @Schema(description = "Split payment item for MIXED payment orders")
+    public static class PaymentSplitRequest {
+        @Schema(description = "Payment method for this split (CASH, ONLINE, UPI, CARD, BANK, CHEQUE)", example = "CASH")
+        private String paymentMethod;
+        @Schema(description = "Amount for this split", example = "50.00")
+        private BigDecimal amount;
+        @Schema(description = "Optional transaction reference", example = "TXN12345")
+        private String referenceNo;
+    }
 
     @Data
     @Schema(description = "DTO for creating an order line/item")

@@ -94,7 +94,7 @@ class AccountingServiceTest {
         OrderRepository orderRepository = mock(OrderRepository.class);
 
         when(accountRepository.findByClientIdAndOrgIdOrderByCodeAsc(clientId, orgId)).thenReturn(accounts);
-        when(journalEntryRepository.sumLineMovements(eq(clientId), eq(orgId), any(), any(), eq(JournalStatus.POSTED)))
+        when(journalEntryRepository.sumLineMovements(eq(clientId), eq(orgId), any(), any(), any(), eq(JournalStatus.POSTED)))
                 .thenReturn(List.of())
                 .thenReturn(List.of(
                         movement(revenue.getId(), "100.00", "100.00"),
@@ -102,7 +102,7 @@ class AccountingServiceTest {
                         movement(cash.getId(), "52.50", "52.50"),
                         movement(bank.getId(), "52.50", "52.50")
                 ));
-        when(journalEntryRepository.countPostedActive(eq(clientId), eq(orgId), any(), any(), eq(JournalStatus.POSTED)))
+        when(journalEntryRepository.countPostedActive(eq(clientId), eq(orgId), any(), any(), any(), eq(JournalStatus.POSTED)))
                 .thenReturn(8L);
         when(orderRepository.findAll(any(Specification.class))).thenReturn(List.of());
         when(paymentRepository.findActivePaymentsInPeriod(eq(clientId), eq(orgId), any(), any())).thenReturn(List.of());

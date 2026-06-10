@@ -109,4 +109,21 @@ public interface OrderRepository extends JpaRepository<Order, UUID>, JpaSpecific
     Optional<Order> findByIdWithLines(@Param("id") UUID id);
 
     long countByClientId(UUID clientId);
+
+    /**
+     * Fetches all revisions of an order (current + all VOID predecessors) by matching
+     * on the base order number. VOID records are stored as "ORD-001_VOID_0", "ORD-001_VOID_1" etc.,
+     * so we match on orderNo = :orderNo OR orderNo LIKE :orderNo_VOID_%.
+     */
+    @EntityGraph(attributePaths = "lines")
+    @Query("""
+            SELECT o FROM Order o
+            WHERE o.clientId = :clientId
+              AND (o.orderNo = :orderNo OR o.orderNo LIKE :voidPrefix)
+            ORDER BY o.revisionNumber ASC NULLS FIRST, o.createdAt ASC
+            """)
+    List<Order> findAllRevisionsByOrderNo(
+            @Param("clientId") UUID clientId,
+            @Param("orderNo") String orderNo,
+            @Param("voidPrefix") String voidPrefix);
 }
