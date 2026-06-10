@@ -27,14 +27,14 @@ class ReportControllerTest {
                 .totalOrders(1)
                 .grandTotal(BigDecimal.TEN)
                 .build();
-        when(reportService.getSalesSummary(from, to)).thenReturn(summary);
+        when(reportService.getSalesSummary(from, to, null, null)).thenReturn(summary);
 
-        ResponseEntity<ApiResponse<SalesSummaryDto>> response = controller.getSalesSummary(from, to);
+        ResponseEntity<ApiResponse<SalesSummaryDto>> response = controller.getSalesSummary(from, to, null, null);
 
         assertThat(response.getStatusCode().is2xxSuccessful()).isTrue();
         assertThat(response.getBody()).isNotNull();
         assertThat(response.getBody().getData()).isSameAs(summary);
-        verify(reportService).getSalesSummary(from, to);
+        verify(reportService).getSalesSummary(from, to, null, null);
     }
 
     @Test
@@ -43,7 +43,9 @@ class ReportControllerTest {
 
         assertThatThrownBy(() -> controller.getSalesSummary(
                 Instant.parse("2026-05-27T18:29:00Z"),
-                Instant.parse("2025-12-31T18:30:00Z")))
+                Instant.parse("2025-12-31T18:30:00Z"),
+                null,
+                null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("before");
     }
