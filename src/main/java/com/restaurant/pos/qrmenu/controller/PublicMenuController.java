@@ -202,7 +202,7 @@ public class PublicMenuController {
         for (Map<String, Object> cartItem : items) {
             UUID productId = UUID.fromString((String) cartItem.get("productId"));
             int qty = ((Number) cartItem.get("quantity")).intValue();
-            Optional<Product> productOpt = productRepository.findById(productId)
+            Optional<Product> productOpt = productRepository.findWithCategoryById(productId)
                     .filter(product -> clientId.equals(product.getClientId()))
                     .filter(product -> orgUuid == null || product.getOrgId() == null || orgUuid.equals(product.getOrgId()))
                     .filter(Product::isActive)
