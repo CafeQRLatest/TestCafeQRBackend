@@ -2473,15 +2473,6 @@ public class OrderService {
         }
     }
 
-    private BigDecimal calculateUnroundedLinesTotal(Order order) {
-        if (order == null || order.getLines() == null) {
-            return BigDecimal.ZERO;
-        }
-        return order.getLines().stream()
-                .filter(ol -> ol.isActive())
-                .map(ol -> ol.getLineTotal() != null ? ol.getLineTotal() : BigDecimal.ZERO)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-    }
 
     private String resolveUserDisplayName(String uidStr) {
         if (uidStr == null || uidStr.isBlank() || "SYSTEM".equalsIgnoreCase(uidStr)) {
