@@ -220,7 +220,7 @@ public class DeliveryController {
                     .id(UUID.randomUUID())
                     .orderNo(orderNo)
                     .orderType(OrderType.SALE)
-                    .orderStatus("CONFIRMED")
+                    .orderStatus("PENDING")
                     .paymentStatus("PENDING")
                     .orderSource("DELIVERY_WEB")
                     .fulfillmentType(fulfillment)
