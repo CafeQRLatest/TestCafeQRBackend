@@ -14,6 +14,7 @@ import com.restaurant.pos.product.repository.ProductRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
@@ -167,6 +168,7 @@ public class DeliveryController {
     //   ]
     // }
     // ─────────────────────────────────────────────────────────────────────────
+    @Transactional
     @PostMapping("/orders")
     public ResponseEntity<ApiResponse<Map<String, Object>>> placeOrder(
             @RequestBody Map<String, Object> payload) {
@@ -294,6 +296,7 @@ public class DeliveryController {
     // Returns full order details for order tracking.
     // ?clientId= required for tenant scoping.
     // ─────────────────────────────────────────────────────────────────────────
+    @Transactional(readOnly = true)
     @GetMapping("/orders/{orderId}")
     public ResponseEntity<ApiResponse<Map<String, Object>>> getOrder(
             @PathVariable String orderId,
@@ -320,6 +323,7 @@ public class DeliveryController {
     // Lists orders for a customer by email + clientId.
     // ?clientId= &email= (both required)
     // ─────────────────────────────────────────────────────────────────────────
+    @Transactional(readOnly = true)
     @GetMapping("/orders")
     public ResponseEntity<ApiResponse<List<Map<String, Object>>>> listOrders(
             @RequestParam UUID clientId,
