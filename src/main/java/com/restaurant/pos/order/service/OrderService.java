@@ -942,7 +942,8 @@ public class OrderService {
             String searchTerm,
             boolean exactDocumentSearch,
             Set<UUID> customerIds,
-            Set<UUID> customerOrderIds
+            Set<UUID> customerOrderIds,
+            String status
     ) {
         return (root, query, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
@@ -953,8 +954,26 @@ public class OrderService {
                 predicates.add(cb.equal(root.get("orgId"), orgId));
             }
             predicates.add(cb.equal(root.get("orderType"), OrderType.SALE));
-            predicates.add(cb.equal(root.get("isactive"), "Y"));
-            predicates.add(cb.notEqual(root.get("orderStatus"), "VOID"));
+
+            if (status != null && !status.isBlank() && !"ALL".equalsIgnoreCase(status)) {
+                if ("VOID".equalsIgnoreCase(status)) {
+                    predicates.add(cb.or(
+                        cb.equal(root.get("isactive"), "N"),
+                        cb.equal(root.get("orderStatus"), "VOID")
+                    ));
+                } else if ("PAID".equalsIgnoreCase(status)) {
+                    predicates.add(cb.equal(root.get("paymentStatus"), "PAID"));
+                    predicates.add(cb.equal(root.get("isactive"), "Y"));
+                    predicates.add(cb.notEqual(root.get("orderStatus"), "VOID"));
+                } else {
+                    predicates.add(cb.equal(root.get("orderStatus"), status));
+                    predicates.add(cb.equal(root.get("isactive"), "Y"));
+                    predicates.add(cb.notEqual(root.get("orderStatus"), "VOID"));
+                }
+            } else {
+                predicates.add(cb.equal(root.get("isactive"), "Y"));
+                predicates.add(cb.notEqual(root.get("orderStatus"), "VOID"));
+            }
 
             if (!exactDocumentSearch) {
                 predicates.add(cb.greaterThanOrEqualTo(root.get("orderDate"), fromDate));
@@ -1097,6 +1116,11 @@ public class OrderService {
 
     @Transactional(readOnly = true)
     public Page<OrderSummaryDto> getSalesOrderHistory(Instant fromDate, Instant toDate, int page, int size, String searchTerm) {
+        return getSalesOrderHistory(fromDate, toDate, page, size, searchTerm, null);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<OrderSummaryDto> getSalesOrderHistory(Instant fromDate, Instant toDate, int page, int size, String searchTerm, String status) {
         Instant effectiveTo = toDate != null ? toDate : Instant.now();
         Instant effectiveFrom = fromDate != null ? fromDate : effectiveTo.minus(DEFAULT_HISTORY_WINDOW);
         validateHistoryWindow(effectiveFrom, effectiveTo);
@@ -1111,7 +1135,7 @@ public class OrderService {
         UUID orgId = branchContext.getReadOrgId(null);
         if (normalizedSearch != null) {
             Page<Order> exactDocumentMatches = orderRepository.findAll(
-                    salesHistorySpec(orgId, null, null, normalizedSearch, true, Set.of(), Set.of()),
+                    salesHistorySpec(orgId, null, null, normalizedSearch, true, Set.of(), Set.of(), status),
                     pageable
             );
             if (exactDocumentMatches.hasContent()) {
@@ -1128,7 +1152,7 @@ public class OrderService {
                 : findCustomerSearchOrderIds(tenantId, orgId, normalizedSearch);
 
         return orderRepository.findAll(
-                salesHistorySpec(orgId, effectiveFrom, effectiveTo, normalizedSearch, false, customerIds, customerOrderIds),
+                salesHistorySpec(orgId, effectiveFrom, effectiveTo, normalizedSearch, false, customerIds, customerOrderIds, status),
                 pageable
         ).map(this::toOrderSummary);
     }
@@ -1270,7 +1294,24 @@ public class OrderService {
                 // Sales
                 if ("COMPLETED".equalsIgnoreCase(saved.getOrderStatus()) && "PAID".equalsIgnoreCase(saved.getPaymentStatus())) {
                     String salePaymentMethod = saved.getReference() != null ? saved.getReference() : "CASH";
-                    generatePayment(saved, salePaymentMethod, requestedPaymentNo);
+                    // Convert transient CreateOrderRequest.PaymentSplitRequest to OrderSettleRequest.PaymentSplitRequest
+                    List<OrderSettleRequest.PaymentSplitRequest> settlePaymentSplits = null;
+                    if (order.getPaymentSplits() != null && !order.getPaymentSplits().isEmpty()) {
+                        settlePaymentSplits = order.getPaymentSplits().stream()
+                            .filter(java.util.Objects::nonNull)
+                            .map(s -> {
+                                OrderSettleRequest.PaymentSplitRequest sp = new OrderSettleRequest.PaymentSplitRequest();
+                                sp.setPaymentMethod(s.getPaymentMethod());
+                                sp.setAmount(s.getAmount());
+                                sp.setReferenceNo(s.getReferenceNo());
+                                return sp;
+                            })
+                            .collect(Collectors.toList());
+                    }
+                    BigDecimal effectiveAmountPaid = order.getAmountPaid() != null ? order.getAmountPaid() : saved.getGrandTotal();
+                    BigDecimal effectiveRoundOff = order.getRoundOffAmount() != null ? order.getRoundOffAmount() : BigDecimal.ZERO;
+                    generatePayment(saved, salePaymentMethod, requestedPaymentNo, effectiveAmountPaid, null,
+                            null, null, settlePaymentSplits, effectiveRoundOff);
                     accountingPostingService.postSaleCogs(saved);
                 } else if (isCompletedCreditSale(saved)) {
                     accountingPostingService.postSaleCogs(saved);
@@ -1302,15 +1343,38 @@ public class OrderService {
                 .map(this::hydrateOrder);
     }
 
+    /**
+     * Returns all revisions (current + all VOID predecessors) for the given order,
+     * ordered from oldest to newest by revisionNumber.
+     */
+    @Transactional(readOnly = true)
+    public java.util.List<Order> getOrderRevisions(UUID id) {
+        UUID clientId = TenantContext.getCurrentTenant();
+        Order current = orderRepository.findByIdAndClientId(id, clientId)
+                .orElseThrow(() -> new com.restaurant.pos.common.exception.BusinessException("Order not found"));
+        // Base orderNo is the part before the first _VOID_ suffix
+        String baseOrderNo = current.getOrderNo();
+        if (baseOrderNo != null && baseOrderNo.contains("_VOID_")) {
+            baseOrderNo = baseOrderNo.substring(0, baseOrderNo.indexOf("_VOID_"));
+        }
+        String voidPrefix = baseOrderNo + "_VOID_%";
+        return orderRepository.findAllRevisionsByOrderNo(clientId, baseOrderNo, voidPrefix)
+                .stream().map(this::hydrateOrder).toList();
+    }
+
+
     @Transactional
     public Order updateOrder(UUID id, Order updates) {
         Order oldOrder = getOrder(id);
         
         // 1. Create a deep copy of the old order as a VOID record
         String originalOrderNo = oldOrder.getOrderNo();
+        UUID oldTableId = oldOrder.getTableId();
         oldOrder.setOrderNo(originalOrderNo + "_VOID_" + (oldOrder.getRevisionNumber() != null ? oldOrder.getRevisionNumber() : 0));
         oldOrder.setOrderStatus("VOID");
         oldOrder.setIsactive("N");
+        oldOrder.setTableId(null);
+        oldOrder.setTableNumber(null);
         orderRepository.saveAndFlush(oldOrder);
         
         // 2. VOID the linked invoice
@@ -1456,6 +1520,9 @@ public class OrderService {
             }
         }
         
+        if (oldTableId != null && !oldTableId.equals(saved.getTableId())) {
+            setTableStatus(oldTableId, "AVAILABLE", saved.getOrgId());
+        }
         handleTableStatus(saved);
 
         // Inventory Hook: If PURCHASE order is COMPLETED, update stock

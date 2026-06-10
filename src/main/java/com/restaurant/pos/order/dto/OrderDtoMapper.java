@@ -54,10 +54,13 @@ public class OrderDtoMapper {
                 .paymentNo(order.getPaymentNo())
                 .paymentMethod(order.getPaymentMethod())
                 .grossAmount(order.getGrossAmount())
+                .roundOffAmount(order.getRoundOffAmount())
                 .orderDiscountType(order.getOrderDiscountType())
                 .orderDiscountValue(order.getOrderDiscountValue())
                 .discountSource(order.getDiscountSource() != null ? order.getDiscountSource().name() : null)
                 .lines(lines)
+                .revisionNumber(order.getRevisionNumber())
+                .originalOrderId(order.getOriginalOrderId())
                 .build();
     }
 
@@ -192,6 +195,14 @@ public class OrderDtoMapper {
             }
         }
         applyGstOrderFields(order, request);
+
+        // Transient payment fields for direct-settle orders (MIXED payment from counter)
+        if (request.getAmountPaid() != null) order.setAmountPaid(request.getAmountPaid());
+        if (request.getRoundOffAmount() != null) order.setRoundOffAmount(request.getRoundOffAmount());
+        if (request.getPaymentSplits() != null && !request.getPaymentSplits().isEmpty()) {
+            order.setPaymentSplits(request.getPaymentSplits());
+        }
+
         return order;
     }
 

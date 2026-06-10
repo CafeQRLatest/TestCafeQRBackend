@@ -225,7 +225,7 @@ public class AccountingService {
                         LinkedHashMap::new
                 ));
 
-        accountMovements(clientId, orgId, range.from, range.to)
+        accountMovements(clientId, orgId, null, range.from, range.to)
                 .forEach((accountId, movement) -> {
                     TrialBalanceRowDto row = rows.get(accountId);
                     if (row == null) {
@@ -284,9 +284,12 @@ public class AccountingService {
     }
 
     public List<AccountingAccountPeriodDto> getPeriodAccounts(LocalDateTime from, LocalDateTime to, boolean includeInactive) {
+        return getPeriodAccounts(from, to, includeInactive, TenantContext.getCurrentOrg(), null);
+    }
+
+    public List<AccountingAccountPeriodDto> getPeriodAccounts(LocalDateTime from, LocalDateTime to, boolean includeInactive, UUID orgId, UUID terminalId) {
         DateRange range = boundedRange(from, to);
         UUID clientId = requireTenant();
-        UUID orgId = TenantContext.getCurrentOrg();
         List<AccountingAccount> accounts = getAccounts(true);
         Set<UUID> visibleAccountIds = accounts.stream()
                 .filter(account -> includeInactive || !"N".equalsIgnoreCase(account.getIsactive()))
@@ -299,7 +302,7 @@ public class AccountingService {
         Map<UUID, AccountingAccount> accountsById = accounts.stream()
                 .collect(Collectors.toMap(AccountingAccount::getId, Function.identity(), (left, right) -> left));
 
-        accountMovements(clientId, orgId, null, range.from.minusNanos(1))
+        accountMovements(clientId, orgId, terminalId, null, range.from.minusNanos(1))
                 .forEach((accountId, movement) -> {
                     AccountingAccount account = accountsById.get(accountId);
                     if (account != null) {
@@ -307,7 +310,7 @@ public class AccountingService {
                     }
                 });
 
-        accountMovements(clientId, orgId, range.from, range.to)
+        accountMovements(clientId, orgId, terminalId, range.from, range.to)
                 .forEach((accountId, movement) -> {
                     if (!accountsById.containsKey(accountId)) {
                         return;
@@ -398,10 +401,13 @@ public class AccountingService {
     }
 
     public AccountingSummaryDto getSummary(LocalDateTime from, LocalDateTime to) {
+        return getSummary(from, to, TenantContext.getCurrentOrg(), null);
+    }
+
+    public AccountingSummaryDto getSummary(LocalDateTime from, LocalDateTime to, UUID orgId, UUID terminalId) {
         DateRange range = boundedRange(from, to);
         UUID clientId = requireTenant();
-        UUID orgId = TenantContext.getCurrentOrg();
-        List<AccountingAccountPeriodDto> accounts = getPeriodAccounts(range.from, range.to, true);
+        List<AccountingAccountPeriodDto> accounts = getPeriodAccounts(range.from, range.to, true, orgId, terminalId);
         Map<String, AccountingAccountPeriodDto> accountsBySystemKey = accounts.stream()
                 .filter(account -> account.getSystemKey() != null && !account.getSystemKey().isBlank())
                 .collect(Collectors.toMap(
@@ -441,9 +447,9 @@ public class AccountingService {
         BigDecimal payable = closing(accountsBySystemKey, AccountingDefaultsService.ACCOUNTS_PAYABLE);
         BigDecimal inventoryValue = closing(accountsBySystemKey, AccountingDefaultsService.INVENTORY_ASSET);
 
-        Map<String, BigDecimal> paymentBreakdown = paymentBreakdown(clientId, orgId, range);
+        Map<String, BigDecimal> paymentBreakdown = paymentBreakdown(clientId, orgId, terminalId, range);
         BigDecimal paymentCollected = paymentBreakdown.values().stream().reduce(BigDecimal.ZERO, BigDecimal::add);
-        long transactions = journalEntryRepository.countPostedActive(clientId, orgId, range.from, range.to, JournalStatus.POSTED);
+        long transactions = journalEntryRepository.countPostedActive(clientId, orgId, terminalId, range.from, range.to, JournalStatus.POSTED);
 
         return AccountingSummaryDto.builder()
                 .from(range.from)
@@ -473,19 +479,22 @@ public class AccountingService {
     }
 
     public AccountingReconciliationDto getReconciliation(LocalDateTime from, LocalDateTime to) {
+        return getReconciliation(from, to, TenantContext.getCurrentOrg(), null);
+    }
+
+    public AccountingReconciliationDto getReconciliation(LocalDateTime from, LocalDateTime to, UUID orgId, UUID terminalId) {
         DateRange range = boundedRange(from, to);
         UUID clientId = requireTenant();
-        UUID orgId = TenantContext.getCurrentOrg();
-        List<Order> salesOrders = findCompletedSaleOrdersInPeriod(clientId, orgId, range);
-        List<Invoice> invoices = findInvoicesInPeriodIncludingOrderPeriod(clientId, orgId, range, salesOrders);
-        List<Payment> payments = findPaymentsInPeriodIncludingOrderPeriod(clientId, orgId, range, salesOrders);
+        List<Order> salesOrders = findCompletedSaleOrdersInPeriod(clientId, orgId, terminalId, range);
+        List<Invoice> invoices = findInvoicesInPeriodIncludingOrderPeriod(clientId, orgId, terminalId, range, salesOrders);
+        List<Payment> payments = findPaymentsInPeriodIncludingOrderPeriod(clientId, orgId, terminalId, range, salesOrders);
         Set<String> invoiceSourceTypes = Set.of(InvoiceType.CUSTOMER_INVOICE.name(), InvoiceType.VENDOR_BILL.name(), InvoiceType.EXPENSE_RECEIPT.name());
         Set<String> paymentSourceTypes = Set.of("INBOUND_PAYMENT", "OUTBOUND_PAYMENT");
         Set<String> trackedSourceTypes = new LinkedHashSet<>();
         trackedSourceTypes.addAll(invoiceSourceTypes);
         trackedSourceTypes.addAll(paymentSourceTypes);
         List<JournalEntryRepository.PostedSourceProjection> postedSources =
-                journalEntryRepository.findPostedSources(clientId, orgId, range.from, range.to, JournalStatus.POSTED, trackedSourceTypes);
+                journalEntryRepository.findPostedSources(clientId, orgId, terminalId, range.from, range.to, JournalStatus.POSTED, trackedSourceTypes);
 
         Set<UUID> postedInvoiceIds = postedSources.stream()
                 .filter(entry -> invoiceSourceTypes.contains(normalizeSourceType(entry.getSourceType())))
@@ -582,7 +591,7 @@ public class AccountingService {
         return paymentAllocationRepository.save(allocation);
     }
 
-    private List<Order> findCompletedSaleOrdersInPeriod(UUID clientId, UUID orgId, DateRange range) {
+    private List<Order> findCompletedSaleOrdersInPeriod(UUID clientId, UUID orgId, UUID terminalId, DateRange range) {
         Instant instantFrom = range.from.atZone(IST).toInstant();
         Instant instantTo = range.to.atZone(IST).toInstant();
         return orderRepository.findAll((root, query, cb) -> {
@@ -590,6 +599,9 @@ public class AccountingService {
             predicates.add(cb.equal(root.get("clientId"), clientId));
             if (orgId != null) {
                 predicates.add(cb.equal(root.get("orgId"), orgId));
+            }
+            if (terminalId != null) {
+                predicates.add(cb.equal(root.get("terminalId"), terminalId));
             }
             predicates.add(cb.equal(root.get("orderType"), OrderType.SALE));
             predicates.add(cb.equal(root.get("orderStatus"), "COMPLETED"));
@@ -600,7 +612,7 @@ public class AccountingService {
         });
     }
 
-    private List<Invoice> findInvoicesInPeriodIncludingOrderPeriod(UUID clientId, UUID orgId, DateRange range, Collection<Order> orders) {
+    private List<Invoice> findInvoicesInPeriodIncludingOrderPeriod(UUID clientId, UUID orgId, UUID terminalId, DateRange range, Collection<Order> orders) {
         Map<UUID, Invoice> invoicesById = new LinkedHashMap<>();
         invoiceRepository.findAll((root, query, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
@@ -608,51 +620,56 @@ public class AccountingService {
             if (orgId != null) {
                 predicates.add(cb.equal(root.get("orgId"), orgId));
             }
+            if (terminalId != null) {
+                predicates.add(cb.equal(root.get("terminalId"), terminalId));
+            }
             predicates.add(cb.greaterThanOrEqualTo(root.get("invoiceDate"), range.from));
             predicates.add(cb.lessThanOrEqualTo(root.get("invoiceDate"), range.to));
             predicates.add(cb.or(cb.isNull(root.get("status")), cb.notEqual(cb.upper(root.get("status").as(String.class)), "VOID")));
             predicates.add(cb.or(cb.isNull(root.get("docStatus")), cb.notEqual(cb.upper(root.get("docStatus").as(String.class)), "VOIDED")));
             return cb.and(predicates.toArray(new Predicate[0]));
         }).stream()
-                .filter(invoice -> isScopedInvoice(invoice, clientId, orgId))
+                .filter(invoice -> isScopedInvoice(invoice, clientId, orgId, terminalId))
                 .filter(this::isActiveInvoice)
                 .forEach(invoice -> invoicesById.put(invoice.getId(), invoice));
 
         for (Order order : orders) {
             invoiceRepository.findByOrderId(order.getId()).stream()
-                    .filter(invoice -> isScopedInvoice(invoice, clientId, orgId))
+                    .filter(invoice -> isScopedInvoice(invoice, clientId, orgId, terminalId))
                     .filter(this::isActiveInvoice)
                     .forEach(invoice -> invoicesById.put(invoice.getId(), invoice));
         }
         return new ArrayList<>(invoicesById.values());
     }
 
-    private List<Payment> findPaymentsInPeriodIncludingOrderPeriod(UUID clientId, UUID orgId, DateRange range, Collection<Order> orders) {
+    private List<Payment> findPaymentsInPeriodIncludingOrderPeriod(UUID clientId, UUID orgId, UUID terminalId, DateRange range, Collection<Order> orders) {
         Map<UUID, Payment> paymentsById = new LinkedHashMap<>();
         paymentRepository.findActivePaymentsInPeriod(clientId, orgId, range.from, range.to).stream()
-                .filter(payment -> isScopedPayment(payment, clientId, orgId))
+                .filter(payment -> isScopedPayment(payment, clientId, orgId, terminalId))
                 .filter(this::isActivePayment)
                 .forEach(payment -> paymentsById.put(payment.getId(), payment));
 
         for (Order order : orders) {
             paymentRepository.findByOrderId(order.getId()).stream()
-                    .filter(payment -> isScopedPayment(payment, clientId, orgId))
+                    .filter(payment -> isScopedPayment(payment, clientId, orgId, terminalId))
                     .filter(this::isActivePayment)
                     .forEach(payment -> paymentsById.put(payment.getId(), payment));
         }
         return new ArrayList<>(paymentsById.values());
     }
 
-    private boolean isScopedInvoice(Invoice invoice, UUID clientId, UUID orgId) {
+    private boolean isScopedInvoice(Invoice invoice, UUID clientId, UUID orgId, UUID terminalId) {
         return invoice != null
                 && clientId.equals(invoice.getClientId())
-                && (orgId == null || orgId.equals(invoice.getOrgId()));
+                && (orgId == null || orgId.equals(invoice.getOrgId()))
+                && (terminalId == null || terminalId.equals(invoice.getTerminalId()));
     }
 
-    private boolean isScopedPayment(Payment payment, UUID clientId, UUID orgId) {
+    private boolean isScopedPayment(Payment payment, UUID clientId, UUID orgId, UUID terminalId) {
         return payment != null
                 && clientId.equals(payment.getClientId())
-                && (orgId == null || orgId.equals(payment.getOrgId()));
+                && (orgId == null || orgId.equals(payment.getOrgId()))
+                && (terminalId == null || terminalId.equals(payment.getTerminalId()));
     }
 
     private boolean isActiveInvoice(Invoice invoice) {
@@ -721,9 +738,9 @@ public class AccountingService {
         return values;
     }
 
-    private Map<UUID, AccountMovement> accountMovements(UUID clientId, UUID orgId, LocalDateTime from, LocalDateTime to) {
+    private Map<UUID, AccountMovement> accountMovements(UUID clientId, UUID orgId, UUID terminalId, LocalDateTime from, LocalDateTime to) {
         Map<UUID, AccountMovement> movements = new LinkedHashMap<>();
-        journalEntryRepository.sumLineMovements(clientId, orgId, from, to, JournalStatus.POSTED)
+        journalEntryRepository.sumLineMovements(clientId, orgId, terminalId, from, to, JournalStatus.POSTED)
                 .forEach(row -> movements.put(row.getAccountId(), new AccountMovement(money(row.getDebit()), money(row.getCredit()))));
         return movements;
     }
@@ -742,11 +759,11 @@ public class AccountingService {
         return account != null ? money(account.getPeriodClosing()) : BigDecimal.ZERO;
     }
 
-    private Map<String, BigDecimal> paymentBreakdown(UUID clientId, UUID orgId, DateRange range) {
+    private Map<String, BigDecimal> paymentBreakdown(UUID clientId, UUID orgId, UUID terminalId, DateRange range) {
         Map<String, BigDecimal> totals = new LinkedHashMap<>();
         FINANCIAL_PAYMENT_METHODS.forEach(method -> totals.put(method, BigDecimal.ZERO));
-        List<Order> salesOrders = findCompletedSaleOrdersInPeriod(clientId, orgId, range);
-        List<Payment> payments = findPaymentsInPeriodIncludingOrderPeriod(clientId, orgId, range, salesOrders);
+        List<Order> salesOrders = findCompletedSaleOrdersInPeriod(clientId, orgId, terminalId, range);
+        List<Payment> payments = findPaymentsInPeriodIncludingOrderPeriod(clientId, orgId, terminalId, range, salesOrders);
         Map<UUID, List<PaymentSplit>> splitsByPaymentId = loadPaymentSplitsByPaymentId(payments);
         for (Payment payment : payments) {
             if (!isInboundPayment(payment)) {

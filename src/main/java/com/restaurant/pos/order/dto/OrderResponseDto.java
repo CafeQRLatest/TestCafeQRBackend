@@ -101,6 +101,9 @@ public class OrderResponseDto {
     @Schema(description = "Pre-discount gross amount")
     private BigDecimal grossAmount;
 
+    @Schema(description = "Round-off adjustment applied at settlement")
+    private BigDecimal roundOffAmount;
+
     @Schema(description = "Order discount type (PERCENT, AMOUNT)")
     private String orderDiscountType;
 
@@ -112,6 +115,12 @@ public class OrderResponseDto {
 
     @Schema(description = "Sanitized, non-circular list of order item lines")
     private List<OrderLineResponseDto> lines;
+
+    @Schema(description = "Revision number — 0 for original, incremented on each edit")
+    private Integer revisionNumber;
+
+    @Schema(description = "UUID of the original order this was revised from (null if not a revision)")
+    private UUID originalOrderId;
 
     @Data
     @Builder
@@ -143,7 +152,7 @@ public class OrderResponseDto {
         @Schema(description = "Total discount amount for this line")
         private BigDecimal discountAmount;
 
-        @Schema(description = "Calculated line total (quantity × unitPrice + tax - discount)")
+        @Schema(description = "Calculated line total (quantity x unitPrice + tax - discount)")
         private BigDecimal lineTotal;
 
         @Schema(description = "Product name (denormalized for display)")
