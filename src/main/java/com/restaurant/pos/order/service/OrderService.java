@@ -1465,6 +1465,7 @@ public class OrderService {
         newOrder.setTotalTaxAmount(updates.getTotalTaxAmount() != null ? updates.getTotalTaxAmount() : oldOrder.getTotalTaxAmount());
         newOrder.setTotalDiscountAmount(updates.getTotalDiscountAmount() != null ? updates.getTotalDiscountAmount() : oldOrder.getTotalDiscountAmount());
         newOrder.setGrandTotal(updates.getGrandTotal() != null ? updates.getGrandTotal() : oldOrder.getGrandTotal());
+        newOrder.setRoundOffAmount(updates.getRoundOffAmount() != null ? updates.getRoundOffAmount() : oldOrder.getRoundOffAmount());
         newOrder.setDescription(updates.getDescription() != null ? updates.getDescription() : oldOrder.getDescription());
 
         // Tenant fields
@@ -1499,6 +1500,8 @@ public class OrderService {
         Order saved = orderRepository.save(newOrder);
         linkCustomersToSavedOrder(saved);
         
+        saved.setRoundOffAmount(newOrder.getRoundOffAmount());
+
         // 4. Generate new ERP documents (Invoice/Payment)
         UUID oldInvId = oldInvoiceIdList.isEmpty() ? null : oldInvoiceIdList.get(0);
         if (shouldGenerateInvoice(saved)) {
@@ -1666,7 +1669,9 @@ public class OrderService {
         }
         BigDecimal discountAmount = moneyValue(safeRequest.getDiscountAmount());
         BigDecimal roundOffAmount = moneyValue(safeRequest.getRoundOffAmount());
-        BigDecimal currentTotal = moneyValue(order.getGrandTotal());
+        BigDecimal currentTotal = moneyValue(order.getTotalAmount() != null && order.getTotalAmount().compareTo(BigDecimal.ZERO) > 0
+                ? order.getTotalAmount()
+                : order.getGrandTotal());
         BigDecimal existingDiscount = moneyValue(order.getTotalDiscountAmount());
 
         BigDecimal additionalDiscount = discountAmount.subtract(existingDiscount);

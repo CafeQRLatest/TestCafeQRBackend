@@ -269,6 +269,8 @@ public class OrderDtoMapper {
             existing.setTotalDiscountAmount(request.getTotalDiscountAmount());
         if (request.getGrandTotal() != null)
             existing.setGrandTotal(request.getGrandTotal());
+        if (request.getRoundOffAmount() != null)
+            existing.setRoundOffAmount(request.getRoundOffAmount());
 
         if (request.getLines() != null) {
             existing.getLines().clear();
@@ -319,6 +321,9 @@ public class OrderDtoMapper {
         }
         if (request.getGrandTotal() != null) {
             order.setGrandTotal(request.getGrandTotal());
+        }
+        if (request.getRoundOffAmount() != null) {
+            order.setRoundOffAmount(request.getRoundOffAmount());
         }
 
         if (request.getLines() != null) {
