@@ -87,11 +87,22 @@ public class DeliveryController {
         UUID orgUuid = parseOrgId(orgId);
         if (orgUuid != null) {
             organizationRepository.findById(orgUuid).ifPresent(org -> {
-                if (org.getName() != null && !org.getName().isBlank()) {
-                    settings.put("restaurantName", org.getName());
-                }
-                if (org.getLogoUrl() != null && !org.getLogoUrl().isBlank()) {
-                    settings.put("logoUrl", org.getLogoUrl());
+                if (clientId.equals(org.getClientId())) {
+                    if (org.getName() != null && !org.getName().isBlank()) {
+                        settings.put("restaurantName", org.getName());
+                    }
+                    if (org.getLogoUrl() != null && !org.getLogoUrl().isBlank()) {
+                        settings.put("logoUrl", org.getLogoUrl());
+                    }
+                    if (org.getAddress() != null && !org.getAddress().isBlank()) {
+                        settings.put("address", org.getAddress());
+                    }
+                    if (org.getPhone() != null && !org.getPhone().isBlank()) {
+                        settings.put("phone", org.getPhone());
+                    }
+                    if (org.getGoogleMapsUrl() != null && !org.getGoogleMapsUrl().isBlank()) {
+                        settings.put("googleMapsUrl", org.getGoogleMapsUrl());
+                    }
                 }
             });
         }
