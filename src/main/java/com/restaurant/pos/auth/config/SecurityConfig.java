@@ -66,12 +66,26 @@ public class SecurityConfig {
         return http.build();
     }
 
-    @Value("${app.cors.allowed-origins:http://localhost:3000,https://cafe-test-qr-frontend.vercel.app,https://cafe-qr-frontend.vercel.app}")
+    // ── CORS allowed origins ───────────────────────────────────────────────────
+    // Add new Vercel deployments here (comma-separated, no trailing spaces).
+    // Also set app.cors.allowed-origins in Render environment variables to
+    // override this default without a redeploy.
+    @Value("${app.cors.allowed-origins:" +
+            "http://localhost:3000," +
+            "http://localhost:3001," +
+            "https://cafe-test-qr-frontend.vercel.app," +
+            "https://cafe-qr-frontend.vercel.app," +
+            "https://test-cafe-qr-delivery-app.vercel.app," +
+            "https://cafe-qr-delivery-app.vercel.app," +
+            "https://test-cafe-qr-delivery-website.vercel.app," +
+            "https://cafe-qr-delivery-website.vercel.app" +
+            "}")
     private String[] allowedOrigins;
+
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        
+
         for (String origin : allowedOrigins) {
             if (origin != null && !origin.isBlank()) {
                 configuration.addAllowedOriginPattern(origin.trim());
