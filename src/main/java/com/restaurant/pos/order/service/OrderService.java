@@ -220,7 +220,6 @@ public class OrderService {
                 }
             } else if ("BILLED".equalsIgnoreCase(status)) {
                 printJobService.enqueueForOrder(order, PrintJobKind.BILL, "auto");
-                printJobService.enqueueForOrder(order, PrintJobKind.KOT, "auto");
             } else if ("COMPLETED".equalsIgnoreCase(status)) {
                 printJobService.enqueueForOrder(order, PrintJobKind.BILL, "auto");
             }
