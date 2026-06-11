@@ -106,7 +106,8 @@ class OrderServiceTest {
                 configurationService,
                 new ObjectMapper(),
                 new com.restaurant.pos.common.service.BranchContextService(),
-                mock(com.restaurant.pos.auth.repository.UserRepository.class)
+                mock(com.restaurant.pos.auth.repository.UserRepository.class),
+                mock(com.restaurant.pos.push.service.PushNotificationService.class)
         );
 
         clientId = UUID.randomUUID();
