@@ -115,6 +115,7 @@ public class OrderDtoMapper {
                 .manualDiscountAmount(line.getManualDiscountAmount())
                 .manualDiscountPercent(line.getManualDiscountPercent())
                 .allocatedOrderDiscount(line.getAllocatedOrderDiscount())
+                .isPackagedGood(line.getIsPackagedGood())
                 .build();
     }
 
