@@ -205,5 +205,9 @@ public class OrderResponseDto {
 
         @Schema(description = "Allocated order discount")
         private BigDecimal allocatedOrderDiscount;
+
+        @Schema(description = "Whether the product is a packaged good")
+        @JsonProperty("isPackagedGood")
+        private Boolean isPackagedGood;
     }
 }
