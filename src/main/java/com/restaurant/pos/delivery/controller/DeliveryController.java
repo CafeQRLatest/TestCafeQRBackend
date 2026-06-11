@@ -3,11 +3,14 @@ package com.restaurant.pos.delivery.controller;
 import com.restaurant.pos.client.repository.ClientRepository;
 import com.restaurant.pos.client.repository.OrganizationRepository;
 import com.restaurant.pos.common.dto.ApiResponse;
+import com.restaurant.pos.common.dto.ConfigurationDto;
 import com.restaurant.pos.common.exception.BusinessException;
 import com.restaurant.pos.common.exception.ResourceNotFoundException;
+import com.restaurant.pos.common.service.SystemConfigurationService;
 import com.restaurant.pos.order.domain.Order;
 import com.restaurant.pos.order.domain.OrderLine;
 import com.restaurant.pos.order.domain.OrderType;
+import com.restaurant.pos.order.domain.TaxType;
 import com.restaurant.pos.order.repository.OrderRepository;
 import com.restaurant.pos.product.domain.Product;
 import com.restaurant.pos.product.repository.ProductRepository;
@@ -18,6 +21,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Instant;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -51,6 +55,7 @@ public class DeliveryController {
     private final OrganizationRepository organizationRepository;
     private final ProductRepository      productRepository;
     private final OrderRepository        orderRepository;
+    private final SystemConfigurationService systemConfigurationService;
 
     // ─────────────────────────────────────────────────────────────────────────
     // 1. GET /delivery/restaurant/{clientId}/settings
@@ -67,6 +72,8 @@ public class DeliveryController {
         if (!client.isSubscriptionActive()) {
             throw new BusinessException("Restaurant subscription is inactive.");
         }
+
+        UUID orgUuid = parseOrgId(orgId);
 
         Map<String, Object> settings = new LinkedHashMap<>();
         settings.put("clientId",         clientId);
@@ -86,8 +93,27 @@ public class DeliveryController {
         settings.put("minOrderAmount",   BigDecimal.ZERO);
         settings.put("estimatedDeliveryMinutes", 45);
 
+        // Load configurations
+        try {
+            ConfigurationDto config = systemConfigurationService.getConfigurationForClientAndBranch(clientId, orgUuid);
+            settings.put("taxEnabled", config.isTaxEnabled());
+            settings.put("taxLabelGlobal", config.getTaxLabelGlobal());
+            settings.put("taxRates", config.getTaxRates());
+            settings.put("taxDefaultId", config.getTaxDefaultId());
+            settings.put("pricesIncludeTax", config.isPricesIncludeTax());
+            settings.put("taxSplitEnabled", config.isTaxSplitEnabled());
+            settings.put("currencyDecimalPlaces", config.getCurrencyDecimalPlaces());
+        } catch (Exception e) {
+            log.error("Failed to load system configurations for delivery settings", e);
+            settings.put("taxEnabled", false);
+            settings.put("taxLabelGlobal", "GST");
+            settings.put("taxRates", Collections.emptyList());
+            settings.put("pricesIncludeTax", false);
+            settings.put("taxSplitEnabled", true);
+            settings.put("currencyDecimalPlaces", 2);
+        }
+
         // Branch-wise settings override
-        UUID orgUuid = parseOrgId(orgId);
         if (orgUuid != null) {
             organizationRepository.findById(orgUuid).ifPresent(org -> {
                 if (clientId.equals(org.getClientId())) {
@@ -142,6 +168,8 @@ public class DeliveryController {
                     item.put("isVeg",       !p.isPackagedGood());
                     item.put("isAvailable", p.isAvailable());
                     item.put("productType", p.getProductType());
+                    item.put("taxRate",     p.getTaxRate());
+                    item.put("isPackagedGood", p.isPackagedGood());
                     return item;
                 })
                 .collect(Collectors.toList());
@@ -233,6 +261,56 @@ public class DeliveryController {
             order.setLatitude(latitude);
             order.setLongitude(longitude);
 
+            // Load configuration for client & orgId
+            ConfigurationDto config = null;
+            try {
+                config = systemConfigurationService.getConfigurationForClientAndBranch(clientId, orgUuid);
+            } catch (Exception e) {
+                log.warn("[Delivery] Failed to fetch system configuration, using fallback defaults", e);
+            }
+
+            boolean gstEnabled = config != null && config.isTaxEnabled();
+            boolean pricesIncludeTax = config != null && config.isPricesIncludeTax();
+            int decimalPlaces = (config != null && config.getCurrencyDecimalPlaces() != null) ? config.getCurrencyDecimalPlaces() : 2;
+
+            // Resolve default base rate
+            BigDecimal baseRate = BigDecimal.ZERO;
+            List<Map<String, Object>> taxRatesList = new ArrayList<>();
+            String defaultTaxId = config != null ? config.getTaxDefaultId() : null;
+
+            if (config != null && config.getTaxRates() != null) {
+                for (Object rateObj : config.getTaxRates()) {
+                    if (rateObj instanceof Map) {
+                        @SuppressWarnings("unchecked")
+                        Map<String, Object> rateMap = (Map<String, Object>) rateObj;
+                        taxRatesList.add(rateMap);
+                    }
+                }
+            }
+
+            if (gstEnabled && !taxRatesList.isEmpty()) {
+                // Find default tax rate
+                Map<String, Object> defaultRateMap = null;
+                if (defaultTaxId != null) {
+                    defaultRateMap = taxRatesList.stream()
+                            .filter(r -> defaultTaxId.equals(String.valueOf(r.get("id"))))
+                            .findFirst().orElse(null);
+                }
+                if (defaultRateMap == null) {
+                    defaultRateMap = taxRatesList.get(0);
+                }
+                if (defaultRateMap != null && defaultRateMap.get("value") != null) {
+                    try {
+                        baseRate = new BigDecimal(String.valueOf(defaultRateMap.get("value")));
+                    } catch (Exception e) {
+                        // ignore
+                    }
+                }
+            }
+
+            BigDecimal totalTaxableAmount = BigDecimal.ZERO;
+            BigDecimal totalTaxAmount = BigDecimal.ZERO;
+            BigDecimal totalGrossAmount = BigDecimal.ZERO;
             BigDecimal grandTotal = BigDecimal.ZERO;
 
             for (Map<String, Object> cartItem : items) {
@@ -253,22 +331,103 @@ public class DeliveryController {
                 }
 
                 Product p = productOpt.get();
-                BigDecimal lineTotal = p.getPrice().multiply(BigDecimal.valueOf(qty));
+                BigDecimal faceUnit = p.getPrice();
+                BigDecimal quantity = BigDecimal.valueOf(qty);
+                BigDecimal grossLineAmount = faceUnit.multiply(quantity);
+
+                // Determine line tax rate
+                boolean isPackaged = p.isPackagedGood();
+                BigDecimal rate = BigDecimal.ZERO;
+                if (gstEnabled) {
+                    if (isPackaged) {
+                        rate = p.getTaxRate() != null ? p.getTaxRate() : baseRate;
+                    } else {
+                        rate = baseRate;
+                    }
+                }
+
+                boolean isInclusive = gstEnabled && (isPackaged || pricesIncludeTax);
+
+                // Determine unitPriceExTax and base line totals
+                BigDecimal baseUnit;
+                BigDecimal lineTotal;
+                BigDecimal taxable;
+                BigDecimal tax;
+
+                if (isInclusive && rate.compareTo(BigDecimal.ZERO) > 0) {
+                    baseUnit = faceUnit.divide(BigDecimal.ONE.add(rate.divide(BigDecimal.valueOf(100), 10, RoundingMode.HALF_UP)), 10, RoundingMode.HALF_UP);
+                    lineTotal = grossLineAmount.setScale(decimalPlaces, RoundingMode.HALF_UP);
+                    taxable = lineTotal.divide(BigDecimal.ONE.add(rate.divide(BigDecimal.valueOf(100), 10, RoundingMode.HALF_UP)), decimalPlaces, RoundingMode.HALF_UP);
+                    tax = lineTotal.subtract(taxable);
+                } else {
+                    baseUnit = faceUnit;
+                    taxable = grossLineAmount.setScale(decimalPlaces, RoundingMode.HALF_UP);
+                    tax = taxable.multiply(rate.divide(BigDecimal.valueOf(100), 10, RoundingMode.HALF_UP)).setScale(decimalPlaces, RoundingMode.HALF_UP);
+                    lineTotal = taxable.add(tax);
+                }
+
+                // Find tax code and name snapshots
+                String taxCode = null;
+                String taxName = null;
+                if (gstEnabled && rate.compareTo(BigDecimal.ZERO) > 0) {
+                    final BigDecimal finalRate = rate;
+                    Map<String, Object> matchedRate = taxRatesList.stream()
+                            .filter(r -> {
+                                try {
+                                    return new BigDecimal(String.valueOf(r.get("value"))).compareTo(finalRate) == 0;
+                                } catch (Exception e) {
+                                    return false;
+                                }
+                            })
+                            .findFirst().orElse(null);
+
+                    if (matchedRate != null) {
+                        taxCode = (String) matchedRate.get("code");
+                        taxName = (String) matchedRate.get("name");
+                    }
+                    if (taxCode == null) {
+                        taxCode = "GST_" + rate.toPlainString();
+                    }
+                    if (taxName == null) {
+                        taxName = "GST " + rate.toPlainString() + "%";
+                    }
+                }
+
+                TaxType taxType = isInclusive ? TaxType.INCLUSIVE : (gstEnabled && rate.compareTo(BigDecimal.ZERO) > 0 ? TaxType.EXCLUSIVE : TaxType.NONE);
 
                 OrderLine line = OrderLine.builder()
                         .productId(productId)
                         .productName(p.getName())
                         .categoryName(p.getCategory() != null ? p.getCategory().getName() : null)
-                        .isPackagedGood(p.isPackagedGood())
-                        .quantity(BigDecimal.valueOf(qty))
-                        .unitPrice(p.getPrice())
+                        .isPackagedGood(isPackaged)
+                        .quantity(quantity)
+                        .unitOfMeasure(p.getUom() != null ? p.getUom().getName() : "units")
+                        .unitPrice(faceUnit)
+                        .taxRate(rate)
+                        .taxAmount(tax)
+                        .discountAmount(BigDecimal.ZERO)
                         .lineTotal(lineTotal)
+                        .grossLineAmount(grossLineAmount)
+                        .unitPriceExTax(baseUnit.setScale(4, RoundingMode.HALF_UP))
+                        .taxableAmount(taxable)
+                        .taxType(taxType)
+                        .taxSnapshotRate(rate)
+                        .taxCode(taxCode)
+                        .taxName(taxName)
+                        .allocatedOrderDiscount(BigDecimal.ZERO)
                         .build();
 
                 order.addLine(line);
+
+                totalTaxableAmount = totalTaxableAmount.add(taxable);
+                totalTaxAmount = totalTaxAmount.add(tax);
+                totalGrossAmount = totalGrossAmount.add(grossLineAmount);
                 grandTotal = grandTotal.add(lineTotal);
             }
 
+            order.setGrossAmount(totalGrossAmount);
+            order.setTotalTaxAmount(totalTaxAmount);
+            order.setTotalDiscountAmount(BigDecimal.ZERO);
             order.setTotalAmount(grandTotal);
             order.setGrandTotal(grandTotal);
 
