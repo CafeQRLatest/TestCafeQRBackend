@@ -37,6 +37,7 @@ import com.restaurant.pos.order.repository.PaymentRepository;
 import com.restaurant.pos.order.repository.PaymentSplitRepository;
 import com.restaurant.pos.print.domain.PrintJobKind;
 import com.restaurant.pos.print.service.PrintJobService;
+import com.restaurant.pos.push.service.PushNotificationService;
 import com.restaurant.pos.product.domain.Product;
 import com.restaurant.pos.product.repository.ProductRepository;
 import com.restaurant.pos.sequence.domain.DocumentType;
@@ -106,6 +107,7 @@ public class OrderService {
     private final ObjectMapper objectMapper;
     private final BranchContextService branchContext;
     private final com.restaurant.pos.auth.repository.UserRepository userRepository;
+    private final PushNotificationService pushNotificationService;
 
     private void prepareSourceFields(Order order) {
         UUID terminalId = TenantContext.getCurrentTerminal();
@@ -1350,6 +1352,15 @@ public class OrderService {
             diagnosticPhase = "enqueue_cloud_print_jobs";
             enqueueCloudPrintJobs(hydrated);
             logCreditOrderCreateSuccess(logCreditDiagnostics, hydrated);
+
+            try {
+                if (hydrated.getOrderType() == OrderType.SALE) {
+                    pushNotificationService.sendNewOrderPush(hydrated);
+                }
+            } catch (Exception ex) {
+                log.error("Failed to send push notification for order {}", hydrated.getId(), ex);
+            }
+
             return hydrated;
         } catch (RuntimeException ex) {
             logCreditOrderCreateFailure(logCreditDiagnostics, diagnosticPhase, order, ex);
@@ -1831,6 +1842,15 @@ public class OrderService {
 
         Order hydrated = hydrateOrder(saved);
         enqueueCloudPrintJobs(hydrated);
+
+        try {
+            if (hydrated.getOrderType() == OrderType.SALE) {
+                pushNotificationService.sendOrderSettledPush(hydrated);
+            }
+        } catch (Exception ex) {
+            log.error("Failed to send push notification for settled order {}", hydrated.getId(), ex);
+        }
+
         return hydrated;
     }
 
