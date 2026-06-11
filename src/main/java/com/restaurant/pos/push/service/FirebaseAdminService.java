@@ -37,18 +37,14 @@ public class FirebaseAdminService {
             if (FirebaseApp.getApps().isEmpty()) {
                 String formattedPrivateKey = privateKey.replace("\\n", "\n");
                 
-                // Formulate the JSON format service account credentials manually to avoid writing a file
-                String serviceAccountJson = String.format(
-                        "{\n" +
-                        "  \"type\": \"service_account\",\n" +
-                        "  \"project_id\": \"%s\",\n" +
-                        "  \"client_email\": \"%s\",\n" +
-                        "  \"private_key\": \"%s\"\n" +
-                        "}",
-                        projectId,
-                        clientEmail,
-                        formattedPrivateKey
-                );
+                // Formulate the JSON format service account credentials using Jackson to ensure correct escaping
+                Map<String, Object> serviceAccountMap = new java.util.HashMap<>();
+                serviceAccountMap.put("type", "service_account");
+                serviceAccountMap.put("project_id", projectId);
+                serviceAccountMap.put("client_email", clientEmail);
+                serviceAccountMap.put("private_key", formattedPrivateKey);
+
+                String serviceAccountJson = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(serviceAccountMap);
 
                 InputStream serviceAccountStream = new ByteArrayInputStream(serviceAccountJson.getBytes(StandardCharsets.UTF_8));
                 
