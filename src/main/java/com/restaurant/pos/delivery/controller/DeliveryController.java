@@ -16,6 +16,7 @@ import com.restaurant.pos.product.domain.Product;
 import com.restaurant.pos.product.repository.ProductRepository;
 import com.restaurant.pos.print.service.PrintJobService;
 import com.restaurant.pos.print.domain.PrintJobKind;
+import com.restaurant.pos.push.service.PushNotificationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
@@ -59,6 +60,7 @@ public class DeliveryController {
     private final OrderRepository        orderRepository;
     private final SystemConfigurationService systemConfigurationService;
     private final PrintJobService        printJobService;
+    private final PushNotificationService pushNotificationService;
 
     // ─────────────────────────────────────────────────────────────────────────
     // 1. GET /delivery/restaurant/{clientId}/settings
@@ -437,6 +439,12 @@ public class DeliveryController {
             Order saved = orderRepository.save(order);
             log.info("[Delivery] Order placed: {} (orderNo={}) for client={} org={}",
                     saved.getId(), saved.getOrderNo(), clientId, orgUuid);
+
+            try {
+                pushNotificationService.sendNewOrderPush(saved);
+            } catch (Exception ex) {
+                log.error("[Delivery] Failed to trigger push notification", ex);
+            }
 
             try {
                 printJobService.enqueueForOrder(saved, PrintJobKind.KOT, "auto");
