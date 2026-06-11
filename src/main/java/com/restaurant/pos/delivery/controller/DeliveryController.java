@@ -14,6 +14,8 @@ import com.restaurant.pos.order.domain.TaxType;
 import com.restaurant.pos.order.repository.OrderRepository;
 import com.restaurant.pos.product.domain.Product;
 import com.restaurant.pos.product.repository.ProductRepository;
+import com.restaurant.pos.print.service.PrintJobService;
+import com.restaurant.pos.print.domain.PrintJobKind;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
@@ -56,6 +58,7 @@ public class DeliveryController {
     private final ProductRepository      productRepository;
     private final OrderRepository        orderRepository;
     private final SystemConfigurationService systemConfigurationService;
+    private final PrintJobService        printJobService;
 
     // ─────────────────────────────────────────────────────────────────────────
     // 1. GET /delivery/restaurant/{clientId}/settings
@@ -434,6 +437,12 @@ public class DeliveryController {
             Order saved = orderRepository.save(order);
             log.info("[Delivery] Order placed: {} (orderNo={}) for client={} org={}",
                     saved.getId(), saved.getOrderNo(), clientId, orgUuid);
+
+            try {
+                printJobService.enqueueForOrder(saved, PrintJobKind.KOT, "auto");
+            } catch (Exception ex) {
+                log.warn("[Delivery] Unable to enqueue print job for delivery order {}", saved.getId(), ex);
+            }
 
             Map<String, Object> response = new LinkedHashMap<>();
             response.put("orderId",         saved.getId());
