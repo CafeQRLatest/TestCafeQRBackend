@@ -3,6 +3,7 @@ package com.restaurant.pos.push.service;
 import com.google.firebase.messaging.BatchResponse;
 import com.google.firebase.messaging.SendResponse;
 import com.restaurant.pos.order.domain.Order;
+import com.restaurant.pos.order.domain.OrderLine;
 import com.restaurant.pos.push.domain.PushDeviceToken;
 import com.restaurant.pos.push.repository.PushDeviceTokenRepository;
 import com.restaurant.pos.push.dto.PushSubscribeRequest;
@@ -103,7 +104,13 @@ public class PushNotificationService {
 
         String friendlyCategory = capitalize(category.replace("_", " "));
         String title = String.format("New %s Order", friendlyCategory);
-        String body = String.format("Order #%s - Total: %s", order.getOrderNo(), order.getGrandTotal());
+        String baseBody = String.format("Order #%s - Total: %s", order.getOrderNo(), order.getGrandTotal());
+        
+        String itemsSummary = buildItemsSummary(order);
+        String body = baseBody;
+        if (itemsSummary != null && !itemsSummary.isEmpty()) {
+            body = baseBody + "\n" + itemsSummary;
+        }
 
         Map<String, String> data = new HashMap<>();
         data.put("orderId", order.getId() != null ? order.getId().toString() : "");
@@ -112,6 +119,7 @@ public class PushNotificationService {
         data.put("category", category);
         data.put("grandTotal", order.getGrandTotal() != null ? order.getGrandTotal().toString() : "0.00");
         data.put("restaurantId", order.getOrgId() != null ? order.getOrgId().toString() : "");
+        data.put("itemsSummary", itemsSummary != null ? itemsSummary : "");
 
         BatchResponse response = firebaseAdminService.sendMulticast(title, body, data, tokens);
         cleanInvalidTokens(tokens, response);
@@ -129,7 +137,13 @@ public class PushNotificationService {
         List<String> tokens = targets.stream().map(PushDeviceToken::getDeviceToken).toList();
 
         String title = "Order Settled";
-        String body = String.format("Order #%s has been paid/completed.", order.getOrderNo());
+        String baseBody = String.format("Order #%s has been paid/completed.", order.getOrderNo());
+        
+        String itemsSummary = buildItemsSummary(order);
+        String body = baseBody;
+        if (itemsSummary != null && !itemsSummary.isEmpty()) {
+            body = baseBody + "\n" + itemsSummary;
+        }
 
         Map<String, String> data = new HashMap<>();
         data.put("orderId", order.getId() != null ? order.getId().toString() : "");
@@ -137,6 +151,7 @@ public class PushNotificationService {
         data.put("type", "order_settled");
         data.put("grandTotal", order.getGrandTotal() != null ? order.getGrandTotal().toString() : "0.00");
         data.put("restaurantId", order.getOrgId() != null ? order.getOrgId().toString() : "");
+        data.put("itemsSummary", itemsSummary != null ? itemsSummary : "");
 
         BatchResponse response = firebaseAdminService.sendMulticast(title, body, data, tokens);
         cleanInvalidTokens(tokens, response);
@@ -161,5 +176,20 @@ public class PushNotificationService {
     private String capitalize(String text) {
         if (text == null || text.isEmpty()) return "";
         return text.substring(0, 1).toUpperCase() + text.substring(1).toLowerCase();
+    }
+
+    private String buildItemsSummary(Order order) {
+        if (order == null || order.getLines() == null || order.getLines().isEmpty()) {
+            return "";
+        }
+        List<String> lineSummaries = new java.util.ArrayList<>();
+        for (OrderLine line : order.getLines()) {
+            if (line.getQuantity() != null && line.getProductName() != null) {
+                double qtyDouble = line.getQuantity().doubleValue();
+                String qtyStr = (qtyDouble % 1 == 0) ? String.valueOf((int) qtyDouble) : line.getQuantity().stripTrailingZeros().toPlainString();
+                lineSummaries.add(qtyStr + " x " + line.getProductName());
+            }
+        }
+        return String.join(", ", lineSummaries);
     }
 }
