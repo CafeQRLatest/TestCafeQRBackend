@@ -2,6 +2,7 @@ package com.restaurant.pos.order.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.restaurant.pos.delivery.controller.OrderStatusSseController;
 import com.restaurant.pos.accounting.service.AccountingPostingService;
 import com.restaurant.pos.common.dto.ConfigurationDto;
 import com.restaurant.pos.common.exception.ResourceNotFoundException;
@@ -1631,6 +1632,7 @@ public class OrderService {
         }
         Order hydrated = hydrateOrder(result);
         enqueueCloudPrintJobs(hydrated);
+        OrderStatusSseController.publishStatusUpdate(result.getId(), result.getOrderStatus());
         return hydrated;
     }
 
@@ -1851,6 +1853,7 @@ public class OrderService {
             log.error("Failed to send push notification for settled order {}", hydrated.getId(), ex);
         }
 
+        OrderStatusSseController.publishStatusUpdate(saved.getId(), saved.getOrderStatus());
         return hydrated;
     }
 
@@ -1972,6 +1975,7 @@ public class OrderService {
         }
 
         handleTableStatus(saved);
+        OrderStatusSseController.publishStatusUpdate(saved.getId(), saved.getOrderStatus());
         return hydrateOrder(saved);
     }
 
