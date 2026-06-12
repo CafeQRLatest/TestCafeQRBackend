@@ -446,10 +446,12 @@ public class DeliveryController {
                 log.error("[Delivery] Failed to trigger push notification", ex);
             }
 
-            try {
-                printJobService.enqueueForOrder(saved, PrintJobKind.KOT, "auto");
-            } catch (Exception ex) {
-                log.warn("[Delivery] Unable to enqueue print job for delivery order {}", saved.getId(), ex);
+            if (!"DELIVERY".equalsIgnoreCase(saved.getFulfillmentType())) {
+                try {
+                    printJobService.enqueueForOrder(saved, PrintJobKind.KOT, "auto");
+                } catch (Exception ex) {
+                    log.warn("[Delivery] Unable to enqueue print job for order {}", saved.getId(), ex);
+                }
             }
 
             Map<String, Object> response = new LinkedHashMap<>();
