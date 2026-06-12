@@ -619,6 +619,18 @@ public class DeliveryController {
         map.put("latitude",        order.getLatitude());
         map.put("longitude",       order.getLongitude());
 
+        Double shopLat = null;
+        Double shopLng = null;
+        if (order.getOrgId() != null) {
+            var orgOpt = organizationRepository.findById(order.getOrgId());
+            if (orgOpt.isPresent()) {
+                shopLat = orgOpt.get().getLatitude();
+                shopLng = orgOpt.get().getLongitude();
+            }
+        }
+        map.put("shopLatitude",    shopLat);
+        map.put("shopLongitude",   shopLng);
+
         if (order.getLines() != null) {
             List<Map<String, Object>> lines = order.getLines().stream().map(l -> {
                 Map<String, Object> lm = new LinkedHashMap<>();
