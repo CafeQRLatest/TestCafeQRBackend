@@ -1636,7 +1636,7 @@ public class OrderService {
         }
         Order hydrated = hydrateOrder(result);
         enqueueCloudPrintJobs(hydrated);
-        OrderStatusSseController.publishStatusUpdate(result.getId(), result.getOrderStatus());
+        publishOrderStatusUpdate(result);
         return hydrated;
     }
 
@@ -1857,7 +1857,7 @@ public class OrderService {
             log.error("Failed to send push notification for settled order {}", hydrated.getId(), ex);
         }
 
-        OrderStatusSseController.publishStatusUpdate(saved.getId(), saved.getOrderStatus());
+        publishOrderStatusUpdate(saved);
         return hydrated;
     }
 
@@ -1979,7 +1979,7 @@ public class OrderService {
         }
 
         handleTableStatus(saved);
-        OrderStatusSseController.publishStatusUpdate(saved.getId(), saved.getOrderStatus());
+        publishOrderStatusUpdate(saved);
         return hydrateOrder(saved);
     }
 
@@ -2569,6 +2569,23 @@ public class OrderService {
         }
     }
 
+    private void publishOrderStatusUpdate(Order order) {
+        if (order == null) return;
+        try {
+            String baseOrderNo = order.getOrderNo();
+            if (baseOrderNo != null && baseOrderNo.contains("_VOID_")) {
+                baseOrderNo = baseOrderNo.substring(0, baseOrderNo.indexOf("_VOID_"));
+            }
+            String voidPrefix = baseOrderNo + "_VOID_%";
+            List<Order> revisions = orderRepository.findAllRevisionsByOrderNo(order.getClientId(), baseOrderNo, voidPrefix);
+            for (Order rev : revisions) {
+                OrderStatusSseController.publishStatusUpdate(rev.getId(), order.getOrderStatus());
+            }
+        } catch (Exception e) {
+            log.error("Failed to publish order status update to all revisions", e);
+            OrderStatusSseController.publishStatusUpdate(order.getId(), order.getOrderStatus());
+        }
+    }
 
     private String resolveUserDisplayName(String uidStr) {
         if (uidStr == null || uidStr.isBlank() || "SYSTEM".equalsIgnoreCase(uidStr)) {
