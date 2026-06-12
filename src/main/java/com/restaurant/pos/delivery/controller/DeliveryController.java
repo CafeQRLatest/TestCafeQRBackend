@@ -493,6 +493,17 @@ public class DeliveryController {
         Order order = orderOpt
                 .orElseThrow(() -> new ResourceNotFoundException("Order not found: " + orderId));
 
+        if ("VOID".equalsIgnoreCase(order.getOrderStatus()) || "N".equalsIgnoreCase(order.getIsactive())) {
+            String baseOrderNo = order.getOrderNo();
+            if (baseOrderNo != null && baseOrderNo.contains("_VOID_")) {
+                baseOrderNo = baseOrderNo.substring(0, baseOrderNo.indexOf("_VOID_"));
+            }
+            Optional<Order> activeOrder = orderRepository.findActiveByOrderNoAndClientId(baseOrderNo, clientId);
+            if (activeOrder.isPresent()) {
+                order = activeOrder.get();
+            }
+        }
+
         return ResponseEntity.ok(ApiResponse.success(toOrderMap(order)));
     }
 
