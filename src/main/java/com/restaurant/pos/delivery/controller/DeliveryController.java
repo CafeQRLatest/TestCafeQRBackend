@@ -259,6 +259,7 @@ public class DeliveryController {
                     .fulfillmentType(fulfillment)
                     .description(description)
                     .orderDate(Instant.now())
+                    .isactive("Y")
                     .build();
 
             order.setClientId(clientId);
@@ -420,6 +421,7 @@ public class DeliveryController {
                         .taxCode(taxCode)
                         .taxName(taxName)
                         .allocatedOrderDiscount(BigDecimal.ZERO)
+                        .isactive("Y")
                         .build();
 
                 order.addLine(line);

@@ -182,6 +182,7 @@ public class PublicMenuController {
                 .description(customerNote)
                 .reference(buildPaymentReference(paymentMethod, razorpayPaymentId, razorpayOrderId))
                 .orderDate(Instant.now())
+                .isactive("Y")
                 .build();
                 
         String tableIdStr = (String) payload.get("tableId");
@@ -231,6 +232,7 @@ public class PublicMenuController {
                     .quantity(BigDecimal.valueOf(qty))
                     .unitPrice(price)
                     .lineTotal(lineTotal)
+                    .isactive("Y")
                     .build();
             order.addLine(line);
 
