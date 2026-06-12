@@ -43,6 +43,12 @@ public class FirebaseAdminService {
                 serviceAccountMap.put("project_id", projectId);
                 serviceAccountMap.put("client_email", clientEmail);
                 serviceAccountMap.put("private_key", formattedPrivateKey);
+                serviceAccountMap.put("private_key_id", "dummy-private-key-id");
+                serviceAccountMap.put("client_id", "dummy-client-id");
+                serviceAccountMap.put("auth_uri", "https://accounts.google.com/o/oauth2/auth");
+                serviceAccountMap.put("token_uri", "https://oauth2.googleapis.com/token");
+                serviceAccountMap.put("auth_provider_x509_cert_url", "https://www.googleapis.com/oauth2/v1/certs");
+                serviceAccountMap.put("client_x509_cert_url", "https://www.googleapis.com/robot/v1/metadata/x509/" + clientEmail.replace("@", "%40"));
 
                 String serviceAccountJson = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(serviceAccountMap);
 
