@@ -137,6 +137,10 @@ public class DeliveryController {
                     if (org.getGoogleMapsUrl() != null && !org.getGoogleMapsUrl().isBlank()) {
                         settings.put("googleMapsUrl", org.getGoogleMapsUrl());
                     }
+                    // Delivery radius and branch coordinates for delivery zone validation
+                    settings.put("deliveryRadiusKm", org.getDeliveryRadiusKm());
+                    settings.put("branchLatitude", org.getLatitude());
+                    settings.put("branchLongitude", org.getLongitude());
                 }
             });
         }
@@ -244,6 +248,25 @@ public class DeliveryController {
                 } catch (Exception e) {
                     // Ignore parsing errors
                 }
+            }
+
+            // ── Delivery radius validation ──────────────────────────────────
+            if ("DELIVERY".equalsIgnoreCase(fulfillment) && orgUuid != null && latitude != null && longitude != null) {
+                final double customerLat = latitude.doubleValue();
+                final double customerLng = longitude.doubleValue();
+                organizationRepository.findById(orgUuid).ifPresent(org -> {
+                    if (org.getDeliveryRadiusKm() != null && org.getDeliveryRadiusKm() > 0
+                            && org.getLatitude() != null && org.getLongitude() != null) {
+                        double distKm = haversineDistanceKm(
+                                org.getLatitude(), org.getLongitude(),
+                                customerLat, customerLng);
+                        if (distKm > org.getDeliveryRadiusKm()) {
+                            throw new BusinessException(String.format(
+                                    "Your location is %.1f km away. Delivery is only available within %.0f km of the restaurant.",
+                                    distKm, org.getDeliveryRadiusKm()));
+                        }
+                    }
+                });
             }
 
             // FIX 1: clientId and orgId live in BaseEntity and are not reachable via
@@ -647,5 +670,20 @@ public class DeliveryController {
         }
 
         return map;
+    }
+
+    /**
+     * Haversine formula — computes the great-circle distance in km between two
+     * lat/lng points on Earth.
+     */
+    private double haversineDistanceKm(double lat1, double lon1, double lat2, double lon2) {
+        final double R = 6371.0; // Earth's mean radius in km
+        double dLat = Math.toRadians(lat2 - lat1);
+        double dLon = Math.toRadians(lon2 - lon1);
+        double a = Math.sin(dLat / 2) * Math.sin(dLat / 2)
+                 + Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2))
+                 * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+        double c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        return R * c;
     }
 }
