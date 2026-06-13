@@ -15,7 +15,19 @@ public class WebMvcConfig implements WebMvcConfigurer {
     private final TenantInterceptor tenantInterceptor;
     private final TenantRestoreLockInterceptor tenantRestoreLockInterceptor;
 
-    @Value("${app.cors.allowed-origins:http://localhost:3000,https://cafe-test-qr-frontend.vercel.app,https://cafe-qr-frontend.vercel.app,https://cafeqr-frontend.pages.dev,https://*.pages.dev}")
+    @Value("${app.cors.allowed-origins:" +
+            "http://localhost:3000," +
+            "http://localhost:3001," +
+            "https://cafe-test-qr-frontend.vercel.app," +
+            "https://cafe-qr-frontend.vercel.app," +
+            "https://test-cafe-qr-delivery-app.vercel.app," +
+            "https://cafe-qr-delivery-app.vercel.app," +
+            "https://test-cafe-qr-delivery-website.vercel.app," +
+            "https://cafe-qr-delivery-website.vercel.app," +
+            "https://cafeqr-delivery-website.vercel.app," +
+            "https://cafeqr-frontend.pages.dev," +
+            "https://*.pages.dev" +
+            "}")
     private String[] allowedOrigins;
 
     @Override
