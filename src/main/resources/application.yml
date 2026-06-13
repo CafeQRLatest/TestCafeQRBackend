@@ -119,7 +119,7 @@ springdoc:
 
 app:
   cors:
-    allowed-origins: ${ALLOWED_ORIGINS:http://localhost:3000,http://localhost:3001,https://cafe-test-qr-frontend.vercel.app,https://cafe-qr-frontend.vercel.app,https://cafeqr-frontend.pages.dev,https://*.pages.dev}
+    allowed-origins: ${ALLOWED_ORIGINS:http://localhost:3000,http://localhost:3001,https://cafe-test-qr-frontend.vercel.app,https://cafe-qr-frontend.vercel.app,https://test-cafe-qr-delivery-app.vercel.app,https://cafe-qr-delivery-app.vercel.app,https://test-cafe-qr-delivery-website.vercel.app,https://cafe-qr-delivery-website.vercel.app,https://cafeqr-delivery-website.vercel.app,https://cafeqr-frontend.pages.dev,https://*.pages.dev}
   frontend-url: ${FRONTEND_URL:http://localhost:3000}
   otp:
     log-code: ${OTP_LOG_CODE:false}
