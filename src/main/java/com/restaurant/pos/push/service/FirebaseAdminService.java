@@ -34,6 +34,12 @@ public class FirebaseAdminService {
     @PostConstruct
     public void init() {
         try {
+            if (projectId == null || projectId.isBlank() ||
+                clientEmail == null || clientEmail.isBlank() ||
+                privateKey == null || privateKey.isBlank()) {
+                log.warn("Firebase credentials are not fully configured. Skipping Firebase Admin SDK initialization.");
+                return;
+            }
             if (FirebaseApp.getApps().isEmpty()) {
                 String formattedPrivateKey = privateKey.replace("\\n", "\n");
                 
