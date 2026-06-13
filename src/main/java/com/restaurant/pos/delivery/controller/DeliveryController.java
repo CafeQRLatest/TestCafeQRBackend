@@ -252,12 +252,14 @@ public class DeliveryController {
 
             // ── Delivery radius validation ──────────────────────────────────
             if ("DELIVERY".equalsIgnoreCase(fulfillment) && orgUuid != null && latitude != null && longitude != null) {
+                final double customerLat = latitude.doubleValue();
+                final double customerLng = longitude.doubleValue();
                 organizationRepository.findById(orgUuid).ifPresent(org -> {
                     if (org.getDeliveryRadiusKm() != null && org.getDeliveryRadiusKm() > 0
                             && org.getLatitude() != null && org.getLongitude() != null) {
                         double distKm = haversineDistanceKm(
                                 org.getLatitude(), org.getLongitude(),
-                                latitude.doubleValue(), longitude.doubleValue());
+                                customerLat, customerLng);
                         if (distKm > org.getDeliveryRadiusKm()) {
                             throw new BusinessException(String.format(
                                     "Your location is %.1f km away. Delivery is only available within %.0f km of the restaurant.",
