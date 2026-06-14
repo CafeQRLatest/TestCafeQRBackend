@@ -94,6 +94,7 @@ gmail:
     refresh-token: ${GMAIL_REFRESH_TOKEN:}
     sender-email: ${GMAIL_SENDER_EMAIL:${SMTP_USERNAME:cafeqrllp@gmail.com}}
 
+
 # JWT Configuration
 jwt:
   private-key: ${JWT_PRIVATE_KEY:}
