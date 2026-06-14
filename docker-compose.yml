@@ -6,9 +6,9 @@ services:
       - "8080:8080"
     environment:
       - SPRING_PROFILES_ACTIVE=prod
-      - SPRING_DATASOURCE_URL=jdbc:postgresql://db:5432/pos_db
-      - SPRING_DATASOURCE_USERNAME=pos_user
-      - SPRING_DATASOURCE_PASSWORD=pos_password
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://db:5432/${DB_NAME:-pos_db}
+      - SPRING_DATASOURCE_USERNAME=${DB_USER:-pos_user}
+      - SPRING_DATASOURCE_PASSWORD=${DB_PASSWORD:-pos_password}
       - JWT_PRIVATE_KEY=${JWT_PRIVATE_KEY:-}
       - JWT_PUBLIC_KEY=${JWT_PUBLIC_KEY:-}
       - RAZORPAY_KEY_ID=${RAZORPAY_KEY_ID:-}
@@ -20,7 +20,10 @@ services:
       - GMAIL_CLIENT_SECRET=${GMAIL_CLIENT_SECRET:-}
       - GMAIL_REFRESH_TOKEN=${GMAIL_REFRESH_TOKEN:-}
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:3000}
-      - FRONTEND_URL=${FRONTEND_URL:-http://localhost:3000}
+      - FRONTEND_URL=${FRONTEND_URL:-https://cafeqr-frontend.pages.dev}
+      - FIREBASE_PROJECT_ID=${FIREBASE_PROJECT_ID:-}
+      - FIREBASE_CLIENT_EMAIL=${FIREBASE_CLIENT_EMAIL:-}
+      - FIREBASE_PRIVATE_KEY=${FIREBASE_PRIVATE_KEY:-}
     depends_on:
       - db
       - redis
@@ -32,9 +35,9 @@ services:
     ports:
       - "5433:5432"
     environment:
-      - POSTGRES_DB=pos_db
-      - POSTGRES_USER=pos_user
-      - POSTGRES_PASSWORD=pos_password
+      - POSTGRES_DB=${DB_NAME:-pos_db}
+      - POSTGRES_USER=${DB_USER:-pos_user}
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-pos_password}
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
