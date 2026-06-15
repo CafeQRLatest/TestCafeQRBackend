@@ -78,7 +78,20 @@ public interface PrintJobRepository extends JpaRepository<PrintJob, UUID> {
               AND (
                     p.targetTerminalId = :terminalId
                     OR (p.targetTerminalId IS NULL AND p.sourceTerminalId = :terminalId)
-                    OR (:fallback = true AND p.targetTerminalId IS NULL AND p.sourceTerminalId IS NULL)
+                    OR (
+                         :fallback = true 
+                         AND p.targetTerminalId IS NULL 
+                         AND (
+                              p.sourceTerminalId IS NULL 
+                              OR p.sourceTerminalId NOT IN (
+                                   SELECT s.terminalId 
+                                   FROM PrintStation s 
+                                   WHERE s.clientId = :clientId 
+                                     AND s.isactive = 'Y' 
+                                     AND s.stationTokenHash IS NOT NULL
+                              )
+                         )
+                    )
               )
             ORDER BY p.createdAt ASC
             """)
