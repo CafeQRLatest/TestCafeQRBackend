@@ -2,7 +2,13 @@ package com.restaurant.pos.print.service;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.restaurant.pos.client.domain.Client;
+import com.restaurant.pos.client.domain.Organization;
+import com.restaurant.pos.client.repository.ClientRepository;
+import com.restaurant.pos.client.repository.OrganizationRepository;
+import com.restaurant.pos.common.dto.ConfigurationDto;
 import com.restaurant.pos.common.exception.BusinessException;
+import com.restaurant.pos.common.service.SystemConfigurationService;
 import com.restaurant.pos.common.tenant.TenantContext;
 import com.restaurant.pos.order.domain.Order;
 import com.restaurant.pos.order.domain.OrderLine;
@@ -20,6 +26,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -34,6 +41,9 @@ public class PrintJobService {
     private final PrintJobAttemptRepository printJobAttemptRepository;
     private final OrderRepository orderRepository;
     private final ObjectMapper objectMapper;
+    private final ClientRepository clientRepository;
+    private final OrganizationRepository organizationRepository;
+    private final SystemConfigurationService systemConfigurationService;
 
     @Transactional
     public PrintJob enqueueOrderJob(UUID orderId, String jobKind) {
@@ -216,11 +226,12 @@ public class PrintJobService {
 
     private PrintJob createJob(Order order, PrintJobKind kind, String reason, String dedupeKey, UUID clientId) {
         try {
-            String payloadJson = objectMapper.writeValueAsString(Map.of(
-                    "order", orderSnapshot(order),
-                    "jobKind", kind.name().toLowerCase(),
-                    "reason", reason == null ? "auto" : reason
-            ));
+            Map<String, Object> payloadMap = new LinkedHashMap<>();
+            payloadMap.put("order", orderSnapshot(order));
+            payloadMap.put("jobKind", kind.name().toLowerCase());
+            payloadMap.put("reason", reason == null ? "auto" : reason);
+            payloadMap.put("restaurant", buildRestaurantDetails(clientId, order.getOrgId()));
+            String payloadJson = objectMapper.writeValueAsString(payloadMap);
 
             PrintJob job = PrintJob.builder()
                     .orderId(order.getId())
@@ -279,11 +290,12 @@ public class PrintJobService {
             orderSnap.put("is_edited", true);
             orderSnap.put("isEdited", true);
 
-            String payloadJson = objectMapper.writeValueAsString(Map.of(
-                    "order", orderSnap,
-                    "jobKind", "kot",
-                    "reason", reason == null ? "auto" : reason
-            ));
+            Map<String, Object> payloadMap = new LinkedHashMap<>();
+            payloadMap.put("order", orderSnap);
+            payloadMap.put("jobKind", "kot");
+            payloadMap.put("reason", reason == null ? "auto" : reason);
+            payloadMap.put("restaurant", buildRestaurantDetails(clientId, order.getOrgId()));
+            String payloadJson = objectMapper.writeValueAsString(payloadMap);
 
             PrintJob job = PrintJob.builder()
                     .orderId(order.getId())
@@ -411,5 +423,69 @@ public class PrintJobService {
             return PrintJobKind.INVOICE;
         }
         return PrintJobKind.BILL;
+    }
+
+    /**
+     * Gathers restaurant profile details from the Client entity, Organization entity,
+     * and SystemConfiguration so the print service can render fully formatted prints.
+     * Keys are aligned with what the C# DocumentRenderer.cs expects.
+     */
+    private Map<String, Object> buildRestaurantDetails(UUID clientId, UUID orgId) {
+        Map<String, Object> details = new HashMap<>();
+        try {
+            // Client-level defaults
+            if (clientId != null) {
+                clientRepository.findById(clientId).ifPresent(client -> {
+                    details.put("restaurantName", client.getName());
+                    details.put("restaurant_name", client.getName());
+                    details.put("name", client.getName());
+                    details.put("phone", client.getPhone());
+                    details.put("shipping_phone", client.getPhone());
+                    details.put("shipping_address_line1", client.getAddress());
+                    details.put("gstin", client.getGstNumber());
+                    details.put("gstNumber", client.getGstNumber());
+                    details.put("fssai_license", client.getFssaiNumber());
+                    details.put("fssaiNumber", client.getFssaiNumber());
+                    details.put("fssai", client.getFssaiNumber());
+                });
+            }
+
+            // Branch-level overrides (Organization fields take precedence)
+            if (orgId != null) {
+                organizationRepository.findById(orgId).ifPresent(org -> {
+                    if (org.getName() != null && !org.getName().isBlank()) {
+                        details.put("restaurantName", org.getName());
+                        details.put("restaurant_name", org.getName());
+                        details.put("name", org.getName());
+                    }
+                    if (org.getAddress() != null && !org.getAddress().isBlank()) {
+                        details.put("shipping_address_line1", org.getAddress());
+                    }
+                    if (org.getPhone() != null && !org.getPhone().isBlank()) {
+                        details.put("phone", org.getPhone());
+                        details.put("shipping_phone", org.getPhone());
+                    }
+                    if (org.getGstin() != null && !org.getGstin().isBlank()) {
+                        details.put("gstin", org.getGstin());
+                        details.put("gstNumber", org.getGstin());
+                    }
+                });
+            }
+
+            // System configuration (billFooter, etc.)
+            try {
+                ConfigurationDto config = systemConfigurationService
+                        .getConfigurationForClientAndBranch(clientId, orgId);
+                if (config != null && config.getBillFooter() != null) {
+                    details.put("billFooter", config.getBillFooter());
+                    details.put("bill_footer", config.getBillFooter());
+                }
+            } catch (Exception configEx) {
+                log.debug("Could not fetch system config for restaurant details: {}", configEx.getMessage());
+            }
+        } catch (Exception ex) {
+            log.warn("Failed to build restaurant details for clientId={}, orgId={}: {}", clientId, orgId, ex.getMessage());
+        }
+        return details;
     }
 }

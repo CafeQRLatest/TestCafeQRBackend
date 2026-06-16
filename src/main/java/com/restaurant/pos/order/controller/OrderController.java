@@ -66,7 +66,7 @@ public class OrderController {
     public ResponseEntity<ApiResponse<Page<OrderResponseDto>>> getOrders(
             @Parameter(description = "Optional status filter or comma-separated list of statuses (e.g. 'DRAFT,COMPLETED')", example = "DRAFT") @RequestParam(required = false) String status,
             @Parameter(description = "Zero-indexed page number", example = "0") @RequestParam(defaultValue = "0") @Min(0) int page,
-            @Parameter(description = "Page size (maximum 50)", example = "20") @RequestParam(defaultValue = "20") @Min(1) @Max(value = 50, message = "Page size cannot exceed 50") int size) {
+            @Parameter(description = "Page size (maximum 5000)", example = "20") @RequestParam(defaultValue = "20") @Min(1) @Max(value = 5000, message = "Page size cannot exceed 5000") int size) {
         Pageable pageable = PageRequest.of(page, size);
         Page<Order> entityPage = orderService.getOrders(status, pageable);
         Page<OrderResponseDto> dtoPage = entityPage.map(orderDtoMapper::toResponseDto);
@@ -119,13 +119,15 @@ public class OrderController {
             @Parameter(description = "Filter history to date-time (ISO-8601 UTC Instant)", example = "2026-05-24T23:59:59Z") @RequestParam(required = false) Instant toDate,
             @Parameter(description = "Search term to match customer name or phone") @RequestParam(required = false) String q,
             @Parameter(description = "Filter by order status (e.g. 'DRAFT', 'COMPLETED', 'PAID', 'CANCELLED')") @RequestParam(required = false) String status,
+            @RequestParam(required = false) UUID orgId,
+            @RequestParam(required = false) UUID terminalId,
             @Parameter(description = "Zero-indexed page number", example = "0") @RequestParam(defaultValue = "0") @Min(0) int page,
-            @Parameter(description = "Page size (maximum 50)", example = "20") @RequestParam(defaultValue = "20") @Min(1) @Max(value = 50, message = "Page size cannot exceed 50") int size) {
+            @Parameter(description = "Page size (maximum 5000)", example = "20") @RequestParam(defaultValue = "20") @Min(1) @Max(value = 5000, message = "Page size cannot exceed 5000") int size) {
         if (type != null && type != OrderType.SALE) {
             log.warn("Legacy type parameter '{}' passed to /history is ignored. This endpoint exclusively retrieves SALE history.", type);
         }
         return ResponseEntity
-                .ok(ApiResponse.success(orderService.getSalesOrderHistory(fromDate, toDate, page, size, q, status)));
+                .ok(ApiResponse.success(orderService.getSalesOrderHistory(fromDate, toDate, page, size, q, status, orgId, terminalId)));
     }
 
     @GetMapping("/search")
@@ -147,8 +149,9 @@ public class OrderController {
             @Parameter(description = "Filter by storage/warehouse ID") @RequestParam(required = false) UUID warehouseId,
             @Parameter(description = "Filter by payment method (CASH, CREDIT, CARD, etc.)") @RequestParam(required = false) String paymentMethod,
             @Parameter(description = "Generic search term for order number or notes") @RequestParam(required = false) String searchTerm,
+            @RequestParam(required = false) UUID terminalId,
             @Parameter(description = "Zero-indexed page number", example = "0") @RequestParam(defaultValue = "0") @Min(0) int page,
-            @Parameter(description = "Page size (maximum 50)", example = "20") @RequestParam(defaultValue = "20") @Min(1) @Max(value = 50, message = "Page size cannot exceed 50") int size) {
+            @Parameter(description = "Page size (maximum 5000)", example = "20") @RequestParam(defaultValue = "20") @Min(1) @Max(value = 5000, message = "Page size cannot exceed 5000") int size) {
         OrderSearchCriteria criteria = OrderSearchCriteria.builder()
                 .orderType(type)
                 .fromDate(fromDate)
@@ -160,6 +163,7 @@ public class OrderController {
                 .warehouseId(warehouseId)
                 .paymentMethod(paymentMethod)
                 .searchTerm(searchTerm)
+                .terminalId(terminalId)
                 .build();
         Pageable pageable = PageRequest.of(page, size);
         Page<Order> entityPage = orderService.searchOrders(criteria, pageable);

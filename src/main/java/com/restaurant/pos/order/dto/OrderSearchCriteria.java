@@ -24,4 +24,5 @@ public class OrderSearchCriteria {
     private UUID warehouseId;
     private String paymentMethod;
     private String searchTerm;
+    private UUID terminalId;
 }

@@ -88,6 +88,19 @@ public class ReportController {
         return ResponseEntity.ok(ApiResponse.success(reportService.getTaxSummary(from, to, orgId, terminalId)));
     }
 
+    @GetMapping("/tax-report-details")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
+    public ResponseEntity<ApiResponse<TaxReportDetailsDto>> getTaxReportDetails(
+            @RequestParam(required = false) Instant from,
+            @RequestParam(required = false) Instant to,
+            @RequestParam(required = false) UUID orgId,
+            @RequestParam(required = false) UUID terminalId) {
+        validateReportRange(from, to);
+        return ResponseEntity.ok(ApiResponse.success(reportService.getTaxReportDetails(from, to, orgId, terminalId)));
+    }
+
+
+
     @GetMapping("/hourly")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
     public ResponseEntity<ApiResponse<List<HourlySalesDto>>> getHourlySales(
