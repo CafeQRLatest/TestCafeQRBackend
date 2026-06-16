@@ -52,6 +52,9 @@ public class OrderSpecification {
             }
 
             // Payment Method
+            if (criteria.getTerminalId() != null) {
+                predicates.add(cb.equal(root.get("terminalId"), criteria.getTerminalId()));
+            }
             if (criteria.getPaymentMethod() != null && !criteria.getPaymentMethod().isBlank()) {
                 predicates.add(cb.equal(root.get("paymentMethod"), criteria.getPaymentMethod()));
             }
@@ -80,11 +83,13 @@ public class OrderSpecification {
                 } else {
                     predicates.add(cb.equal(root.get("orderStatus"), status));
                     predicates.add(cb.equal(root.get("isactive"), "Y"));
+                    predicates.add(cb.equal(cb.locate(root.get("orderNo"), "_VOID_"), 0));
                 }
             } else {
                 // Default: show active non-void records
                 predicates.add(cb.equal(root.get("isactive"), "Y"));
                 predicates.add(cb.notEqual(root.get("orderStatus"), "VOID"));
+                predicates.add(cb.equal(cb.locate(root.get("orderNo"), "_VOID_"), 0));
             }
 
             return cb.and(predicates.toArray(new Predicate[0]));

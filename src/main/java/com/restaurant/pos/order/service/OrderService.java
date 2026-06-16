@@ -84,7 +84,7 @@ import java.util.stream.Collectors;
 public class OrderService {
     private static final List<String> CLOSED_SALE_STATUSES = List.of("COMPLETED", "PAID", "CANCELLED", "VOID");
     private static final int DEFAULT_HISTORY_PAGE_SIZE = 20;
-    private static final int MAX_HISTORY_PAGE_SIZE = 50;
+    private static final int MAX_HISTORY_PAGE_SIZE = 5000;
     private static final int MAX_SYNC_ORDER_CHANGES = 200;
     private static final Duration DEFAULT_HISTORY_WINDOW = Duration.ofDays(1);
     private static final List<String> PAYMENT_METHODS = List.of("CASH", "ONLINE", "UPI", "CARD", "BANK", "CHEQUE", "MIXED");
@@ -942,6 +942,7 @@ public class OrderService {
 
     private Specification<Order> salesHistorySpec(
             UUID orgId,
+            UUID terminalId,
             Instant fromDate,
             Instant toDate,
             String searchTerm,
@@ -958,6 +959,9 @@ public class OrderService {
             if (orgId != null) {
                 predicates.add(cb.equal(root.get("orgId"), orgId));
             }
+            if (terminalId != null) {
+                predicates.add(cb.equal(root.get("terminalId"), terminalId));
+            }
             predicates.add(cb.equal(root.get("orderType"), OrderType.SALE));
 
             if (status != null && !status.isBlank() && !"ALL".equalsIgnoreCase(status)) {
@@ -970,14 +974,17 @@ public class OrderService {
                     predicates.add(cb.equal(root.get("paymentStatus"), "PAID"));
                     predicates.add(cb.equal(root.get("isactive"), "Y"));
                     predicates.add(cb.notEqual(root.get("orderStatus"), "VOID"));
+                    predicates.add(cb.equal(cb.locate(root.get("orderNo"), "_VOID_"), 0));
                 } else {
                     predicates.add(cb.equal(root.get("orderStatus"), status));
                     predicates.add(cb.equal(root.get("isactive"), "Y"));
                     predicates.add(cb.notEqual(root.get("orderStatus"), "VOID"));
+                    predicates.add(cb.equal(cb.locate(root.get("orderNo"), "_VOID_"), 0));
                 }
             } else {
                 predicates.add(cb.equal(root.get("isactive"), "Y"));
                 predicates.add(cb.notEqual(root.get("orderStatus"), "VOID"));
+                predicates.add(cb.equal(cb.locate(root.get("orderNo"), "_VOID_"), 0));
             }
 
             if (!exactDocumentSearch) {
@@ -1121,11 +1128,16 @@ public class OrderService {
 
     @Transactional(readOnly = true)
     public Page<OrderSummaryDto> getSalesOrderHistory(Instant fromDate, Instant toDate, int page, int size, String searchTerm) {
-        return getSalesOrderHistory(fromDate, toDate, page, size, searchTerm, null);
+        return getSalesOrderHistory(fromDate, toDate, page, size, searchTerm, null, null, null);
     }
 
     @Transactional(readOnly = true)
     public Page<OrderSummaryDto> getSalesOrderHistory(Instant fromDate, Instant toDate, int page, int size, String searchTerm, String status) {
+        return getSalesOrderHistory(fromDate, toDate, page, size, searchTerm, status, null, null);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<OrderSummaryDto> getSalesOrderHistory(Instant fromDate, Instant toDate, int page, int size, String searchTerm, String status, UUID paramOrgId, UUID terminalId) {
         Instant effectiveTo = toDate != null ? toDate : Instant.now();
         Instant effectiveFrom = fromDate != null ? fromDate : effectiveTo.minus(DEFAULT_HISTORY_WINDOW);
         validateHistoryWindow(effectiveFrom, effectiveTo);
@@ -1137,10 +1149,10 @@ public class OrderService {
                 Sort.by(Sort.Order.desc("orderDate"), Sort.Order.desc("createdAt"))
         );
 
-        UUID orgId = branchContext.getReadOrgId(null);
+        UUID orgId = paramOrgId != null ? paramOrgId : branchContext.getReadOrgId(null);
         if (normalizedSearch != null) {
             Page<Order> exactDocumentMatches = orderRepository.findAll(
-                    salesHistorySpec(orgId, null, null, normalizedSearch, true, Set.of(), Set.of(), status),
+                    salesHistorySpec(orgId, terminalId, null, null, normalizedSearch, true, Set.of(), Set.of(), status),
                     pageable
             );
             if (exactDocumentMatches.hasContent()) {
@@ -1157,7 +1169,7 @@ public class OrderService {
                 : findCustomerSearchOrderIds(tenantId, orgId, normalizedSearch);
 
         return orderRepository.findAll(
-                salesHistorySpec(orgId, effectiveFrom, effectiveTo, normalizedSearch, false, customerIds, customerOrderIds, status),
+                salesHistorySpec(orgId, terminalId, effectiveFrom, effectiveTo, normalizedSearch, false, customerIds, customerOrderIds, status),
                 pageable
         ).map(this::toOrderSummary);
     }
