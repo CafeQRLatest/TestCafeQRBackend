@@ -906,4 +906,187 @@ public class ReportService {
     private BigDecimal safe(BigDecimal value) {
         return value != null ? value : BigDecimal.ZERO;
     }
+
+    public TaxReportDetailsDto getTaxReportDetails(Instant from, Instant to, UUID orgId, UUID terminalId) {
+        List<Order> orders = fetchSaleOrders(from, to, orgId, terminalId);
+
+        // 1. Group lines by tax rate for HSN summary
+        Map<BigDecimal, BigDecimal[]> hsnMap = new TreeMap<>();
+        // Key: taxRate. Values: [taxableAmount, cgst, sgst, totalQuantity]
+        
+        // 2. B2B Invoices list
+        List<TaxReportDetailsDto.B2BInvoiceRow> b2bList = new ArrayList<>();
+        
+        // 3. B2C Summary - Group by tax rate
+        Map<BigDecimal, BigDecimal[]> b2cMap = new TreeMap<>();
+        // Key: taxRate. Values: [taxableAmount, cgst, sgst]
+
+        // 4. Monthly Aggregation
+        Map<String, BigDecimal[]> monthlyMap = new TreeMap<>(); // Key: "MMM yyyy"
+        // Values: [taxableAmount, cgst, sgst]
+
+        for (Order o : orders) {
+            Instant od = o.getOrderDate();
+            if (od == null) {
+                od = o.getCreatedAt() != null ? o.getCreatedAt().atZone(IST).toInstant() : Instant.now();
+            }
+            LocalDateTime ldt = LocalDateTime.ofInstant(od, IST);
+            String monthKey = ldt.format(java.time.format.DateTimeFormatter.ofPattern("MMM yyyy"));
+            String invoiceDateStr = ldt.format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd"));
+
+            // Check if order has a linked B2B customer (customer with GST number)
+            List<OrderCustomerDto> customers = linkedCustomers(o);
+            Customer b2bCustomer = null;
+            for (OrderCustomerDto c : customers) {
+                Customer cust = customerRepository.findById(c.getId()).orElse(null);
+                if (cust != null && cust.getGstNumber() != null && !cust.getGstNumber().isBlank()) {
+                    b2bCustomer = cust;
+                    break;
+                }
+            }
+
+            boolean isB2B = b2bCustomer != null;
+
+            if (o.getLines() != null) {
+                for (OrderLine line : o.getLines()) {
+                    if (!line.isActive()) continue;
+
+                    BigDecimal rate = safe(line.getTaxRate());
+                    BigDecimal qty = safe(line.getQuantity());
+                    BigDecimal lineTotal = safe(line.getLineTotal());
+                    BigDecimal tax = safe(line.getTaxAmount());
+                    BigDecimal taxable = lineTotal.subtract(tax);
+                    BigDecimal halfTax = tax.divide(BigDecimal.valueOf(2), 2, RoundingMode.HALF_UP);
+
+                    // 1. Accumulate for HSN summary
+                    hsnMap.computeIfAbsent(rate, k -> new BigDecimal[]{BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO});
+                    BigDecimal[] hsnVals = hsnMap.get(rate);
+                    hsnVals[0] = hsnVals[0].add(taxable);
+                    hsnVals[1] = hsnVals[1].add(halfTax); // cgst
+                    hsnVals[2] = hsnVals[2].add(halfTax); // sgst
+                    hsnVals[3] = hsnVals[3].add(qty);
+
+                    // 2. Accumulate for B2B or B2C
+                    if (isB2B) {
+                        b2bList.add(TaxReportDetailsDto.B2BInvoiceRow.builder()
+                                .taxId(b2bCustomer.getGstNumber())
+                                .receiverName(b2bCustomer.getName())
+                                .invoiceNo(o.getInvoiceNo() != null ? o.getInvoiceNo() : o.getOrderNo())
+                                .invoiceDate(invoiceDateStr)
+                                .invoiceValue(safe(o.getGrandTotal()))
+                                .placeOfSupply(getPlaceOfSupply(b2bCustomer.getGstNumber()))
+                                .reverseCharge("N")
+                                .invoiceType("Regular")
+                                .taxRate(rate)
+                                .taxableValue(taxable)
+                                .cgst(halfTax)
+                                .sgst(halfTax)
+                                .igst(BigDecimal.ZERO)
+                                .build());
+                    } else {
+                        b2cMap.computeIfAbsent(rate, k -> new BigDecimal[]{BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO});
+                        BigDecimal[] b2cVals = b2cMap.get(rate);
+                        b2cVals[0] = b2cVals[0].add(taxable);
+                        b2cVals[1] = b2cVals[1].add(halfTax); // cgst
+                        b2cVals[2] = b2cVals[2].add(halfTax); // sgst
+                    }
+
+                    // 3. Accumulate for monthly aggregation
+                    monthlyMap.computeIfAbsent(monthKey, k -> new BigDecimal[]{BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO});
+                    BigDecimal[] monVals = monthlyMap.get(monthKey);
+                    monVals[0] = monVals[0].add(taxable);
+                    monVals[1] = monVals[1].add(halfTax); // cgst
+                    monVals[2] = monVals[2].add(halfTax); // sgst
+                }
+            }
+        }
+
+        // Build TaxCodeSummaryRow list
+        List<TaxReportDetailsDto.TaxCodeSummaryRow> hsnRows = new ArrayList<>();
+        for (Map.Entry<BigDecimal, BigDecimal[]> entry : hsnMap.entrySet()) {
+            BigDecimal rate = entry.getKey();
+            BigDecimal[] vals = entry.getValue();
+            
+            // Map common rate to common Indian HSN codes
+            String hsnCode = "9963"; // default Restaurant Services
+            String desc = "Restaurant Services";
+            if (rate.compareTo(BigDecimal.valueOf(18)) == 0) {
+                hsnCode = "2202";
+                desc = "Beverages";
+            } else if (rate.compareTo(BigDecimal.valueOf(12)) == 0) {
+                hsnCode = "2106";
+                desc = "Food Preparations";
+            } else if (rate.compareTo(BigDecimal.valueOf(5)) == 0) {
+                hsnCode = "9963";
+                desc = "Restaurant Services";
+            }
+
+            hsnRows.add(TaxReportDetailsDto.TaxCodeSummaryRow.builder()
+                    .taxCode(hsnCode)
+                    .description(desc)
+                    .uqc("OTH")
+                    .totalQuantity(vals[3])
+                    .taxableValue(vals[0])
+                    .centralTax(vals[1])
+                    .stateTax(vals[2])
+                    .integratedTax(BigDecimal.ZERO)
+                    .cessAmount(BigDecimal.ZERO)
+                    .taxRate(rate)
+                    .build());
+        }
+
+        // Build B2CSummaryRow list
+        List<TaxReportDetailsDto.B2CSummaryRow> b2cList = new ArrayList<>();
+        for (Map.Entry<BigDecimal, BigDecimal[]> entry : b2cMap.entrySet()) {
+            b2cList.add(TaxReportDetailsDto.B2CSummaryRow.builder()
+                    .type("B2C (Others)")
+                    .placeOfSupply("State")
+                    .taxRate(entry.getKey())
+                    .taxableValue(entry.getValue()[0])
+                    .cgst(entry.getValue()[1])
+                    .sgst(entry.getValue()[2])
+                    .igst(BigDecimal.ZERO)
+                    .build());
+        }
+
+        // Build MonthlyAggregationRow list
+        List<TaxReportDetailsDto.MonthlyAggregationRow> monthlyList = new ArrayList<>();
+        for (Map.Entry<String, BigDecimal[]> entry : monthlyMap.entrySet()) {
+            monthlyList.add(TaxReportDetailsDto.MonthlyAggregationRow.builder()
+                    .period(entry.getKey())
+                    .taxableValue(entry.getValue()[0])
+                    .cgst(entry.getValue()[1])
+                    .sgst(entry.getValue()[2])
+                    .igst(BigDecimal.ZERO)
+                    .build());
+        }
+
+        return TaxReportDetailsDto.builder()
+                .taxCodeSummary(hsnRows)
+                .b2bInvoices(b2bList)
+                .b2cSummary(b2cList)
+                .monthlyAggregation(monthlyList)
+                .build();
+    }
+
+    private String getPlaceOfSupply(String gstin) {
+        if (gstin == null || gstin.length() < 2) return "State";
+        String code = gstin.substring(0, 2);
+        switch (code) {
+            case "27": return "27-Maharashtra";
+            case "29": return "29-Karnataka";
+            case "33": return "33-Tamil Nadu";
+            case "07": return "07-Delhi";
+            case "09": return "09-Uttar Pradesh";
+            case "19": return "19-West Bengal";
+            case "36": return "36-Telangana";
+            case "37": return "37-Andhra Pradesh";
+            case "24": return "24-Gujarat";
+            case "03": return "03-Punjab";
+            case "06": return "06-Haryana";
+            case "08": return "08-Rajasthan";
+            default: return code + "-State";
+        }
+    }
 }
+
