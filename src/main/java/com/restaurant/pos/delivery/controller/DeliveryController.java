@@ -471,7 +471,7 @@ public class DeliveryController {
                 log.error("[Delivery] Failed to trigger push notification", ex);
             }
 
-            if (!"DELIVERY".equalsIgnoreCase(saved.getFulfillmentType())) {
+            if (isKitchenPrintStatus(saved.getOrderStatus())) {
                 try {
                     printJobService.enqueueForOrder(saved, PrintJobKind.KOT, "auto");
                 } catch (Exception ex) {
@@ -619,6 +619,13 @@ public class DeliveryController {
 
     private String nvl(String value, String fallback) {
         return (value != null && !value.isBlank()) ? value : fallback;
+    }
+
+    private boolean isKitchenPrintStatus(String status) {
+        return "KITCHEN".equalsIgnoreCase(status)
+                || "CONFIRMED".equalsIgnoreCase(status)
+                || "IN_PROGRESS".equalsIgnoreCase(status)
+                || "READY".equalsIgnoreCase(status);
     }
 
     private String buildDescription(String email, String name, String phone, String address, String note) {
