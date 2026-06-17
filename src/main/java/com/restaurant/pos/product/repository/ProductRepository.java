@@ -36,6 +36,12 @@ public interface ProductRepository extends JpaRepository<Product, UUID> {
     @Query("SELECT COUNT(p) > 0 FROM Product p WHERE p.productCode = :code AND p.clientId = :clientId AND (:orgId IS NULL OR p.orgId IS NULL OR p.orgId = :orgId) AND p.isActive = true")
     boolean existsByProductCodeAndClientIdAndOrgIdOrGlobal(String code, UUID clientId, UUID orgId);
 
+    @Query("SELECT COUNT(p) > 0 FROM Product p WHERE LOWER(p.name) = LOWER(:name) AND p.clientId = :clientId AND (:orgId IS NULL OR p.orgId IS NULL OR p.orgId = :orgId) AND p.isActive = true AND (:id IS NULL OR p.id != :id)")
+    boolean existsByNameAndClientIdAndOrgIdOrGlobalAndIdNot(String name, UUID clientId, UUID orgId, UUID id);
+
+    @Query("SELECT COUNT(p) > 0 FROM Product p WHERE LOWER(p.productCode) = LOWER(:code) AND p.clientId = :clientId AND (:orgId IS NULL OR p.orgId IS NULL OR p.orgId = :orgId) AND p.isActive = true AND (:id IS NULL OR p.id != :id)")
+    boolean existsByProductCodeAndClientIdAndOrgIdOrGlobalAndIdNot(String code, UUID clientId, UUID orgId, UUID id);
+
     boolean existsByVariantMappings_VariantGroup_IdAndIsActiveTrue(UUID variantGroupId);
 
     boolean existsByVariantPricings_VariantOption_IdAndIsActiveTrue(UUID variantOptionId);
