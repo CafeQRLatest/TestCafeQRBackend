@@ -407,7 +407,7 @@ public class PrintJobService {
         String revision = String.valueOf(order.getRevisionNumber() == null ? 0 : order.getRevisionNumber());
         String base = order.getId() + ":" + kind.name() + ":" + revision;
         if ("manual".equalsIgnoreCase(reason)) {
-            return base + ":manual";
+            return base + ":manual:" + UUID.randomUUID();
         }
         return base + ":auto";
     }
