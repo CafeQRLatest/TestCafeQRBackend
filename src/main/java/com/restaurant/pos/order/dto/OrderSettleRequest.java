@@ -34,6 +34,9 @@ public class OrderSettleRequest {
     @Schema(description = "Details of multi-method split payments if primary method is MIXED")
     private List<PaymentSplitRequest> paymentSplits;
 
+    @Schema(description = "Transient print kinds that this terminal will print locally, e.g. BILL")
+    private List<String> skipAutoPrintKinds;
+
     @Data
     @Schema(description = "Split payment item details")
     public static class PaymentSplitRequest {
