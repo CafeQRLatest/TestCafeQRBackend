@@ -215,6 +215,10 @@ public class OrderService {
                     || "CONFIRMED".equalsIgnoreCase(status) 
                     || "IN_PROGRESS".equalsIgnoreCase(status) 
                     || "READY".equalsIgnoreCase(status)) {
+                if (shouldSkipAutoPrint(order, PrintJobKind.KOT)) {
+                    log.info("Skipping backend auto KOT print job for order {} because requester will print locally", order.getId());
+                    return;
+                }
                 if (addedLines != null || removedLines != null) {
                     if (!addedLines.isEmpty() || !removedLines.isEmpty()) {
                         printJobService.enqueueKotEditJob(order, addedLines, removedLines, "auto");
@@ -223,13 +227,31 @@ public class OrderService {
                     printJobService.enqueueForOrder(order, PrintJobKind.KOT, "auto");
                 }
             } else if ("BILLED".equalsIgnoreCase(status)) {
+                if (shouldSkipAutoPrint(order, PrintJobKind.BILL)) {
+                    log.info("Skipping backend auto BILL print job for billed order {} because requester will print locally", order.getId());
+                    return;
+                }
                 printJobService.enqueueForOrder(order, PrintJobKind.BILL, "auto");
             } else if ("COMPLETED".equalsIgnoreCase(status)) {
+                if (shouldSkipAutoPrint(order, PrintJobKind.BILL)) {
+                    log.info("Skipping backend auto BILL print job for completed order {} because requester will print locally", order.getId());
+                    return;
+                }
                 printJobService.enqueueForOrder(order, PrintJobKind.BILL, "auto");
             }
         } catch (Exception ex) {
             log.warn("Unable to enqueue cloud print job for order {}", order == null ? null : order.getId(), ex);
         }
+    }
+
+    private boolean shouldSkipAutoPrint(Order order, PrintJobKind kind) {
+        if (order == null || kind == null || order.getSkipAutoPrintKinds() == null) {
+            return false;
+        }
+        return order.getSkipAutoPrintKinds().stream()
+                .filter(Objects::nonNull)
+                .map(String::trim)
+                .anyMatch(value -> kind.name().equalsIgnoreCase(value));
     }
 
     private void calculateKotDelta(Order oldOrder, Order newOrder, List<OrderLine> addedLines, List<OrderLine> removedLines) {
@@ -1365,6 +1387,7 @@ public class OrderService {
 
             diagnosticPhase = "hydrate_saved_order";
             Order hydrated = hydrateOrder(saved);
+            hydrated.setSkipAutoPrintKinds(order.getSkipAutoPrintKinds());
 
             diagnosticPhase = "enqueue_cloud_print_jobs";
             enqueueCloudPrintJobs(hydrated);
@@ -1506,6 +1529,7 @@ public class OrderService {
         newOrder.setGrandTotal(updates.getGrandTotal() != null ? updates.getGrandTotal() : oldOrder.getGrandTotal());
         newOrder.setRoundOffAmount(updates.getRoundOffAmount() != null ? updates.getRoundOffAmount() : oldOrder.getRoundOffAmount());
         newOrder.setDescription(updates.getDescription() != null ? updates.getDescription() : oldOrder.getDescription());
+        newOrder.setSkipAutoPrintKinds(updates.getSkipAutoPrintKinds());
 
         // Tenant fields
         newOrder.setClientId(oldOrder.getClientId());
@@ -1585,6 +1609,7 @@ public class OrderService {
         }
         
         Order hydrated = hydrateOrder(saved);
+        hydrated.setSkipAutoPrintKinds(newOrder.getSkipAutoPrintKinds());
         List<OrderLine> addedLines = new java.util.ArrayList<>();
         List<OrderLine> removedLines = new java.util.ArrayList<>();
         calculateKotDelta(oldOrder, hydrated, addedLines, removedLines);
@@ -1752,6 +1777,11 @@ public class OrderService {
 
     @Transactional
     public Order billOrder(UUID id) {
+        return billOrder(id, null);
+    }
+
+    @Transactional
+    public Order billOrder(UUID id, List<String> skipAutoPrintKinds) {
         Order order = getOrder(id);
         ensureOrderCanChange(order, "bill");
 
@@ -1766,6 +1796,7 @@ public class OrderService {
         generateInvoice(saved);
         handleTableStatus(saved);
         Order hydrated = hydrateOrder(saved);
+        hydrated.setSkipAutoPrintKinds(skipAutoPrintKinds);
         enqueueCloudPrintJobs(hydrated);
         return hydrated;
     }
@@ -1859,6 +1890,7 @@ public class OrderService {
         }
 
         Order hydrated = hydrateOrder(saved);
+        hydrated.setSkipAutoPrintKinds(safeRequest.getSkipAutoPrintKinds());
         enqueueCloudPrintJobs(hydrated);
 
         try {
@@ -1936,6 +1968,7 @@ public class OrderService {
         accountingPostingService.postSaleCogs(saved);
         handleTableStatus(saved);
         Order hydrated = hydrateOrder(saved);
+        hydrated.setSkipAutoPrintKinds(safeRequest.getSkipAutoPrintKinds());
         enqueueCloudPrintJobs(hydrated);
         return hydrated;
     }

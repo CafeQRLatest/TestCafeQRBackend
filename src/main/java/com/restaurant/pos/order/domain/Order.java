@@ -140,6 +140,10 @@ public class Order extends BaseEntity {
     @JsonProperty("customers")
     private List<OrderCustomerDto> customers = new ArrayList<>();
 
+    @Transient
+    @Builder.Default
+    private List<String> skipAutoPrintKinds = new ArrayList<>();
+
     @Column(name = "vendor_id")
     private UUID vendorId;
 

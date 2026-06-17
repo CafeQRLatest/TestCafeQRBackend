@@ -203,6 +203,7 @@ public class OrderDtoMapper {
         if (request.getGrandTotal() != null) {
             order.setGrandTotal(request.getGrandTotal());
         }
+        order.setSkipAutoPrintKinds(request.getSkipAutoPrintKinds());
 
         if (request.getLines() != null) {
             for (CreateOrderRequest.CreateOrderLineRequest lineReq : request.getLines()) {
@@ -272,6 +273,8 @@ public class OrderDtoMapper {
             existing.setGrandTotal(request.getGrandTotal());
         if (request.getRoundOffAmount() != null)
             existing.setRoundOffAmount(request.getRoundOffAmount());
+        if (request.getSkipAutoPrintKinds() != null)
+            existing.setSkipAutoPrintKinds(request.getSkipAutoPrintKinds());
 
         if (request.getLines() != null) {
             existing.getLines().clear();
@@ -326,6 +329,7 @@ public class OrderDtoMapper {
         if (request.getRoundOffAmount() != null) {
             order.setRoundOffAmount(request.getRoundOffAmount());
         }
+        order.setSkipAutoPrintKinds(request.getSkipAutoPrintKinds());
 
         if (request.getLines() != null) {
             for (CreateOrderRequest.CreateOrderLineRequest lineReq : request.getLines()) {

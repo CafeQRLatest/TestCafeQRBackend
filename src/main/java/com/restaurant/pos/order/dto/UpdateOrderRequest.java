@@ -71,4 +71,7 @@ public class UpdateOrderRequest {
     @Valid
     @Schema(description = "List of updated order lines")
     private List<CreateOrderRequest.CreateOrderLineRequest> lines;
+
+    @Schema(description = "Transient print kinds that this terminal will print locally, e.g. KOT or BILL")
+    private List<String> skipAutoPrintKinds;
 }

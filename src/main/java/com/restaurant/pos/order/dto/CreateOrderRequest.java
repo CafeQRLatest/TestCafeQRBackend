@@ -113,6 +113,9 @@ public class CreateOrderRequest {
     @Schema(description = "Split payment details when paymentMethod is MIXED")
     private List<PaymentSplitRequest> paymentSplits;
 
+    @Schema(description = "Transient print kinds that this terminal will print locally, e.g. KOT or BILL")
+    private List<String> skipAutoPrintKinds;
+
     @NotEmpty(message = "Order lines must not be empty")
     @Valid
     @Schema(description = "List of order items/lines", requiredMode = Schema.RequiredMode.REQUIRED)

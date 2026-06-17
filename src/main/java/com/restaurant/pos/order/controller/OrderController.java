@@ -15,6 +15,7 @@ import com.restaurant.pos.order.dto.OrderDtoMapper;
 import com.restaurant.pos.order.dto.OrderCancelRequest;
 import com.restaurant.pos.order.dto.OrderCreditCompletionRequest;
 import com.restaurant.pos.order.dto.OrderMoveTableRequest;
+import com.restaurant.pos.order.dto.OrderPrintOptionsRequest;
 import com.restaurant.pos.order.dto.OrderSearchCriteria;
 import com.restaurant.pos.order.dto.OrderSettleRequest;
 import com.restaurant.pos.order.dto.OrderSummaryDto;
@@ -267,14 +268,16 @@ public class OrderController {
     })
     public ResponseEntity<ApiResponse<OrderResponseDto>> billOrder(
             @Parameter(description = "UUID of the order to bill", required = true) @PathVariable UUID id,
-            @Parameter(description = "Optional idempotency key to prevent double billing") @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
+            @Parameter(description = "Optional idempotency key to prevent double billing") @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+            @RequestBody(required = false) OrderPrintOptionsRequest request) {
+        OrderPrintOptionsRequest safeRequest = request == null ? new OrderPrintOptionsRequest() : request;
         log.info("Billing order | id={}", id);
         OrderResponseDto responseDto = idempotencyGuard.execute(
                 "bill",
                 id,
                 idempotencyKey,
                 OrderResponseDto.class,
-                () -> orderDtoMapper.toResponseDto(orderService.billOrder(id))
+                () -> orderDtoMapper.toResponseDto(orderService.billOrder(id, safeRequest.getSkipAutoPrintKinds()))
         );
         return ResponseEntity.ok(ApiResponse.success(responseDto));
     }
