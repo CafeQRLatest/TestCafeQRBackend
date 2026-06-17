@@ -556,6 +556,20 @@ public class ProductService {
         UUID clientId = TenantContext.getCurrentTenant();
         UUID orgId = TenantContext.getCurrentOrg();
 
+        // Mandatory Field Validation
+        if (product.getName() == null || product.getName().trim().isEmpty()) {
+            throw new BusinessException("Product name is required");
+        }
+        if (product.getPrice() == null) {
+            throw new BusinessException("Product price is required");
+        }
+        if (product.getPrice().compareTo(java.math.BigDecimal.ZERO) <= 0) {
+            throw new BusinessException("Product price must be greater than zero");
+        }
+        if (product.getCategory() == null || product.getCategory().getId() == null) {
+            throw new BusinessException("Product category is required");
+        }
+
         // Nullify empty codes
         if (product.getProductCode() != null && product.getProductCode().trim().isEmpty()) {
             product.setProductCode(null);
@@ -564,9 +578,14 @@ public class ProductService {
         // Deep Validation
         validateProductIntegrity(product, clientId, orgId);
 
-        // Duplicate Code Check
+        // Duplicate Name Check (case-insensitive)
+        if (productRepository.existsByNameAndClientIdAndOrgIdOrGlobalAndIdNot(product.getName().trim(), clientId, orgId, null)) {
+            throw new BusinessException("Product with this name already exists");
+        }
+
+        // Duplicate Code Check (case-insensitive)
         if (product.getProductCode() != null && productRepository
-                .existsByProductCodeAndClientIdAndOrgIdOrGlobal(product.getProductCode(), clientId, orgId)) {
+                .existsByProductCodeAndClientIdAndOrgIdOrGlobalAndIdNot(product.getProductCode().trim(), clientId, orgId, null)) {
             throw new BusinessException("Product with this code already exists");
         }
 
@@ -704,9 +723,28 @@ public class ProductService {
 
         validateOwnership(existing.getClientId(), existing.getOrgId(), "Product");
 
+        // Mandatory Field Validation
+        if (product.getName() == null || product.getName().trim().isEmpty()) {
+            throw new BusinessException("Product name is required");
+        }
+        if (product.getPrice() == null) {
+            throw new BusinessException("Product price is required");
+        }
+        if (product.getPrice().compareTo(java.math.BigDecimal.ZERO) <= 0) {
+            throw new BusinessException("Product price must be greater than zero");
+        }
+        if (product.getCategory() == null || product.getCategory().getId() == null) {
+            throw new BusinessException("Product category is required");
+        }
+
         UUID clientId = TenantContext.getCurrentTenant();
         UUID orgId = effectiveWriteOrgId(existing.getOrgId());
         validateProductIntegrity(product, clientId, orgId);
+
+        // Duplicate Name Check (case-insensitive, excluding current product)
+        if (productRepository.existsByNameAndClientIdAndOrgIdOrGlobalAndIdNot(product.getName().trim(), clientId, orgId, id)) {
+            throw new BusinessException("Product with this name already exists");
+        }
 
         existing.setName(product.getName());
         existing.setDescription(product.getDescription());
@@ -722,8 +760,7 @@ public class ProductService {
         existing.setIngredient(product.isIngredient());
 
         String newCode = product.getProductCode() != null && product.getProductCode().trim().isEmpty() ? null : product.getProductCode();
-        if (newCode != null && !newCode.equals(existing.getProductCode()) &&
-                productRepository.existsByProductCodeAndClientIdAndOrgIdOrGlobal(newCode, clientId, orgId)) {
+        if (newCode != null && productRepository.existsByProductCodeAndClientIdAndOrgIdOrGlobalAndIdNot(newCode.trim(), clientId, orgId, id)) {
             throw new BusinessException("Product with this code already exists");
         }
         existing.setProductCode(newCode);
