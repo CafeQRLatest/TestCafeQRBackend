@@ -417,13 +417,24 @@ public class AccountingService {
                         (left, right) -> left
                 ));
 
-        BigDecimal grossSales = movement(accountsBySystemKey, AccountingDefaultsService.SALES_REVENUE);
-        BigDecimal discounts = movement(accountsBySystemKey, AccountingDefaultsService.DISCOUNT_ALLOWED).max(BigDecimal.ZERO);
-        BigDecimal netSales = grossSales.subtract(discounts);
-        BigDecimal outputTax = movement(accountsBySystemKey, AccountingDefaultsService.OUTPUT_TAX);
-        BigDecimal inputTax = movement(accountsBySystemKey, AccountingDefaultsService.INPUT_TAX);
-        BigDecimal roundOff = movement(accountsBySystemKey, AccountingDefaultsService.ROUND_OFF);
-        BigDecimal billedTotal = netSales.add(outputTax).add(roundOff);
+        // ── Order-based sales figures (matches ReportService / reports page exactly) ──────────
+        List<Order> saleOrders = findCompletedSaleOrdersInPeriod(clientId, orgId, terminalId, range);
+        BigDecimal billedTotal   = BigDecimal.ZERO;
+        BigDecimal discounts     = BigDecimal.ZERO;
+        BigDecimal outputTax     = BigDecimal.ZERO;
+        for (Order o : saleOrders) {
+            billedTotal = billedTotal.add(money(o.getGrandTotal()));
+            discounts   = discounts.add(money(o.getTotalDiscountAmount()));
+            outputTax   = outputTax.add(money(o.getTotalTaxAmount()));
+        }
+        BigDecimal grossSales = billedTotal.add(discounts);   // mirrors: reports.js grossSales = billedTotal + discounts
+        BigDecimal netSales   = billedTotal;                  // mirrors: reports.js netSales   = billedTotal
+
+        // ── Journal-only values (ledger is the only source for these) ────────────────────────
+        BigDecimal inputTax  = movement(accountsBySystemKey, AccountingDefaultsService.INPUT_TAX);
+        BigDecimal roundOff  = movement(accountsBySystemKey, AccountingDefaultsService.ROUND_OFF);
+        BigDecimal cogsPurchases  = movement(accountsBySystemKey, AccountingDefaultsService.PURCHASE_COGS);
+        BigDecimal stockAdjustment = movement(accountsBySystemKey, AccountingDefaultsService.STOCK_ADJUSTMENT_GAIN_LOSS);
         BigDecimal operatingExpenses = BigDecimal.ZERO;
         for (AccountingAccountPeriodDto account : accounts) {
             if (account.getAccountType() == AccountType.EXPENSE) {
@@ -440,12 +451,13 @@ public class AccountingService {
                 operatingExpenses = operatingExpenses.add(money(account.getPeriodNet()));
             }
         }
-        BigDecimal cogsPurchases = movement(accountsBySystemKey, AccountingDefaultsService.PURCHASE_COGS);
-        BigDecimal stockAdjustment = movement(accountsBySystemKey, AccountingDefaultsService.STOCK_ADJUSTMENT_GAIN_LOSS);
         BigDecimal expenses = operatingExpenses.add(roundOff.max(BigDecimal.ZERO));
-        BigDecimal profit = netSales.subtract(cogsPurchases).subtract(operatingExpenses).subtract(roundOff.max(BigDecimal.ZERO)).subtract(stockAdjustment.max(BigDecimal.ZERO));
-        BigDecimal receivable = closing(accountsBySystemKey, AccountingDefaultsService.ACCOUNTS_RECEIVABLE);
-        BigDecimal payable = closing(accountsBySystemKey, AccountingDefaultsService.ACCOUNTS_PAYABLE);
+        // Profit = net sales (ex-tax) - COGS - opex - roundOff
+        BigDecimal netSalesExTax = netSales.subtract(outputTax);
+        BigDecimal profit = netSalesExTax.subtract(cogsPurchases).subtract(operatingExpenses)
+                .subtract(roundOff.max(BigDecimal.ZERO)).subtract(stockAdjustment.max(BigDecimal.ZERO));
+        BigDecimal receivable    = closing(accountsBySystemKey, AccountingDefaultsService.ACCOUNTS_RECEIVABLE);
+        BigDecimal payable       = closing(accountsBySystemKey, AccountingDefaultsService.ACCOUNTS_PAYABLE);
         BigDecimal inventoryValue = closing(accountsBySystemKey, AccountingDefaultsService.INVENTORY_ASSET);
 
         Map<String, BigDecimal> paymentBreakdown = paymentBreakdown(clientId, orgId, terminalId, range);
@@ -461,6 +473,7 @@ public class AccountingService {
                 .netSales(netSales)
                 .outputTax(outputTax)
                 .inputTax(inputTax)
+                .roundOff(roundOff)
                 .billedTotal(billedTotal)
                 .paymentCollected(paymentCollected)
                 .cashCollected(paymentBreakdown.getOrDefault("CASH", BigDecimal.ZERO))

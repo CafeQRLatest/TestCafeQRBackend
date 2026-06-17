@@ -24,6 +24,7 @@ public class AccountingSummaryDto {
     private BigDecimal outputTax;
     private BigDecimal inputTax;
     private BigDecimal billedTotal;
+    private BigDecimal roundOff;
     private BigDecimal paymentCollected;
     private BigDecimal cashCollected;
     private BigDecimal onlineCollected;
