@@ -46,6 +46,14 @@ public class PrintConfigurationService {
         Map<String, Object> settings = request.getSettings() == null ? Map.of() : request.getSettings();
         validateSettings(settings);
 
+        if (TERMINAL.equals(scopeType)) {
+            settings = new java.util.LinkedHashMap<>(settings);
+            settings.remove("kotTemplate");
+            settings.remove("receiptTemplate");
+            settings.remove("thermalTemplate");
+            settings.remove("regularTemplate");
+        }
+
         PrintConfiguration entity = findScope(clientId, scopeType, scopeId)
                 .orElseGet(PrintConfiguration::new);
         entity.setClientId(clientId);
@@ -92,7 +100,12 @@ public class PrintConfigurationService {
                     "Printing configuration changed in the cloud. Local printing remains active; review and retry synchronization.");
         }
 
-        validateSettings(request.getSettings());
+        Map<String, Object> settings = new java.util.LinkedHashMap<>(request.getSettings());
+        settings.remove("kotTemplate");
+        settings.remove("receiptTemplate");
+        settings.remove("thermalTemplate");
+        settings.remove("regularTemplate");
+        validateSettings(settings);
         PrintConfiguration entity = existingLayer.orElseGet(PrintConfiguration::new);
         entity.setClientId(station.getClientId());
         entity.setOrgId(station.getOrgId());
@@ -102,7 +115,7 @@ public class PrintConfigurationService {
         entity.setSourceStationId(station.getId());
         entity.setSourceLocalRevision(localRevision);
         try {
-            entity.setSettingsJson(objectMapper.writeValueAsString(request.getSettings()));
+            entity.setSettingsJson(objectMapper.writeValueAsString(settings));
         } catch (Exception ex) {
             throw new BusinessException("Invalid print configuration");
         }
@@ -171,7 +184,14 @@ public class PrintConfigurationService {
         try {
             JsonNode node = objectMapper.readTree(layer.get().getSettingsJson());
             if (node != null && node.isObject()) {
-                deepMerge(target, (ObjectNode) node);
+                ObjectNode update = (ObjectNode) node;
+                if (TERMINAL.equals(layer.get().getScopeType())) {
+                    update.remove("kotTemplate");
+                    update.remove("receiptTemplate");
+                    update.remove("thermalTemplate");
+                    update.remove("regularTemplate");
+                }
+                deepMerge(target, update);
             }
         } catch (Exception ignored) {
             // A malformed historical layer must not prevent lower layers from loading.
