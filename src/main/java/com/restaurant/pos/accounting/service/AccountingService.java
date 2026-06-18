@@ -422,17 +422,22 @@ public class AccountingService {
         BigDecimal billedTotal   = BigDecimal.ZERO;
         BigDecimal discounts     = BigDecimal.ZERO;
         BigDecimal outputTax     = BigDecimal.ZERO;
+        BigDecimal roundOff      = BigDecimal.ZERO;
         for (Order o : saleOrders) {
             billedTotal = billedTotal.add(money(o.getGrandTotal()));
             discounts   = discounts.add(money(o.getTotalDiscountAmount()));
             outputTax   = outputTax.add(money(o.getTotalTaxAmount()));
+            roundOff    = roundOff.add(money(o.getRoundOffAmount()));
         }
-        BigDecimal grossSales = billedTotal.add(discounts);   // mirrors: reports.js grossSales = billedTotal + discounts
-        BigDecimal netSales   = billedTotal;                  // mirrors: reports.js netSales   = billedTotal
+        // Indian GAAP / Ind AS 115: Sales Revenue (Gross Sales & Net Sales) must EXCLUDE output tax and round-off.
+        // GST collected is a liability payable to the government, and Round Off is a rounding adjustment.
+        // netSales   = billedTotal − tax − roundOff
+        // grossSales = netSales + discounts
+        BigDecimal netSales   = billedTotal.subtract(outputTax).subtract(roundOff);   // ex-tax, ex-roundoff
+        BigDecimal grossSales = netSales.add(discounts);           // ex-tax, ex-roundoff pre-discount value
 
         // ── Journal-only values (ledger is the only source for these) ────────────────────────
         BigDecimal inputTax  = movement(accountsBySystemKey, AccountingDefaultsService.INPUT_TAX);
-        BigDecimal roundOff  = movement(accountsBySystemKey, AccountingDefaultsService.ROUND_OFF);
         BigDecimal cogsPurchases  = movement(accountsBySystemKey, AccountingDefaultsService.PURCHASE_COGS);
         BigDecimal stockAdjustment = movement(accountsBySystemKey, AccountingDefaultsService.STOCK_ADJUSTMENT_GAIN_LOSS);
         BigDecimal operatingExpenses = BigDecimal.ZERO;
@@ -451,11 +456,11 @@ public class AccountingService {
                 operatingExpenses = operatingExpenses.add(money(account.getPeriodNet()));
             }
         }
-        BigDecimal expenses = operatingExpenses.add(roundOff.max(BigDecimal.ZERO));
-        // Profit = net sales (ex-tax) - COGS - opex - roundOff
-        BigDecimal netSalesExTax = netSales.subtract(outputTax);
-        BigDecimal profit = netSalesExTax.subtract(cogsPurchases).subtract(operatingExpenses)
-                .subtract(roundOff.max(BigDecimal.ZERO)).subtract(stockAdjustment.max(BigDecimal.ZERO));
+        BigDecimal expenses = operatingExpenses;
+        // Profit = billedTotal (includes round-off) − outputTax (GST liability) − COGS − opex − stockAdj
+        // This is mathematically equivalent to: netSales + roundOff − COGS − opex − stockAdj
+        BigDecimal profit = billedTotal.subtract(outputTax).subtract(cogsPurchases).subtract(operatingExpenses)
+                .subtract(stockAdjustment.max(BigDecimal.ZERO));
         BigDecimal receivable    = closing(accountsBySystemKey, AccountingDefaultsService.ACCOUNTS_RECEIVABLE);
         BigDecimal payable       = closing(accountsBySystemKey, AccountingDefaultsService.ACCOUNTS_PAYABLE);
         BigDecimal inventoryValue = closing(accountsBySystemKey, AccountingDefaultsService.INVENTORY_ASSET);
