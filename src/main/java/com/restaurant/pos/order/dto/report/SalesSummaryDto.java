@@ -19,4 +19,5 @@ public class SalesSummaryDto {
     private BigDecimal totalTax;
     private BigDecimal totalDiscount;
     private BigDecimal grandTotal;
+    private BigDecimal totalRoundOff;
 }

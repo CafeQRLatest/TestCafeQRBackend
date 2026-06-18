@@ -109,7 +109,7 @@ public class Order extends BaseEntity {
     private BigDecimal amountPaid;
 
     /** Formula: round-off loaded from the linked payment. Transient value is kept in memory for creation. */
-    @Formula("(SELECT p.round_off_amount FROM payments p WHERE p.order_id = id ORDER BY p.created_at DESC LIMIT 1)")
+    @Formula("(SELECT p.round_off_amount FROM payments p WHERE p.order_id = {temp}.id ORDER BY p.created_at DESC LIMIT 1)")
     private BigDecimal roundOffAmount;
 
     @Column(name = "customer_id")
@@ -238,17 +238,17 @@ public class Order extends BaseEntity {
     @Column(name = "version", nullable = false)
     private long version;
 
-    @Formula("(SELECT i.invoice_no FROM invoices i WHERE i.order_id = id LIMIT 1)")
+    @Formula("(SELECT i.invoice_no FROM invoices i WHERE i.order_id = {temp}.id LIMIT 1)")
     private String invoiceNo;
 
-    @Formula("(SELECT i.daily_bill_no FROM invoices i WHERE i.order_id = id LIMIT 1)")
+    @Formula("(SELECT i.daily_bill_no FROM invoices i WHERE i.order_id = {temp}.id LIMIT 1)")
     @JsonProperty("dailyBillNo")
     private Integer dailyBillNo;
 
-    @Formula("(SELECT p.reference_no FROM payments p WHERE p.order_id = id ORDER BY p.created_at DESC LIMIT 1)")
+    @Formula("(SELECT p.reference_no FROM payments p WHERE p.order_id = {temp}.id ORDER BY p.created_at DESC LIMIT 1)")
     private String paymentNo;
 
-    @Formula("(SELECT p.payment_method FROM payments p WHERE p.order_id = id ORDER BY p.created_at DESC LIMIT 1)")
+    @Formula("(SELECT p.payment_method FROM payments p WHERE p.order_id = {temp}.id ORDER BY p.created_at DESC LIMIT 1)")
     private String paymentMethod;
 
     @Builder.Default

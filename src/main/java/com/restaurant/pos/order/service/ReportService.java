@@ -63,6 +63,7 @@ public class ReportService {
         BigDecimal totalTax = BigDecimal.ZERO;
         BigDecimal totalDiscount = BigDecimal.ZERO;
         BigDecimal grandTotal = BigDecimal.ZERO;
+        BigDecimal totalRoundOff = BigDecimal.ZERO;
         long itemsSold = 0;
 
         for (Order o : orders) {
@@ -70,6 +71,7 @@ public class ReportService {
             totalTax = totalTax.add(safe(o.getTotalTaxAmount()));
             totalDiscount = totalDiscount.add(safe(o.getTotalDiscountAmount()));
             grandTotal = grandTotal.add(safe(o.getGrandTotal()));
+            totalRoundOff = totalRoundOff.add(safe(o.getRoundOffAmount()));
 
             if (o.getLines() != null) {
                 for (OrderLine line : o.getLines()) {
@@ -92,6 +94,7 @@ public class ReportService {
                 .totalTax(totalTax)
                 .totalDiscount(totalDiscount)
                 .grandTotal(grandTotal)
+                .totalRoundOff(totalRoundOff)
                 .build();
     }
 
