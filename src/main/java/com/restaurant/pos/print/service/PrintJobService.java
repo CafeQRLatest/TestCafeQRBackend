@@ -238,11 +238,16 @@ public class PrintJobService {
             payloadMap.put("restaurant", buildRestaurantDetails(clientId, order.getOrgId()));
             String payloadJson = objectMapper.writeValueAsString(payloadMap);
 
+            UUID sourceTermId = order.getSourceTerminalId() != null ? order.getSourceTerminalId() : order.getTerminalId();
+            if (sourceTermId == null) {
+                sourceTermId = TenantContext.getCurrentTerminal();
+            }
+
             PrintJob job = PrintJob.builder()
                     .orderId(order.getId())
                     .offlineOperationId(order.getSourceOfflineId())
                     .sourceOperationId(order.getSourceOperationId())
-                    .sourceTerminalId(order.getSourceTerminalId() != null ? order.getSourceTerminalId() : order.getTerminalId())
+                    .sourceTerminalId(sourceTermId)
                     .sourceDeviceId(order.getSourceDeviceId())
                     .jobKind(kind)
                     .status(PrintJobStatus.PENDING)
@@ -302,11 +307,16 @@ public class PrintJobService {
             payloadMap.put("restaurant", buildRestaurantDetails(clientId, order.getOrgId()));
             String payloadJson = objectMapper.writeValueAsString(payloadMap);
 
+            UUID sourceTermId = order.getSourceTerminalId() != null ? order.getSourceTerminalId() : order.getTerminalId();
+            if (sourceTermId == null) {
+                sourceTermId = TenantContext.getCurrentTerminal();
+            }
+
             PrintJob job = PrintJob.builder()
                     .orderId(order.getId())
                     .offlineOperationId(order.getSourceOfflineId())
                     .sourceOperationId(order.getSourceOperationId())
-                    .sourceTerminalId(order.getSourceTerminalId() != null ? order.getSourceTerminalId() : order.getTerminalId())
+                    .sourceTerminalId(sourceTermId)
                     .sourceDeviceId(order.getSourceDeviceId())
                     .jobKind(PrintJobKind.KOT)
                     .status(PrintJobStatus.PENDING)
