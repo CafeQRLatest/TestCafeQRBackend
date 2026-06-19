@@ -1634,6 +1634,16 @@ public class OrderService {
         if ("CONFIRMED".equalsIgnoreCase(status) && "PENDING".equalsIgnoreCase(oldStatus) && order.getCustomerId() == null) {
             registerCustomerForAcceptedDeliveryOrder(order);
         }
+
+        if ("CONFIRMED".equalsIgnoreCase(status) && order.getTerminalId() == null) {
+            UUID currentTerminalId = TenantContext.getCurrentTerminal();
+            if (currentTerminalId != null) {
+                order.setTerminalId(currentTerminalId);
+                if (order.getSourceTerminalId() == null) {
+                    order.setSourceTerminalId(currentTerminalId);
+                }
+            }
+        }
         
         Order result = orderRepository.save(order);
         
@@ -1676,7 +1686,6 @@ public class OrderService {
         publishOrderStatusUpdate(result);
         return hydrated;
     }
-
     private void registerCustomerForAcceptedDeliveryOrder(Order order) {
         String description = order.getDescription();
         if (description == null || description.isBlank()) {
