@@ -18,8 +18,12 @@ import com.restaurant.pos.print.domain.PrintJobKind;
 import com.restaurant.pos.print.domain.PrintJobStatus;
 import com.restaurant.pos.print.repository.PrintJobAttemptRepository;
 import com.restaurant.pos.print.repository.PrintJobRepository;
+import com.restaurant.pos.purchasing.domain.Customer;
+import com.restaurant.pos.purchasing.repository.CustomerRepository;
+import com.restaurant.pos.order.dto.OrderCustomerDto;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import java.util.ArrayList;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
@@ -44,6 +48,7 @@ public class PrintJobService {
     private final ClientRepository clientRepository;
     private final OrganizationRepository organizationRepository;
     private final SystemConfigurationService systemConfigurationService;
+    private final CustomerRepository customerRepository;
 
     @Transactional
     public PrintJob enqueueOrderJob(UUID orderId, String jobKind) {
@@ -365,6 +370,16 @@ public class PrintJobService {
         out.put("total_tax_amount", order.getTotalTaxAmount());
         out.put("totalDiscountAmount", order.getTotalDiscountAmount());
         out.put("total_discount_amount", order.getTotalDiscountAmount());
+
+        // Add customer fields so receipt & KOT printing can show customer details
+        populateCustomerDetailsIfNeeded(order, out);
+
+        // Add description and instructions fields
+        out.put("description", order.getDescription());
+        out.put("specialInstructions", order.getDescription());
+        out.put("special_instructions", order.getDescription());
+        out.put("instructions", order.getDescription());
+
         List<Map<String, Object>> lines = order.getLines() == null
                 ? List.of()
                 : order.getLines().stream().map(this::lineSnapshot).toList();
@@ -487,5 +502,91 @@ public class PrintJobService {
             log.warn("Failed to build restaurant details for clientId={}, orgId={}: {}", clientId, orgId, ex.getMessage());
         }
         return details;
+    }
+
+    private void populateCustomerDetailsIfNeeded(Order order, Map<String, Object> out) {
+        String name = order.getCustomerName();
+        String phone = order.getCustomerPhone();
+        List<Map<String, Object>> customersList = new ArrayList<>();
+
+        if ((name == null || name.isBlank()) && (phone == null || phone.isBlank())) {
+            // Fetch from repository
+            try {
+                UUID clientId = order.getClientId() != null ? order.getClientId() : TenantContext.getCurrentTenant();
+                if (clientId != null && order.getId() != null) {
+                    String orderNeedleStr = "[{\"orderId\":\"" + order.getId() + "\"}]";
+                    String primaryNeedleStr = "[{\"orderId\":\"" + order.getId() + "\",\"isPrimary\":true}]";
+                    List<Customer> linked = customerRepository.findByClientIdAndOrderLink(clientId, orderNeedleStr, primaryNeedleStr);
+                    if (linked.isEmpty() && order.getCustomerId() != null) {
+                        customerRepository.findByIdAndClientId(order.getCustomerId(), clientId).ifPresent(linked::add);
+                    }
+                    
+                    if (!linked.isEmpty()) {
+                        Customer primary = null;
+                        // Find primary customer
+                        for (Customer c : linked) {
+                            boolean isPrimary = false;
+                            if (c.getOrderLinks() != null) {
+                                for (Customer.OrderLink link : c.getOrderLinks()) {
+                                    if (order.getId().equals(link.getOrderId()) && Boolean.TRUE.equals(link.getIsPrimary())) {
+                                        isPrimary = true;
+                                        break;
+                                    }
+                                }
+                            }
+                            if (isPrimary) {
+                                primary = c;
+                                break;
+                            }
+                        }
+                        if (primary == null) {
+                            primary = linked.get(0);
+                        }
+                        
+                        name = primary.getName();
+                        phone = primary.getPhone();
+                        
+                        for (Customer c : linked) {
+                            boolean isPrimary = (c == primary);
+                            Map<String, Object> cmap = new LinkedHashMap<>();
+                            cmap.put("id", c.getId());
+                            cmap.put("name", c.getName());
+                            cmap.put("phone", c.getPhone());
+                            cmap.put("isPrimary", isPrimary);
+                            customersList.add(cmap);
+                        }
+                    }
+                }
+            } catch (Exception ex) {
+                log.warn("Failed to populate customer details for print job order: {}", order.getId(), ex);
+            }
+        } else {
+            // Already has transient customerName/Phone, but maybe not customers list
+            if (order.getCustomers() != null && !order.getCustomers().isEmpty()) {
+                for (OrderCustomerDto c : order.getCustomers()) {
+                    Map<String, Object> cmap = new LinkedHashMap<>();
+                    cmap.put("id", c.getId());
+                    cmap.put("name", c.getName());
+                    cmap.put("phone", c.getPhone());
+                    cmap.put("isPrimary", c.isPrimary());
+                    customersList.add(cmap);
+                }
+            } else if (order.getCustomerId() != null) {
+                Map<String, Object> cmap = new LinkedHashMap<>();
+                cmap.put("id", order.getCustomerId());
+                cmap.put("name", name);
+                cmap.put("phone", phone);
+                cmap.put("isPrimary", true);
+                customersList.add(cmap);
+            }
+        }
+
+        out.put("customerName", name);
+        out.put("customer_name", name);
+        out.put("customerPhone", phone);
+        out.put("customer_phone", phone);
+        if (!customersList.isEmpty()) {
+            out.put("customers", customersList);
+        }
     }
 }
