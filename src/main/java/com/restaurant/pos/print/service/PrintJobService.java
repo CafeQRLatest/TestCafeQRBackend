@@ -501,9 +501,23 @@ public class PrintJobService {
             try {
                 ConfigurationDto config = systemConfigurationService
                         .getConfigurationForClientAndBranch(clientId, orgId);
-                if (config != null && config.getBillFooter() != null) {
-                    details.put("billFooter", config.getBillFooter());
-                    details.put("bill_footer", config.getBillFooter());
+                if (config != null) {
+                    if (config.getBillFooter() != null) {
+                        details.put("billFooter", config.getBillFooter());
+                        details.put("bill_footer", config.getBillFooter());
+                    }
+                    if (config.getPrintLogoBitmap() != null) {
+                        details.put("print_logo_bitmap", config.getPrintLogoBitmap());
+                        details.put("printLogoBitmap", config.getPrintLogoBitmap());
+                    }
+                    if (config.getPrintLogoCols() != null) {
+                        details.put("print_logo_cols", config.getPrintLogoCols());
+                        details.put("printLogoCols", config.getPrintLogoCols());
+                    }
+                    if (config.getPrintLogoRows() != null) {
+                        details.put("print_logo_rows", config.getPrintLogoRows());
+                        details.put("printLogoRows", config.getPrintLogoRows());
+                    }
                 }
             } catch (Exception configEx) {
                 log.debug("Could not fetch system config for restaurant details: {}", configEx.getMessage());
