@@ -42,17 +42,17 @@ public interface JournalEntryRepository extends JpaRepository<JournalEntry, UUID
 
     boolean existsByClientIdAndSourceTypeAndSourceId(UUID clientId, String sourceType, UUID sourceId);
 
-    @Query(value = """
-            SELECT DISTINCT j.* FROM journal_entries j
-            LEFT JOIN journal_lines l ON j.id = l.journal_entry_id
-            WHERE j.client_id = :clientId
-              AND (CAST(:orgId AS UUID) IS NULL OR j.org_id = CAST(:orgId AS UUID))
-              AND j.source_type = :sourceType
-              AND j.source_id = :sourceId
-              AND j.status = :#{#status.name()}
+    @Query("""
+            SELECT DISTINCT j FROM JournalEntry j
+            LEFT JOIN j.lines l
+            WHERE j.clientId = :clientId
+              AND (:orgId IS NULL OR j.orgId = :orgId)
+              AND j.sourceType = :sourceType
+              AND j.sourceId = :sourceId
+              AND j.status = :status
               AND COALESCE(UPPER(j.isactive), 'Y') <> 'N'
-            ORDER BY j.entry_date DESC
-            """, nativeQuery = true)
+            ORDER BY j.entryDate DESC
+            """)
     List<JournalEntry> findActiveBySource(
             @Param("clientId") UUID clientId,
             @Param("orgId") UUID orgId,
@@ -78,21 +78,21 @@ public interface JournalEntryRepository extends JpaRepository<JournalEntry, UUID
             @Param("sourceId") UUID sourceId,
             @Param("status") JournalStatus status);
 
-    @Query(value = """
-            SELECT l.account_id AS accountId,
+    @Query("""
+            SELECT l.accountId AS accountId,
                    COALESCE(SUM(l.debit), 0) AS debit,
                    COALESCE(SUM(l.credit), 0) AS credit
-            FROM journal_entries j
-            JOIN journal_lines l ON j.id = l.journal_entry_id
-            WHERE j.client_id = :clientId
-              AND (CAST(:orgId AS UUID) IS NULL OR j.org_id = CAST(:orgId AS UUID))
-              AND (CAST(:terminalId AS UUID) IS NULL OR j.terminal_id = CAST(:terminalId AS UUID))
-              AND (CAST(:from AS TIMESTAMP) IS NULL OR j.entry_date >= CAST(:from AS TIMESTAMP))
-              AND (CAST(:to AS TIMESTAMP) IS NULL OR j.entry_date <= CAST(:to AS TIMESTAMP))
-              AND j.status = :#{#status.name()}
+            FROM JournalEntry j
+            JOIN j.lines l
+            WHERE j.clientId = :clientId
+              AND (:orgId IS NULL OR j.orgId = :orgId)
+              AND (:terminalId IS NULL OR j.terminalId = :terminalId)
+              AND (:from IS NULL OR j.entryDate >= :from)
+              AND (:to IS NULL OR j.entryDate <= :to)
+              AND j.status = :status
               AND COALESCE(UPPER(j.isactive), 'Y') <> 'N'
-            GROUP BY l.account_id
-            """, nativeQuery = true)
+            GROUP BY l.accountId
+            """)
     List<AccountMovementProjection> sumLineMovements(
             @Param("clientId") UUID clientId,
             @Param("orgId") UUID orgId,
@@ -101,17 +101,17 @@ public interface JournalEntryRepository extends JpaRepository<JournalEntry, UUID
             @Param("to") LocalDateTime to,
             @Param("status") JournalStatus status);
 
-    @Query(value = """
-            SELECT COUNT(j.id)
-            FROM journal_entries j
-            WHERE j.client_id = :clientId
-              AND (CAST(:orgId AS UUID) IS NULL OR j.org_id = CAST(:orgId AS UUID))
-              AND (CAST(:terminalId AS UUID) IS NULL OR j.terminal_id = CAST(:terminalId AS UUID))
-              AND (CAST(:from AS TIMESTAMP) IS NULL OR j.entry_date >= CAST(:from AS TIMESTAMP))
-              AND (CAST(:to AS TIMESTAMP) IS NULL OR j.entry_date <= CAST(:to AS TIMESTAMP))
-              AND j.status = :#{#status.name()}
+    @Query("""
+            SELECT COUNT(j)
+            FROM JournalEntry j
+            WHERE j.clientId = :clientId
+              AND (:orgId IS NULL OR j.orgId = :orgId)
+              AND (:terminalId IS NULL OR j.terminalId = :terminalId)
+              AND (:from IS NULL OR j.entryDate >= :from)
+              AND (:to IS NULL OR j.entryDate <= :to)
+              AND j.status = :status
               AND COALESCE(UPPER(j.isactive), 'Y') <> 'N'
-            """, nativeQuery = true)
+            """)
     long countPostedActive(
             @Param("clientId") UUID clientId,
             @Param("orgId") UUID orgId,
@@ -120,20 +120,20 @@ public interface JournalEntryRepository extends JpaRepository<JournalEntry, UUID
             @Param("to") LocalDateTime to,
             @Param("status") JournalStatus status);
 
-    @Query(value = """
-            SELECT j.source_type AS sourceType,
-                   j.source_id AS sourceId
-            FROM journal_entries j
-            WHERE j.client_id = :clientId
-              AND (CAST(:orgId AS UUID) IS NULL OR j.org_id = CAST(:orgId AS UUID))
-              AND (CAST(:terminalId AS UUID) IS NULL OR j.terminal_id = CAST(:terminalId AS UUID))
-              AND (CAST(:from AS TIMESTAMP) IS NULL OR j.entry_date >= CAST(:from AS TIMESTAMP))
-              AND (CAST(:to AS TIMESTAMP) IS NULL OR j.entry_date <= CAST(:to AS TIMESTAMP))
-              AND j.status = :#{#status.name()}
+    @Query("""
+            SELECT j.sourceType AS sourceType,
+                   j.sourceId AS sourceId
+            FROM JournalEntry j
+            WHERE j.clientId = :clientId
+              AND (:orgId IS NULL OR j.orgId = :orgId)
+              AND (:terminalId IS NULL OR j.terminalId = :terminalId)
+              AND (:from IS NULL OR j.entryDate >= :from)
+              AND (:to IS NULL OR j.entryDate <= :to)
+              AND j.status = :status
               AND COALESCE(UPPER(j.isactive), 'Y') <> 'N'
-              AND j.source_id IS NOT NULL
-              AND j.source_type IN (:sourceTypes)
-            """, nativeQuery = true)
+              AND j.sourceId IS NOT NULL
+              AND j.sourceType IN (:sourceTypes)
+            """)
     List<PostedSourceProjection> findPostedSources(
             @Param("clientId") UUID clientId,
             @Param("orgId") UUID orgId,
@@ -152,23 +152,23 @@ public interface JournalEntryRepository extends JpaRepository<JournalEntry, UUID
     int bulkDeleteByClientIdAndOrgId(@Param("clientId") UUID clientId, @Param("orgId") UUID orgId);
 
     @Modifying
-    @Query(value = """
-            DELETE FROM journal_lines
-            WHERE journal_entry_id IN (
-                SELECT id FROM journal_entries
-                WHERE client_id = :clientId
-                  AND (CAST(:orgId AS UUID) IS NULL OR org_id = CAST(:orgId AS UUID))
-                  AND COALESCE(auto_posted, false) = true
+    @Query("""
+            DELETE FROM JournalLine l
+            WHERE l.journalEntry.id IN (
+                SELECT j.id FROM JournalEntry j
+                WHERE j.clientId = :clientId
+                  AND (:orgId IS NULL OR j.orgId = :orgId)
+                  AND COALESCE(j.autoPosted, false) = true
             )
-            """, nativeQuery = true)
+            """)
     void bulkDeleteAutoPostedLinesByClientIdAndOrgId(@Param("clientId") UUID clientId, @Param("orgId") UUID orgId);
 
     @Modifying
-    @Query(value = """
-            DELETE FROM journal_entries
-            WHERE client_id = :clientId
-              AND (CAST(:orgId AS UUID) IS NULL OR org_id = CAST(:orgId AS UUID))
-              AND COALESCE(auto_posted, false) = true
-            """, nativeQuery = true)
+    @Query("""
+            DELETE FROM JournalEntry j
+            WHERE j.clientId = :clientId
+              AND (:orgId IS NULL OR j.orgId = :orgId)
+              AND COALESCE(j.autoPosted, false) = true
+            """)
     int bulkDeleteAutoPostedByClientIdAndOrgId(@Param("clientId") UUID clientId, @Param("orgId") UUID orgId);
 }

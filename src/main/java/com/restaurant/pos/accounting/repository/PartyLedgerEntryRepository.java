@@ -34,14 +34,14 @@ public interface PartyLedgerEntryRepository extends JpaRepository<PartyLedgerEnt
     );
 
     @Modifying
-    @Query(value = """
-            DELETE FROM party_ledger_entries
-            WHERE journal_entry_id IN (
-                SELECT id FROM journal_entries
-                WHERE client_id = :clientId
-                  AND (CAST(:orgId AS UUID) IS NULL OR org_id = CAST(:orgId AS UUID))
-                  AND COALESCE(auto_posted, false) = true
+    @Query("""
+            DELETE FROM PartyLedgerEntry p
+            WHERE p.journalEntryId IN (
+                SELECT j.id FROM JournalEntry j
+                WHERE j.clientId = :clientId
+                  AND (:orgId IS NULL OR j.orgId = :orgId)
+                  AND COALESCE(j.autoPosted, false) = true
             )
-            """, nativeQuery = true)
+            """)
     int bulkDeleteForAutoPostedJournalsByClientIdAndOrgId(@Param("clientId") UUID clientId, @Param("orgId") UUID orgId);
 }
