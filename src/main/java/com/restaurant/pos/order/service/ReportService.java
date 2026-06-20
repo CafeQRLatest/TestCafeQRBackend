@@ -69,7 +69,7 @@ public class ReportService {
         for (Order o : orders) {
             totalRevenue = totalRevenue.add(safe(o.getTotalAmount()));
             totalTax = totalTax.add(safe(o.getTotalTaxAmount()));
-            totalDiscount = totalDiscount.add(safe(o.getTotalDiscountAmount()));
+            totalDiscount = totalDiscount.add(accountingService.calculateTaxExclusiveDiscount(o));
             grandTotal = grandTotal.add(safe(o.getGrandTotal()));
             totalRoundOff = totalRoundOff.add(safe(o.getRoundOffAmount()));
 

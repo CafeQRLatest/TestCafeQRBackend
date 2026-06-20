@@ -1120,18 +1120,34 @@ public class AccountingPostingService {
         if (order == null) {
             return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
         }
-        BigDecimal orderDiscount = money(order.getTotalDiscountAmount()).max(BigDecimal.ZERO);
-        if (orderDiscount.compareTo(BigDecimal.ZERO) > 0) {
-            return orderDiscount;
-        }
         if (order.getLines() == null || order.getLines().isEmpty()) {
-            return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+            return money(order.getTotalDiscountAmount()).setScale(2, RoundingMode.HALF_UP);
         }
-        return order.getLines().stream()
-                .filter(Objects::nonNull)
-                .map(line -> money(line.getDiscountAmount()).max(BigDecimal.ZERO))
-                .reduce(BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP), BigDecimal::add)
-                .setScale(2, RoundingMode.HALF_UP);
+        BigDecimal totalExTaxDiscount = BigDecimal.ZERO;
+        for (com.restaurant.pos.order.domain.OrderLine line : order.getLines()) {
+            if (line.getGrossLineAmount() == null || line.getTaxType() == null) {
+                BigDecimal disc = money(line.getDiscountAmount());
+                BigDecimal taxRate = money(line.getTaxRate());
+                boolean isInclusive = line.getIsPackagedGood() != null && line.getIsPackagedGood();
+                BigDecimal discExTax = isInclusive 
+                        ? disc.divide(BigDecimal.ONE.add(taxRate.divide(BigDecimal.valueOf(100))), 4, RoundingMode.HALF_UP)
+                        : disc;
+                totalExTaxDiscount = totalExTaxDiscount.add(discExTax);
+                continue;
+            }
+            BigDecimal grossLine = money(line.getGrossLineAmount());
+            BigDecimal taxable = money(line.getTaxableAmount());
+            BigDecimal taxRate = money(line.getTaxRate());
+            boolean isInclusive = "INCLUSIVE".equalsIgnoreCase(String.valueOf(line.getTaxType()));
+            
+            BigDecimal lineGrossExTax = isInclusive 
+                    ? grossLine.divide(BigDecimal.ONE.add(taxRate.divide(BigDecimal.valueOf(100))), 4, RoundingMode.HALF_UP)
+                    : grossLine;
+            
+            BigDecimal lineDiscountExTax = lineGrossExTax.subtract(taxable).max(BigDecimal.ZERO);
+            totalExTaxDiscount = totalExTaxDiscount.add(lineDiscountExTax);
+        }
+        return totalExTaxDiscount.setScale(2, RoundingMode.HALF_UP);
     }
 
     private void addLine(List<JournalLine> lines, AccountingAccount account, BigDecimal debit, BigDecimal credit,
@@ -1281,8 +1297,25 @@ public class AccountingPostingService {
 
     private void markJobFailed(AccountingPostingJob job, Exception ex) {
         job.setStatus("FAILED");
-        job.setLastError(ex.getMessage());
+        job.setLastError(getCleanErrorMessage(ex));
         postingJobRepository.save(job);
+    }
+
+    private String getCleanErrorMessage(Exception ex) {
+        if (ex == null) {
+            return "Unknown error";
+        }
+        if (ex instanceof org.springframework.dao.DataAccessException) {
+            Throwable specificCause = ((org.springframework.dao.DataAccessException) ex).getMostSpecificCause();
+            if (specificCause != null && specificCause.getMessage() != null) {
+                return specificCause.getMessage();
+            }
+        }
+        Throwable root = ex;
+        while (root.getCause() != null) {
+            root = root.getCause();
+        }
+        return root.getMessage() != null ? root.getMessage() : ex.getMessage();
     }
 
     private String invoiceSourceType(Invoice invoice) {

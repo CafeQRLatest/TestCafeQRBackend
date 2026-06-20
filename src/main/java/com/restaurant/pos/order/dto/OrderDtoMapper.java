@@ -19,7 +19,8 @@ public class OrderDtoMapper {
     private final com.restaurant.pos.auth.repository.UserRepository userRepository;
 
     private java.time.Instant toInstant(java.time.LocalDateTime ldt) {
-        if (ldt == null) return null;
+        if (ldt == null)
+            return null;
         return ldt.atZone(java.time.ZoneId.systemDefault()).toInstant();
     }
 
@@ -30,7 +31,8 @@ public class OrderDtoMapper {
         try {
             java.util.UUID userId = java.util.UUID.fromString(uidStr);
             return userRepository.findById(userId)
-                    .map(u -> u.getFirstName() + (u.getLastName() != null && !u.getLastName().isBlank() ? " " + u.getLastName() : ""))
+                    .map(u -> u.getFirstName()
+                            + (u.getLastName() != null && !u.getLastName().isBlank() ? " " + u.getLastName() : ""))
                     .orElse(uidStr);
         } catch (Exception e) {
             return uidStr;
@@ -124,15 +126,23 @@ public class OrderDtoMapper {
     // ─────────────────────────────────────────────────────────────
 
     private TaxType parseTaxType(String s) {
-        if (s == null) return TaxType.NONE;
-        try { return TaxType.valueOf(s.toUpperCase()); }
-        catch (IllegalArgumentException e) { return TaxType.NONE; }
+        if (s == null)
+            return TaxType.NONE;
+        try {
+            return TaxType.valueOf(s.toUpperCase());
+        } catch (IllegalArgumentException e) {
+            return TaxType.NONE;
+        }
     }
 
     private DiscountSource parseDiscountSource(String s) {
-        if (s == null) return DiscountSource.MANUAL;
-        try { return DiscountSource.valueOf(s.toUpperCase()); }
-        catch (IllegalArgumentException e) { return DiscountSource.MANUAL; }
+        if (s == null)
+            return DiscountSource.MANUAL;
+        try {
+            return DiscountSource.valueOf(s.toUpperCase());
+        } catch (IllegalArgumentException e) {
+            return DiscountSource.MANUAL;
+        }
     }
 
     private void applyGstLineFields(OrderLine line, CreateOrderRequest.CreateOrderLineRequest lineReq) {
@@ -149,9 +159,12 @@ public class OrderDtoMapper {
     }
 
     private void applyGstOrderFields(Order order, CreateOrderRequest request) {
-        if (request.getGrossAmount() != null)        order.setGrossAmount(request.getGrossAmount());
-        if (request.getOrderDiscountType() != null)  order.setOrderDiscountType(request.getOrderDiscountType());
-        if (request.getOrderDiscountValue() != null) order.setOrderDiscountValue(request.getOrderDiscountValue());
+        if (request.getGrossAmount() != null)
+            order.setGrossAmount(request.getGrossAmount());
+        if (request.getOrderDiscountType() != null)
+            order.setOrderDiscountType(request.getOrderDiscountType());
+        if (request.getOrderDiscountValue() != null)
+            order.setOrderDiscountValue(request.getOrderDiscountValue());
         order.setDiscountSource(parseDiscountSource(request.getDiscountSource()));
         order.setDiscountCalculationVersion(DiscountEngineVersion.CURRENT);
     }
@@ -224,9 +237,12 @@ public class OrderDtoMapper {
         }
         applyGstOrderFields(order, request);
 
-        // Transient payment fields for direct-settle orders (MIXED payment from counter)
-        if (request.getAmountPaid() != null) order.setAmountPaid(request.getAmountPaid());
-        if (request.getRoundOffAmount() != null) order.setRoundOffAmount(request.getRoundOffAmount());
+        // Transient payment fields for direct-settle orders (MIXED payment from
+        // counter)
+        if (request.getAmountPaid() != null)
+            order.setAmountPaid(request.getAmountPaid());
+        if (request.getRoundOffAmount() != null)
+            order.setRoundOffAmount(request.getRoundOffAmount());
         if (request.getPaymentSplits() != null && !request.getPaymentSplits().isEmpty()) {
             order.setPaymentSplits(request.getPaymentSplits());
         }
@@ -275,6 +291,14 @@ public class OrderDtoMapper {
             existing.setRoundOffAmount(request.getRoundOffAmount());
         if (request.getSkipAutoPrintKinds() != null)
             existing.setSkipAutoPrintKinds(request.getSkipAutoPrintKinds());
+        if (request.getGrossAmount() != null)
+            existing.setGrossAmount(request.getGrossAmount());
+        if (request.getOrderDiscountType() != null)
+            existing.setOrderDiscountType(request.getOrderDiscountType());
+        if (request.getOrderDiscountValue() != null)
+            existing.setOrderDiscountValue(request.getOrderDiscountValue());
+        if (request.getDiscountSource() != null)
+            existing.setDiscountSource(parseDiscountSource(request.getDiscountSource()));
 
         if (request.getLines() != null) {
             existing.getLines().clear();
@@ -330,6 +354,18 @@ public class OrderDtoMapper {
             order.setRoundOffAmount(request.getRoundOffAmount());
         }
         order.setSkipAutoPrintKinds(request.getSkipAutoPrintKinds());
+        if (request.getGrossAmount() != null) {
+            order.setGrossAmount(request.getGrossAmount());
+        }
+        if (request.getOrderDiscountType() != null) {
+            order.setOrderDiscountType(request.getOrderDiscountType());
+        }
+        if (request.getOrderDiscountValue() != null) {
+            order.setOrderDiscountValue(request.getOrderDiscountValue());
+        }
+        if (request.getDiscountSource() != null) {
+            order.setDiscountSource(parseDiscountSource(request.getDiscountSource()));
+        }
 
         if (request.getLines() != null) {
             for (CreateOrderRequest.CreateOrderLineRequest lineReq : request.getLines()) {

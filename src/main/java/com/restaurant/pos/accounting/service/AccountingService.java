@@ -32,6 +32,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -425,7 +426,7 @@ public class AccountingService {
         BigDecimal roundOff      = BigDecimal.ZERO;
         for (Order o : saleOrders) {
             billedTotal = billedTotal.add(money(o.getGrandTotal()));
-            discounts   = discounts.add(money(o.getTotalDiscountAmount()));
+            discounts   = discounts.add(calculateTaxExclusiveDiscount(o));
             outputTax   = outputTax.add(money(o.getTotalTaxAmount()));
             roundOff    = roundOff.add(money(o.getRoundOffAmount()));
         }
@@ -852,6 +853,40 @@ public class AccountingService {
             return "ONLINE";
         }
         return "CASH";
+    }
+
+    public BigDecimal calculateTaxExclusiveDiscount(Order order) {
+        if (order == null) {
+            return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+        }
+        if (order.getLines() == null || order.getLines().isEmpty()) {
+            return money(order.getTotalDiscountAmount()).setScale(2, RoundingMode.HALF_UP);
+        }
+        BigDecimal totalExTaxDiscount = BigDecimal.ZERO;
+        for (com.restaurant.pos.order.domain.OrderLine line : order.getLines()) {
+            if (line.getGrossLineAmount() == null || line.getTaxType() == null) {
+                BigDecimal disc = money(line.getDiscountAmount());
+                BigDecimal taxRate = money(line.getTaxRate());
+                boolean isInclusive = line.getIsPackagedGood() != null && line.getIsPackagedGood();
+                BigDecimal discExTax = isInclusive 
+                        ? disc.divide(BigDecimal.ONE.add(taxRate.divide(BigDecimal.valueOf(100))), 4, RoundingMode.HALF_UP)
+                        : disc;
+                totalExTaxDiscount = totalExTaxDiscount.add(discExTax);
+                continue;
+            }
+            BigDecimal grossLine = money(line.getGrossLineAmount());
+            BigDecimal taxable = money(line.getTaxableAmount());
+            BigDecimal taxRate = money(line.getTaxRate());
+            boolean isInclusive = "INCLUSIVE".equalsIgnoreCase(String.valueOf(line.getTaxType()));
+            
+            BigDecimal lineGrossExTax = isInclusive 
+                    ? grossLine.divide(BigDecimal.ONE.add(taxRate.divide(BigDecimal.valueOf(100))), 4, RoundingMode.HALF_UP)
+                    : grossLine;
+            
+            BigDecimal lineDiscountExTax = lineGrossExTax.subtract(taxable).max(BigDecimal.ZERO);
+            totalExTaxDiscount = totalExTaxDiscount.add(lineDiscountExTax);
+        }
+        return totalExTaxDiscount.setScale(2, RoundingMode.HALF_UP);
     }
 
     private AccountingAccount getScopedAccount(UUID id) {
