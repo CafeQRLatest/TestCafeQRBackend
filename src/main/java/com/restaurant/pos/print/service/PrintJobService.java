@@ -356,6 +356,8 @@ public class PrintJobService {
         out.put("order_no", order.getOrderNo());
         out.put("invoiceNo", order.getInvoiceNo());
         out.put("invoice_no", order.getInvoiceNo());
+        out.put("dailyBillNo", order.getDailyBillNo());
+        out.put("daily_bill_no", order.getDailyBillNo());
         out.put("paymentNo", order.getPaymentNo());
         out.put("payment_no", order.getPaymentNo());
         out.put("orderStatus", order.getOrderStatus());

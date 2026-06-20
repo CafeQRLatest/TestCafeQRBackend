@@ -2105,7 +2105,6 @@ public class OrderService {
     public Invoice generateInvoice(Order order) {
         return generateInvoice(order, null, null);
     }
-
     @Transactional
     public Invoice generateInvoice(Order order, UUID originalInvoiceId) {
         return generateInvoice(order, originalInvoiceId, null);
@@ -2215,6 +2214,11 @@ public class OrderService {
         }
 
         Invoice savedInvoice = invoiceRepository.save(invoice);
+        
+        // Update transient fields on the order so downstream print jobs have them
+        order.setInvoiceNo(savedInvoice.getInvoiceNo());
+        order.setDailyBillNo(savedInvoice.getDailyBillNo());
+        
         accountingPostingService.postInvoice(order, savedInvoice);
         return savedInvoice;
     }
