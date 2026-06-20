@@ -69,10 +69,10 @@ public class PushNotificationService {
     @Transactional
     public void updatePreferences(String deviceToken, PushPreferencesRequest request) {
         pushDeviceTokenRepository.findByDeviceToken(deviceToken).ifPresent(token -> {
-            token.setNotifyKitchen(request.isNotifyKitchen());
-            token.setNotifyTakeaway(request.isNotifyTakeaway());
-            token.setNotifyDelivery(request.isNotifyDelivery());
-            token.setNotifySettled(request.isNotifySettled());
+            if (request.getNotifyKitchen() != null) token.setNotifyKitchen(request.getNotifyKitchen());
+            if (request.getNotifyTakeaway() != null) token.setNotifyTakeaway(request.getNotifyTakeaway());
+            if (request.getNotifyDelivery() != null) token.setNotifyDelivery(request.getNotifyDelivery());
+            if (request.getNotifySettled() != null) token.setNotifySettled(request.getNotifySettled());
             pushDeviceTokenRepository.save(token);
             log.info("Successfully updated notification preferences for device token.");
         });
@@ -91,7 +91,7 @@ public class PushNotificationService {
 
         List<PushDeviceToken> targets = devices.stream()
                 .filter(d -> {
-                    if ("TAKEAWAY".equalsIgnoreCase(category)) return d.isNotifyTakeaway();
+                    if ("TAKEAWAY".equalsIgnoreCase(category) || "PARCEL".equalsIgnoreCase(category)) return d.isNotifyTakeaway();
                     if ("DELIVERY".equalsIgnoreCase(category)) return d.isNotifyDelivery();
                     // Default to kitchen
                     return d.isNotifyKitchen();
@@ -112,6 +112,16 @@ public class PushNotificationService {
             body = baseBody + "\n" + itemsSummary;
         }
 
+        // Determine the Android notification channel based on order category
+        String channelId;
+        if ("TAKEAWAY".equalsIgnoreCase(category) || "PARCEL".equalsIgnoreCase(category)) {
+            channelId = "channel_takeaway";
+        } else if ("DELIVERY".equalsIgnoreCase(category)) {
+            channelId = "channel_delivery";
+        } else {
+            channelId = "channel_kitchen";
+        }
+
         Map<String, String> data = new HashMap<>();
         data.put("orderId", order.getId() != null ? order.getId().toString() : "");
         data.put("orderNo", order.getOrderNo() != null ? order.getOrderNo() : "");
@@ -121,7 +131,7 @@ public class PushNotificationService {
         data.put("restaurantId", order.getOrgId() != null ? order.getOrgId().toString() : "");
         data.put("itemsSummary", itemsSummary != null ? itemsSummary : "");
 
-        BatchResponse response = firebaseAdminService.sendMulticast(title, body, data, tokens);
+        BatchResponse response = firebaseAdminService.sendMulticast(title, body, data, tokens, channelId);
         cleanInvalidTokens(tokens, response);
     }
 
@@ -149,11 +159,12 @@ public class PushNotificationService {
         data.put("orderId", order.getId() != null ? order.getId().toString() : "");
         data.put("orderNo", order.getOrderNo() != null ? order.getOrderNo() : "");
         data.put("type", "order_settled");
+        data.put("category", "SETTLED");
         data.put("grandTotal", order.getGrandTotal() != null ? order.getGrandTotal().toString() : "0.00");
         data.put("restaurantId", order.getOrgId() != null ? order.getOrgId().toString() : "");
         data.put("itemsSummary", itemsSummary != null ? itemsSummary : "");
 
-        BatchResponse response = firebaseAdminService.sendMulticast(title, body, data, tokens);
+        BatchResponse response = firebaseAdminService.sendMulticast(title, body, data, tokens, "channel_settle");
         cleanInvalidTokens(tokens, response);
     }
 

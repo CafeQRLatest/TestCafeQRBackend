@@ -8,8 +8,8 @@ public class PushPreferencesRequest {
     @NotBlank(message = "Device token is required")
     private String deviceToken;
 
-    private boolean notifyKitchen;
-    private boolean notifyTakeaway;
-    private boolean notifyDelivery;
-    private boolean notifySettled;
+    private Boolean notifyKitchen;
+    private Boolean notifyTakeaway;
+    private Boolean notifyDelivery;
+    private Boolean notifySettled;
 }

@@ -3,6 +3,8 @@ package com.restaurant.pos.push.service;
 import com.google.auth.oauth2.GoogleCredentials;
 import com.google.firebase.FirebaseApp;
 import com.google.firebase.FirebaseOptions;
+import com.google.firebase.messaging.AndroidConfig;
+import com.google.firebase.messaging.AndroidNotification;
 import com.google.firebase.messaging.FirebaseMessaging;
 import com.google.firebase.messaging.MulticastMessage;
 import com.google.firebase.messaging.Notification;
@@ -73,19 +75,42 @@ public class FirebaseAdminService {
         }
     }
 
+    /**
+     * Backward-compatible overload: sends without a specific Android notification channel.
+     */
     public BatchResponse sendMulticast(String title, String body, Map<String, String> data, List<String> tokens) {
+        return sendMulticast(title, body, data, tokens, null);
+    }
+
+    /**
+     * Sends a multicast push notification. When channelId is provided, an AndroidConfig is
+     * attached so Android 8.0+ devices route the notification to the correct channel
+     * (and thus play the correct custom sound file).
+     */
+    public BatchResponse sendMulticast(String title, String body, Map<String, String> data, List<String> tokens, String channelId) {
         if (tokens == null || tokens.isEmpty()) {
             return null;
         }
         try {
-            MulticastMessage message = MulticastMessage.builder()
+            MulticastMessage.Builder builder = MulticastMessage.builder()
                     .setNotification(Notification.builder()
                             .setTitle(title)
                             .setBody(body)
                             .build())
                     .putAllData(data)
-                    .addAllTokens(tokens)
-                    .build();
+                    .addAllTokens(tokens);
+
+            // Attach Android-specific config with the notification channel for custom sounds
+            if (channelId != null && !channelId.isBlank()) {
+                AndroidConfig androidConfig = AndroidConfig.builder()
+                        .setNotification(AndroidNotification.builder()
+                                .setChannelId(channelId)
+                                .build())
+                        .build();
+                builder.setAndroidConfig(androidConfig);
+            }
+
+            MulticastMessage message = builder.build();
 
             BatchResponse response = FirebaseMessaging.getInstance().sendEachForMulticast(message);
             log.info("Successfully sent multicast message. Success count: {}, Failure count: {}",
@@ -97,3 +122,4 @@ public class FirebaseAdminService {
         }
     }
 }
+
