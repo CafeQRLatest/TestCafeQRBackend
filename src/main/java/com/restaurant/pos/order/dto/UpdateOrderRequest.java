@@ -68,6 +68,18 @@ public class UpdateOrderRequest {
     @Schema(description = "Round-off adjustment applied to this settlement", example = "0.00")
     private BigDecimal roundOffAmount;
 
+    @Schema(description = "Sum of gross_line_amount across all lines (pre-discount face total)", example = "200.00")
+    private BigDecimal grossAmount;
+
+    @Schema(description = "Order-level discount type entered by user: PERCENT or AMOUNT", example = "PERCENT")
+    private String orderDiscountType;
+
+    @Schema(description = "Order-level discount value entered by user (e.g. 10 for 10%, or 100.00 for flat discount)", example = "10")
+    private BigDecimal orderDiscountValue;
+
+    @Schema(description = "Originating source of this discount: MANUAL, QR, COUPON, PROMOTION, LOYALTY", example = "MANUAL")
+    private String discountSource;
+
     @Valid
     @Schema(description = "List of updated order lines")
     private List<CreateOrderRequest.CreateOrderLineRequest> lines;
