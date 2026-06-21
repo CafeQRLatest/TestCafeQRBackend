@@ -1606,6 +1606,7 @@ public class OrderService {
                 copy.setProductId(oldLine.getProductId());
                 copy.setVariantId(oldLine.getVariantId());
                 copy.setProductName(oldLine.getProductName());
+                copy.setCategoryName(oldLine.getCategoryName());
                 copy.setIsPackagedGood(oldLine.getIsPackagedGood());
                 copy.setQuantity(oldLine.getQuantity());
                 copy.setUnitOfMeasure(oldLine.getUnitOfMeasure());
@@ -1614,6 +1615,21 @@ public class OrderService {
                 copy.setTaxAmount(oldLine.getTaxAmount());
                 copy.setDiscountAmount(oldLine.getDiscountAmount());
                 copy.setLineTotal(oldLine.getLineTotal());
+                // ─── GST Enrichment Fields (V1_110) ───────────────────────────────────
+                // Must be copied to preserve correct tax-exclusive discount calculation
+                // in AccountingService.calculateTaxExclusiveDiscount. Without these,
+                // settled kitchen orders report inflated gross sales and wrong discounts.
+                copy.setGrossLineAmount(oldLine.getGrossLineAmount());
+                copy.setUnitPriceExTax(oldLine.getUnitPriceExTax());
+                copy.setTaxableAmount(oldLine.getTaxableAmount());
+                copy.setTaxType(oldLine.getTaxType());
+                copy.setTaxSnapshotRate(oldLine.getTaxSnapshotRate());
+                copy.setTaxCode(oldLine.getTaxCode());
+                copy.setTaxName(oldLine.getTaxName());
+                copy.setManualDiscountAmount(oldLine.getManualDiscountAmount());
+                copy.setManualDiscountPercent(oldLine.getManualDiscountPercent());
+                copy.setAllocatedOrderDiscount(oldLine.getAllocatedOrderDiscount());
+                // ──────────────────────────────────────────────────────────────────────
                 newOrder.addLine(copy);
             }
         }
