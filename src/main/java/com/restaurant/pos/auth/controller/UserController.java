@@ -162,10 +162,17 @@ public class UserController {
 
     @GetMapping("/menus")
     public ResponseEntity<ApiResponse<List<Menu>>> getMyMenus() {
-        // Temporarily return all menus to unblock UI
-        List<Menu> allActiveMenus = menuRepository.findAll().stream()
+        String email = SecurityContextHolder.getContext().getAuthentication().getName();
+        User user = repository.findByEmail(email)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+        
+        if (user.getRoleEntity() == null || user.getRoleEntity().getMenus() == null) {
+            return ResponseEntity.ok(ApiResponse.success(Collections.emptyList()));
+        }
+        
+        List<Menu> roleMenus = user.getRoleEntity().getMenus().stream()
                 .filter(m -> "Y".equalsIgnoreCase(m.getIsactive()))
                 .collect(Collectors.toList());
-        return ResponseEntity.ok(ApiResponse.success(allActiveMenus));
+        return ResponseEntity.ok(ApiResponse.success(roleMenus));
     }
 }
