@@ -30,5 +30,5 @@ Thumbs.db
 .env.local
 application-local.yml
 
-# Database / Seeding Scripts
+# DB scripts
 scripts/

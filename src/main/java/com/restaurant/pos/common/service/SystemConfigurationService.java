@@ -211,6 +211,7 @@ public class SystemConfigurationService {
                 .sendToKitchenEnabled(true)
                 .posProductListingEnabled(true)
                 .discountEnabled(true)
+                .purchaseEnabled(true)
                 .defaultBillingUiMode("standard")
                 .offlineSyncEnabled(true)
                 .offlineSyncInterval(60)
@@ -242,6 +243,7 @@ public class SystemConfigurationService {
                 .tableManagementEnabled(source.isTableManagementEnabled())
                 .qrOrderingEnabled(source.isQrOrderingEnabled())
                 .inventoryEnabled(source.isInventoryEnabled())
+                .purchaseEnabled(source.isPurchaseEnabled())
                 .productionEnabled(source.isProductionEnabled())
                 .customersEnabled(source.isCustomersEnabled())
                 .loyaltyEnabled(source.isLoyaltyEnabled())
@@ -333,6 +335,7 @@ public class SystemConfigurationService {
                 .tableManagementEnabled(entity.isTableManagementEnabled())
                 .qrOrderingEnabled(entity.isQrOrderingEnabled())
                 .inventoryEnabled(entity.isInventoryEnabled())
+                .purchaseEnabled(entity.isPurchaseEnabled())
                 .productionEnabled(entity.isProductionEnabled())
                 .customersEnabled(entity.isCustomersEnabled())
                 .loyaltyEnabled(entity.isLoyaltyEnabled())
@@ -383,6 +386,7 @@ public class SystemConfigurationService {
         entity.setTableManagementEnabled(dto.isTableManagementEnabled());
         entity.setQrOrderingEnabled(dto.isQrOrderingEnabled());
         entity.setInventoryEnabled(dto.isInventoryEnabled());
+        entity.setPurchaseEnabled(dto.isPurchaseEnabled());
         entity.setProductionEnabled(dto.isProductionEnabled());
         entity.setCustomersEnabled(dto.isCustomersEnabled());
         entity.setLoyaltyEnabled(dto.isLoyaltyEnabled());

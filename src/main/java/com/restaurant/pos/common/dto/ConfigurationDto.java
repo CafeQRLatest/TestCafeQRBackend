@@ -31,6 +31,7 @@ public class ConfigurationDto {
     private boolean allowMultipleCustomersPerOrder;
     private boolean posProductListingEnabled;
     private boolean discountEnabled;
+    private boolean purchaseEnabled;
     @Builder.Default
     private String defaultBillingUiMode = "standard";
 
