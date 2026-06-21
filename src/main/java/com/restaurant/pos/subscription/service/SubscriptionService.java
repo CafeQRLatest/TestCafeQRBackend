@@ -31,7 +31,7 @@ public class SubscriptionService {
     private final ClientRepository clientRepository;
     private final RazorpayService razorpayService;
 
-    @Value("${subscription.monthly-amount-paise:${SUBSCRIPTION_MONTHLY_AMOUNT_PAISE:100}}")
+    @Value("${subscription.monthly-amount-paise:${SUBSCRIPTION_MONTHLY_AMOUNT_PAISE:9900}}")
     private long monthlyAmountPaise;
 
     @Transactional(readOnly = true)
