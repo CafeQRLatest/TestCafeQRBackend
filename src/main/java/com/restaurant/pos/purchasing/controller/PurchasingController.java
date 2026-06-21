@@ -29,7 +29,7 @@ public class PurchasingController {
     }
 
     @GetMapping("/customers/{id}")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<Customer>> getCustomer(@PathVariable UUID id) {
         return ResponseEntity.ok(ApiResponse.success(purchasingService.getCustomer(id)));
     }
@@ -41,13 +41,13 @@ public class PurchasingController {
     }
 
     @PutMapping("/customers/{id}")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<Customer>> updateCustomer(@PathVariable UUID id, @RequestBody Customer customer) {
         return ResponseEntity.ok(ApiResponse.success(purchasingService.updateCustomer(id, customer)));
     }
 
     @DeleteMapping("/customers/{id}")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<Void>> deleteCustomer(@PathVariable UUID id) {
         purchasingService.deleteCustomer(id);
         return ResponseEntity.ok(ApiResponse.success(null));
@@ -58,31 +58,31 @@ public class PurchasingController {
     // ═══════════════════════════════════════════════════════════════════════
 
     @GetMapping("/vendors")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<List<Vendor>>> getVendors() {
         return ResponseEntity.ok(ApiResponse.success(purchasingService.getVendors()));
     }
 
     @GetMapping("/vendors/{id}")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<Vendor>> getVendor(@PathVariable UUID id) {
         return ResponseEntity.ok(ApiResponse.success(purchasingService.getVendor(id)));
     }
 
     @PostMapping("/vendors")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<Vendor>> createVendor(@RequestBody Vendor vendor) {
         return ResponseEntity.ok(ApiResponse.success(purchasingService.saveVendor(vendor)));
     }
 
     @PutMapping("/vendors/{id}")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<Vendor>> updateVendor(@PathVariable UUID id, @RequestBody Vendor vendor) {
         return ResponseEntity.ok(ApiResponse.success(purchasingService.updateVendor(id, vendor)));
     }
 
     @DeleteMapping("/vendors/{id}")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<Void>> deleteVendor(@PathVariable UUID id) {
         purchasingService.deleteVendor(id);
         return ResponseEntity.ok(ApiResponse.success(null));
@@ -93,25 +93,25 @@ public class PurchasingController {
     // ═══════════════════════════════════════════════════════════════════════
 
     @GetMapping("/currencies")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<List<Currency>>> getCurrencies() {
         return ResponseEntity.ok(ApiResponse.success(purchasingService.getCurrencies()));
     }
 
     @PostMapping("/currencies")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<Currency>> createCurrency(@RequestBody Currency currency) {
         return ResponseEntity.ok(ApiResponse.success(purchasingService.saveCurrency(currency)));
     }
 
     @PutMapping("/currencies/{id}")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<Currency>> updateCurrency(@PathVariable UUID id, @RequestBody Currency currency) {
         return ResponseEntity.ok(ApiResponse.success(purchasingService.updateCurrency(id, currency)));
     }
 
     @DeleteMapping("/currencies/{id}")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<Void>> deleteCurrency(@PathVariable UUID id) {
         purchasingService.deleteCurrency(id);
         return ResponseEntity.ok(ApiResponse.success(null));
@@ -122,31 +122,31 @@ public class PurchasingController {
     // ═══════════════════════════════════════════════════════════════════════
 
     @GetMapping("/pricelists")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<List<Pricelist>>> getPricelists() {
         return ResponseEntity.ok(ApiResponse.success(purchasingService.getPricelists()));
     }
 
     @GetMapping("/pricelists/type/{type}")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<List<Pricelist>>> getPricelistsByType(@PathVariable String type) {
         return ResponseEntity.ok(ApiResponse.success(purchasingService.getPricelistsByType(type.toUpperCase())));
     }
 
     @PostMapping("/pricelists")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<Pricelist>> createPricelist(@RequestBody Pricelist pricelist) {
         return ResponseEntity.ok(ApiResponse.success(purchasingService.savePricelist(pricelist)));
     }
 
     @PutMapping("/pricelists/{id}")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<Pricelist>> updatePricelist(@PathVariable UUID id, @RequestBody Pricelist pricelist) {
         return ResponseEntity.ok(ApiResponse.success(purchasingService.updatePricelist(id, pricelist)));
     }
 
     @DeleteMapping("/pricelists/{id}")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<Void>> deletePricelist(@PathVariable UUID id) {
         purchasingService.deletePricelist(id);
         return ResponseEntity.ok(ApiResponse.success(null));

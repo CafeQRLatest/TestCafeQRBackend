@@ -38,7 +38,7 @@ public class AccountingController {
     private final AccountingPostingService postingService;
 
     @GetMapping("/accounts")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<List<AccountingAccountPeriodDto>>> getAccounts(
             @RequestParam(defaultValue = "false") boolean includeInactive,
             @RequestParam(required = false) String from,
@@ -49,19 +49,19 @@ public class AccountingController {
     }
 
     @GetMapping("/accounts/{id}")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<AccountingAccount>> getAccount(@PathVariable UUID id) {
         return ResponseEntity.ok(ApiResponse.success(accountingService.getAccount(id)));
     }
 
     @PostMapping("/accounts")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<AccountingAccount>> createAccount(@RequestBody AccountingAccount account) {
         return ResponseEntity.ok(ApiResponse.success("Account created", accountingService.createAccount(account)));
     }
 
     @PutMapping("/accounts/{id}")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<AccountingAccount>> updateAccount(
             @PathVariable UUID id,
             @RequestBody AccountingAccount account
@@ -70,14 +70,14 @@ public class AccountingController {
     }
 
     @DeleteMapping("/accounts/{id}")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<Void>> deactivateAccount(@PathVariable UUID id) {
         accountingService.deactivateAccount(id);
         return ResponseEntity.ok(ApiResponse.success("Account deactivated", null));
     }
 
     @GetMapping("/journals")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<List<JournalEntry>>> getJournalEntries(
             @RequestParam(required = false) String from,
             @RequestParam(required = false) String to,
@@ -88,13 +88,13 @@ public class AccountingController {
     }
 
     @PostMapping("/journals")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<JournalEntry>> createJournalEntry(@RequestBody JournalEntry entry) {
         return ResponseEntity.ok(ApiResponse.success("Journal posted", accountingService.createJournalEntry(entry)));
     }
 
     @GetMapping("/party-ledger")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<List<PartyLedgerEntry>>> getPartyLedger(
             @RequestParam PartyType partyType,
             @RequestParam UUID partyId
@@ -103,7 +103,7 @@ public class AccountingController {
     }
 
     @GetMapping("/trial-balance")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<List<TrialBalanceRowDto>>> getTrialBalance(
             @RequestParam(required = false) String from,
             @RequestParam(required = false) String to
@@ -112,7 +112,7 @@ public class AccountingController {
     }
 
     @GetMapping("/summary")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<AccountingSummaryDto>> getSummary(
             @RequestParam(required = false) String from,
             @RequestParam(required = false) String to
@@ -122,7 +122,7 @@ public class AccountingController {
     }
 
     @GetMapping("/reconciliation")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<AccountingReconciliationDto>> getReconciliation(
             @RequestParam(required = false) String from,
             @RequestParam(required = false) String to,
@@ -133,50 +133,50 @@ public class AccountingController {
     }
 
     @PostMapping("/payment-allocations")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<PaymentAllocation>> allocatePayment(@RequestBody PaymentAllocation allocation) {
         return ResponseEntity.ok(ApiResponse.success("Payment allocated", accountingService.allocatePayment(allocation)));
     }
 
     @PostMapping("/defaults/ensure")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<List<AccountingAccount>>> ensureDefaults() {
         return ResponseEntity.ok(ApiResponse.success("Accounting defaults ensured", defaultsService.ensureDefaultAccounts()));
     }
 
     @GetMapping("/mappings")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<AccountingMappingsDto>> getMappings() {
         defaultsService.ensureDefaultAccounts();
         return ResponseEntity.ok(ApiResponse.success(defaultsService.getMappings()));
     }
 
     @PutMapping("/mappings")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<AccountingMappingsDto>> updateMappings(@RequestBody AccountingMappingsDto mappings) {
         return ResponseEntity.ok(ApiResponse.success("Accounting mappings updated", defaultsService.updateMappings(mappings)));
     }
 
     @GetMapping("/posting-errors")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<List<AccountingPostingErrorDto>>> getPostingErrors() {
         return ResponseEntity.ok(ApiResponse.success(postingService.getPostingErrors()));
     }
 
     @PostMapping("/posting-errors/{id}/retry")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<AccountingPostingJob>> retryPosting(@PathVariable UUID id) {
         return ResponseEntity.ok(ApiResponse.success("Accounting posting retry queued", postingService.retryPosting(id)));
     }
 
     @PostMapping("/backfill")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<AccountingBackfillResponse>> backfill(@RequestBody AccountingBackfillRequest request) {
         return ResponseEntity.ok(ApiResponse.success("Accounting backfill completed", postingService.backfill(request)));
     }
 
     @PostMapping("/resync-all")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<AccountingBackfillResponse>> resyncAll() {
         return ResponseEntity.ok(ApiResponse.success("Auto-posted accounting data safely rebuilt", postingService.resyncAll()));
     }
