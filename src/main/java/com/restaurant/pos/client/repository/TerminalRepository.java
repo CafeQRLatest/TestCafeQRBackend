@@ -19,4 +19,8 @@ public interface TerminalRepository extends JpaRepository<Terminal, UUID> {
     java.util.Optional<Terminal> findByIdAndClientIdAndOrgId(UUID id, UUID clientId, UUID orgId);
     
     List<Terminal> findAllByOrgId(UUID orgId);
+
+    java.util.Optional<Terminal> findByDeviceIdAndIsactiveAndClientId(UUID deviceId, String isactive, UUID clientId);
+
+    java.util.Optional<Terminal> findByDeviceIdAndIsactiveAndClientIdAndIdNot(UUID deviceId, String isactive, UUID clientId, UUID id);
 }
