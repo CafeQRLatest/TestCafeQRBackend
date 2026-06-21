@@ -1,7 +1,6 @@
 package com.restaurant.pos.client.controller;
 
 import com.restaurant.pos.client.domain.Organization;
-import com.restaurant.pos.client.dto.OrganizationDto;
 import com.restaurant.pos.client.service.OrganizationService;
 import com.restaurant.pos.common.dto.ApiResponse;
 import lombok.RequiredArgsConstructor;
@@ -20,29 +19,27 @@ public class OrganizationController {
     private final OrganizationService organizationService;
 
     @GetMapping
-    @PreAuthorize("hasRole('SUPER_ADMIN') or hasRole('ADMIN') or hasRole('MANAGER') or hasRole('STAFF')")
-    public ResponseEntity<ApiResponse<List<OrganizationDto>>> getMyOrganizations() {
-        return ResponseEntity.ok(ApiResponse.success(organizationService.getMyOrganizations().stream()
-                .map(OrganizationDto::from)
-                .toList()));
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF') or hasRole('MANAGER') or hasRole('STAFF')")
+    public ResponseEntity<ApiResponse<List<Organization>>> getMyOrganizations() {
+        return ResponseEntity.ok(ApiResponse.success(organizationService.getMyOrganizations()));
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("hasRole('SUPER_ADMIN') or hasRole('ADMIN') or hasRole('MANAGER') or hasRole('STAFF')")
-    public ResponseEntity<ApiResponse<OrganizationDto>> getOrganization(@PathVariable UUID id) {
-        return ResponseEntity.ok(ApiResponse.success(OrganizationDto.from(organizationService.getOrganizationById(id))));
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF') or hasRole('MANAGER') or hasRole('STAFF')")
+    public ResponseEntity<ApiResponse<Organization>> getOrganization(@PathVariable UUID id) {
+        return ResponseEntity.ok(ApiResponse.success(organizationService.getOrganizationById(id)));
     }
 
     @PostMapping
-    @PreAuthorize("hasRole('SUPER_ADMIN') or hasRole('ADMIN')")
-    public ResponseEntity<ApiResponse<OrganizationDto>> createOrganization(@RequestBody Organization org) {
-        return ResponseEntity.ok(ApiResponse.success(OrganizationDto.from(organizationService.createOrganization(org))));
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
+    public ResponseEntity<ApiResponse<Organization>> createOrganization(@RequestBody Organization org) {
+        return ResponseEntity.ok(ApiResponse.success(organizationService.createOrganization(org)));
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("hasRole('SUPER_ADMIN') or hasRole('ADMIN')")
-    public ResponseEntity<ApiResponse<OrganizationDto>> updateOrganization(@PathVariable UUID id, @RequestBody Organization org) {
-        return ResponseEntity.ok(ApiResponse.success(OrganizationDto.from(organizationService.updateOrganization(id, org))));
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
+    public ResponseEntity<ApiResponse<Organization>> updateOrganization(@PathVariable UUID id, @RequestBody Organization org) {
+        return ResponseEntity.ok(ApiResponse.success(organizationService.updateOrganization(id, org)));
     }
 
 }
