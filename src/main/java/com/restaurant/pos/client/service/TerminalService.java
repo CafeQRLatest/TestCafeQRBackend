@@ -8,6 +8,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.restaurant.pos.common.exception.BusinessException;
 import com.restaurant.pos.common.util.SecurityUtils;
 import java.util.Optional;
 import java.util.UUID;
@@ -71,6 +72,26 @@ public class TerminalService {
         if (terminal.getIsactive() == null) {
             terminal.setIsactive("Y");
         }
+
+        // Validate device uniqueness
+        if (terminal.getDeviceId() != null) {
+            Optional<Terminal> existing;
+            if (terminal.getId() != null) {
+                existing = repository.findByDeviceIdAndIsactiveAndClientIdAndIdNot(
+                    terminal.getDeviceId(), "Y", TenantContext.getCurrentTenant(), terminal.getId()
+                );
+            } else {
+                existing = repository.findByDeviceIdAndIsactiveAndClientId(
+                    terminal.getDeviceId(), "Y", TenantContext.getCurrentTenant()
+                );
+            }
+            if (existing.isPresent()) {
+                throw new BusinessException(
+                    "This hardware device is already assigned to another terminal (" + existing.get().getName() + ")"
+                );
+            }
+        }
+
         return repository.save(terminal);
     }
 
