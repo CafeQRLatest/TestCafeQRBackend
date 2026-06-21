@@ -9,7 +9,6 @@ import com.restaurant.pos.common.tenant.UserContext;
 import com.restaurant.pos.common.util.SecurityUtils;
 import com.restaurant.pos.client.repository.ClientRepository;
 import com.restaurant.pos.client.repository.OrganizationRepository;
-import com.restaurant.pos.purchasing.domain.Currency;
 import com.restaurant.pos.purchasing.repository.CurrencyRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.core.type.TypeReference;
