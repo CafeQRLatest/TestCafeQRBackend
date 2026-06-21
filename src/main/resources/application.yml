@@ -1,6 +1,13 @@
 server:
   port: 8080
   max-http-request-header-size: 65536
+  tomcat:
+    threads:
+      max: 30
+      min-spare: 5
+    connection-timeout: 20000
+    max-connections: 1000
+
 
 spring:
   profiles:
@@ -11,20 +18,25 @@ spring:
     name: cafe-qr-backend
 
   datasource:
-    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/cafeqr_db}
-    username: ${SPRING_DATASOURCE_USERNAME:postgres}
-    password: ${SPRING_DATASOURCE_PASSWORD:postgres}
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5433/pos_db}
+    username: ${SPRING_DATASOURCE_USERNAME:pos_user}
+    password: ${SPRING_DATASOURCE_PASSWORD:pos_password}
     driver-class-name: org.postgresql.Driver
     hikari:
-      maximum-pool-size: 5
-      minimum-idle: 2
-      idle-timeout: 30000
-      max-lifetime: 1800000
+      maximum-pool-size: ${DB_POOL_MAX_SIZE:5}
+      minimum-idle: ${DB_POOL_MIN_IDLE:1}
+      idle-timeout: ${DB_POOL_IDLE_TIMEOUT_MS:30000}
+      max-lifetime: ${DB_POOL_MAX_LIFETIME_MS:1800000}
+      connection-timeout: ${DB_POOL_CONNECTION_TIMEOUT_MS:10000}
+      validation-timeout: ${DB_POOL_VALIDATION_TIMEOUT_MS:3000}
+      leak-detection-threshold: ${DB_POOL_LEAK_DETECTION_MS:30000}
+      connection-init-sql: "SET statement_timeout = '60s'; SET idle_in_transaction_session_timeout = '60s'"
 
   jpa:
+    open-in-view: false
     hibernate:
       ddl-auto: none
-    show-sql: true
+    show-sql: ${SPRING_JPA_SHOW_SQL:false}
   flyway:
     baseline-on-migrate: true
     validate-on-migrate: false
@@ -55,8 +67,8 @@ spring:
 
   mail:
     host: ${SMTP_HOST:smtp.gmail.com}
-    port: 587
-    username: ${SMTP_USERNAME:uksayoojjayarajan@gmail.com}
+    port: ${SMTP_PORT:587}
+    username: ${SMTP_USERNAME:cafeqrllp@gmail.com}
     password: ${SMTP_PASSWORD:}
     default-encoding: UTF-8
     properties:
@@ -80,16 +92,25 @@ gmail:
     client-id: ${GMAIL_CLIENT_ID:}
     client-secret: ${GMAIL_CLIENT_SECRET:}
     refresh-token: ${GMAIL_REFRESH_TOKEN:}
-    sender-email: ${GMAIL_SENDER_EMAIL:testcafeqr@gmail.com}
+    sender-email: ${GMAIL_SENDER_EMAIL:${SMTP_USERNAME:cafeqrllp@gmail.com}}
+
 
 # JWT Configuration
 jwt:
-  private-key: |-
-    MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQCrCzzKxm/agMEXjC4Ydz/+hkWX5xrdBYYNSBDE2Dhnk69I8xd8dU+eZrI5fOGLEwO1Cdg5DukM0WIA+sdnd1d2UGG3rAksKGCdfXggMwP1b8MJSVACQPnTud7lAhagLX7PQE4eWfzbyy7laUeMEbNsGA1XOv41IE3fMxtpGQgzUteXSgsfHSFJ8XOwiQ2HFPRg6bR9bgBEJmNctKKDdPnB+E7xu3+3Kc2S6BYExCFub8yOXdkR0N+MWypu0IfxDyenHLSHSezuEtVBHZ+Oby2ntDAZm65sWTLBy2Z/rw6Vbnd241+0cw97O62EBMikW65vu5xMoCoBZGH9XuvmkKcXAgMBAAECggEADW8Wg+lOA7VfympXfH3GkvEXf4ob5rF2Xo4DHdLLAKeYJCdOTZd70g8dfxJl4eHJGsD+heIRP9Ek3LrVn99ps9XgYZKrgxewxEMvL32SRAarz4uTMyTIpRkmKTUeyHnfnzDdHIPTg60pA8UJujXxslMOnoP4T1KNizLyZjDHH3CzL5XYUjyhvsLvX4lur/nMAtGQMwCOWr0+koc4AVGPb8jKe0NDMZdIMJT+xOhSPBdE+bGXbtqrQUq7yoBfDxoeN5yeWYrqgoPPHAiJp5QXh2l9+w2wOKtLW5m8FCSN3+CKTXmtYOWQLwqa/TgivXlEHV2sts5nhJhygY+jzgFRQQKBgQDpGR9J1NSsXHFyo/EfE3IkEXhYamrkqwdWmy1zJra3rFaZUEbs+zNYUaYW7AQ1HeInYkeoWePOwU9OlMcPLfwzufKpztukYB+WStq7M80skO0+a8Tap0x88wtdZ4SYvPuLVvmkjVX5ZmTpdTrqqwRe6CwMlcRPYReDr0b0tVFJZwKBgQC72VQsBC0jB1P/u41xYd+Oh9zmvTL8AIXNZ9FDS7B18MAiP4Y5CX3hHoRw3GJVEXLEyeHyOtJ4Ar/gf5yTNrsn1FrZkyIe58E7UpYHytiwtaUFragc5RHQnqb8PF/O2UpUgABEn5+JK4t/3Sn0xZVu1LFgecuoWDhbK954jYg20QKBgBDTsnGG/q9OoRXwhciDg9rcs/5V+E93lTkITLiiU9BgjYPVyrjyzVsT0dSXxxn6hUfojVm2234icFIw5UnQPQOS6dSeTTbJhZ442x9mduo/sBCwgO5z406l0O02Otk300TUy4K4fTtay/AaeV1VaSRcyElESn6ceLEV5x5lNHADAoGBAJSQOeCh4Oy+I/Gx7BhK1pqL2unlokfpRekAfWDioIl2QQ4U/VtopVSAZTA5K8+pgAIgxABmAwSE8Cll43gOJhBHAx7mHWsh0RHQq/U3uQ5wajXGdJl9lQxQHTKJsSAPe5i+rveW4n6CoM4cJM1/4kIIFsx9JtNaCiAY3taq4JqxAoGBALXr3+iqpqANBQAqSg+EMgfsWkvFuRae3OvYpYGGMyAZSEsV35qO81s9NjRlFHj7+AxRjBEf3DwAorTI7eMTOPUGabfftG6djeGrqfELOUCYL5vj1EFs/YmRe3w3QG86yxXVFHczOsNZJzsNxPsc9dXNsht2hlF/mLnKu4/Qs5+A
-  public-key: |-
-    MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAqws8ysZv2oDBF4wuGHc//oZFl+ca3QWGDUgQxNg4Z5OvSPMXfHVPnmayOXzhixMDtQnYOQ7pDNFiAPrHZ3dXdlBht6wJLChgnX14IDMD9W/DCUlQAkD507ne5QIWoC1+z0BOHln828su5WlHjBGzbBgNVzr+NSBN3zMbaRkIM1LXl0oLHx0hSfFzsIkNhxT0YOm0fW4ARCZjXLSig3T5wfhO8bt/tynNkugWBMQhbm/Mjl3ZEdDfjFsqbtCH8Q8npxy0h0ns7hLVQR2fjm8tp7QwGZuubFkywctmf68OlW53duNftHMPezuthATIpFuub7ucTKAqAWRh/V7r5pCnFwIDAQAB
+  private-key: ${JWT_PRIVATE_KEY:}
+  public-key: ${JWT_PUBLIC_KEY:}
   expiration: 14400000 # 4 hours in ms
   refresh-expiration: 2592000000 # 30 days in ms
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      probes:
+        enabled: true
 
 springdoc:
   api-docs:
@@ -99,14 +120,18 @@ springdoc:
 
 app:
   cors:
-    allowed-origins: ${ALLOWED_ORIGINS:http://localhost:3000,http://localhost:3001}
+    allowed-origins: ${ALLOWED_ORIGINS:http://localhost:3000,http://localhost:3001,https://cafe-test-qr-frontend.vercel.app,https://cafe-qr-frontend.vercel.app,https://test-cafe-qr-delivery-app.vercel.app,https://cafe-qr-delivery-app.vercel.app,https://test-cafe-qr-delivery-website.vercel.app,https://cafe-qr-delivery-website.vercel.app,https://cafeqr-delivery-website.vercel.app,https://cafeqr-frontend.pages.dev,https://*.pages.dev}
   frontend-url: ${FRONTEND_URL:http://localhost:3000}
   otp:
     log-code: ${OTP_LOG_CODE:false}
+  backup:
+    storage-dir: ${CAFEQR_BACKUP_STORAGE_DIR:./data/backups}
+    restore-token-minutes: ${CAFEQR_BACKUP_RESTORE_TOKEN_MINUTES:30}
   firebase:
     project-id: ${FIREBASE_PROJECT_ID:}
     client-email: ${FIREBASE_CLIENT_EMAIL:}
     private-key: ${FIREBASE_PRIVATE_KEY:}
+
 
 razorpay:
   key-id: ${RAZORPAY_KEY_ID:}
@@ -114,7 +139,7 @@ razorpay:
   webhook-secret: ${RAZORPAY_WEBHOOK_SECRET:}
 
 subscription:
-  monthly-amount-paise: ${SUBSCRIPTION_MONTHLY_AMOUNT_PAISE:100}
+  monthly-amount-paise: ${SUBSCRIPTION_MONTHLY_AMOUNT_PAISE:9900}
 
 logging:
   level:
