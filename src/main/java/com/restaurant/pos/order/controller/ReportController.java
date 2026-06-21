@@ -25,7 +25,7 @@ public class ReportController {
     private final ReportService reportService;
 
     @GetMapping("/sales-summary")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<SalesSummaryDto>> getSalesSummary(
             @RequestParam(required = false) Instant from,
             @RequestParam(required = false) Instant to,
@@ -36,7 +36,7 @@ public class ReportController {
     }
 
     @GetMapping("/sales-orders")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<List<OrderReportDto>>> getSalesOrders(
             @RequestParam(required = false) Instant from,
             @RequestParam(required = false) Instant to,
@@ -47,7 +47,7 @@ public class ReportController {
     }
 
     @GetMapping("/sales-invoices")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<List<SalesInvoiceReportDto>>> getSalesInvoices(
             @RequestParam(required = false) Instant from,
             @RequestParam(required = false) Instant to,
@@ -59,7 +59,7 @@ public class ReportController {
     }
 
     @GetMapping("/item-wise")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<List<ItemSalesDto>>> getItemWiseSales(
             @RequestParam(required = false) Instant from,
             @RequestParam(required = false) Instant to,
@@ -70,7 +70,7 @@ public class ReportController {
     }
 
     @GetMapping("/payment-breakdown")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<List<PaymentBreakdownDto>>> getPaymentBreakdown(
             @RequestParam(required = false) Instant from,
             @RequestParam(required = false) Instant to,
@@ -81,7 +81,7 @@ public class ReportController {
     }
 
     @GetMapping("/tax-summary")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<List<TaxSummaryDto>>> getTaxSummary(
             @RequestParam(required = false) Instant from,
             @RequestParam(required = false) Instant to,
@@ -92,7 +92,7 @@ public class ReportController {
     }
 
     @GetMapping("/tax-report-details")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<TaxReportDetailsDto>> getTaxReportDetails(
             @RequestParam(required = false) Instant from,
             @RequestParam(required = false) Instant to,
@@ -105,7 +105,7 @@ public class ReportController {
 
 
     @GetMapping("/hourly")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<List<HourlySalesDto>>> getHourlySales(
             @RequestParam(required = false) Instant from,
             @RequestParam(required = false) Instant to,
@@ -116,7 +116,7 @@ public class ReportController {
     }
 
     @GetMapping("/invoices")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<List<InvoiceReportDto>>> getInvoices(
             @RequestParam(required = false) Instant from,
             @RequestParam(required = false) Instant to,
@@ -128,7 +128,7 @@ public class ReportController {
     }
 
     @GetMapping("/profit-loss")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<ProfitLossDto>> getProfitLoss(
             @RequestParam(required = false) Instant from,
             @RequestParam(required = false) Instant to,
@@ -139,7 +139,7 @@ public class ReportController {
     }
 
     @PostMapping("/invoices/{id}/void")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<Invoice>> voidInvoice(
             @PathVariable UUID id,
             @RequestBody(required = false) Map<String, String> body) {

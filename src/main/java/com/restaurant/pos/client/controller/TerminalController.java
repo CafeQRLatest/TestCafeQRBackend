@@ -19,31 +19,31 @@ public class TerminalController {
     private final TerminalService service;
 
     @GetMapping
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<List<Terminal>>> getTerminals() {
         return ResponseEntity.ok(ApiResponse.success(service.getMyTerminals()));
     }
 
     @GetMapping("/org/{orgId}")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<List<Terminal>>> getTerminalsByOrg(@PathVariable UUID orgId) {
         return ResponseEntity.ok(ApiResponse.success(service.getTerminalsByOrg(orgId)));
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<Terminal>> getTerminal(@PathVariable UUID id) {
         return ResponseEntity.ok(ApiResponse.success(service.getTerminalById(id)));
     }
 
     @PostMapping
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<Terminal>> createTerminal(@RequestBody Terminal terminal) {
         return ResponseEntity.ok(ApiResponse.success(service.saveTerminal(terminal)));
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<Terminal>> updateTerminal(@PathVariable UUID id, @RequestBody Terminal terminal) {
         terminal.setId(id);
         return ResponseEntity.ok(ApiResponse.success(service.saveTerminal(terminal)));
