@@ -204,6 +204,9 @@ public class AuthService {
                 .country(client.getCountry())
                 .subscriptionStatus(client.getSubscriptionStatus())
                 .subscriptionExpiryDate(client.getSubscriptionExpiryDate())
+                .canCancelOrder(user.getRoleEntity() != null ? user.getRoleEntity().getCanCancelOrder() : true)
+                .canDeleteOrderItem(user.getRoleEntity() != null ? user.getRoleEntity().getCanDeleteOrderItem() : true)
+                .canDecrementOrderItem(user.getRoleEntity() != null ? user.getRoleEntity().getCanDecrementOrderItem() : true)
                 .build();
     }
 

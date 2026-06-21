@@ -36,6 +36,18 @@ public class RoleEntity extends BaseEntity {
     @Column(name = "isactive", length = 1)
     private String isactive = "Y";
 
+    @Column(name = "can_cancel_order")
+    @Builder.Default
+    private Boolean canCancelOrder = true;
+
+    @Column(name = "can_delete_order_item")
+    @Builder.Default
+    private Boolean canDeleteOrderItem = true;
+
+    @Column(name = "can_decrement_order_item")
+    @Builder.Default
+    private Boolean canDecrementOrderItem = true;
+
     @ManyToMany(fetch = FetchType.EAGER)
     @JoinTable(
         name = "role_permissions",
