@@ -37,25 +37,25 @@ public class CreditController {
     }
 
     @PostMapping("/customers")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<CreditCustomerDto>> createCustomer(@RequestBody CreditCustomerRequest request) {
         return ResponseEntity.ok(ApiResponse.success(creditService.createCustomer(request)));
     }
 
     @PutMapping("/customers/{id}")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<CreditCustomerDto>> updateCustomer(@PathVariable UUID id, @RequestBody CreditCustomerRequest request) {
         return ResponseEntity.ok(ApiResponse.success(creditService.updateCustomer(id, request)));
     }
 
     @PostMapping("/customers/{id}/suspend")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<CreditCustomerDto>> suspendCustomer(@PathVariable UUID id) {
         return ResponseEntity.ok(ApiResponse.success(creditService.suspendCustomer(id)));
     }
 
     @PostMapping("/customers/{id}/reactivate")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<CreditCustomerDto>> reactivateCustomer(@PathVariable UUID id) {
         return ResponseEntity.ok(ApiResponse.success(creditService.reactivateCustomer(id)));
     }
@@ -73,13 +73,13 @@ public class CreditController {
     }
 
     @PostMapping("/customers/{id}/payments")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<CreditCustomerDto>> recordPayment(@PathVariable UUID id, @RequestBody CreditPaymentRequest request) {
         return ResponseEntity.ok(ApiResponse.success(creditService.recordPayment(id, request)));
     }
 
     @GetMapping("/report")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<CreditReportDto>> report(
             @RequestParam(required = false) Instant from,
             @RequestParam(required = false) Instant to) {

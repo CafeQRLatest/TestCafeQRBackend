@@ -19,19 +19,19 @@ public class DocumentSequenceController {
     private final DocumentSequenceService sequenceService;
 
     @GetMapping
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<List<DocumentSequence>>> getAllSequences() {
         return ResponseEntity.ok(ApiResponse.success(sequenceService.getAllSequences()));
     }
 
     @PostMapping
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<DocumentSequence>> createSequence(@RequestBody DocumentSequence sequence) {
         return ResponseEntity.ok(ApiResponse.success(sequenceService.createSequence(sequence)));
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<DocumentSequence>> updateSequence(
             @PathVariable UUID id, 
             @RequestBody DocumentSequence sequence) {

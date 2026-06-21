@@ -20,13 +20,13 @@ public class OfflineSequenceLeaseController {
     private final OfflineSequenceLeaseService leaseService;
 
     @GetMapping("/active")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<List<OfflineSequenceLease>>> active(@RequestParam(required = false) UUID terminalId) {
         return ResponseEntity.ok(ApiResponse.success(leaseService.active(terminalId)));
     }
 
     @PostMapping("/reserve-defaults")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<List<OfflineSequenceLease>>> reserveDefaults(@RequestBody(required = false) ReserveOfflineLeaseRequest request) {
         UUID terminalId = request == null ? null : request.getTerminalId();
         Integer blockSize = request == null ? null : request.getBlockSize();
