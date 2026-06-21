@@ -114,11 +114,11 @@ public class AuthService {
                     roleMenus.addAll(allMenus);
                 } else if ("ADMIN".equals(name) || "MANAGER".equals(name)) {
                     allMenus.stream()
-                            .filter(m -> Arrays.asList("Point of Sale", "Menu Management", "Dashboard").contains(m.getName()))
+                            .filter(m -> Arrays.asList("Sales", "Product Management", "Dashboard").contains(m.getName()))
                             .forEach(roleMenus::add);
                 } else if ("STAFF".equals(name)) {
                     allMenus.stream()
-                            .filter(m -> "Point of Sale".equals(m.getName()))
+                            .filter(m -> "Sales".equals(m.getName()))
                             .forEach(roleMenus::add);
                 }
 
