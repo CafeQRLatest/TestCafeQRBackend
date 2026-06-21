@@ -19,25 +19,25 @@ public class DeviceController {
     private final DeviceService service;
 
     @GetMapping
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<List<Device>>> getDevices() {
         return ResponseEntity.ok(ApiResponse.success(service.getMyDevices()));
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<Device>> getDevice(@PathVariable UUID id) {
         return ResponseEntity.ok(ApiResponse.success(service.getDeviceById(id)));
     }
 
     @PostMapping
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<Device>> createDevice(@RequestBody Device device) {
         return ResponseEntity.ok(ApiResponse.success(service.saveDevice(device)));
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<Device>> updateDevice(@PathVariable UUID id, @RequestBody Device device) {
         device.setId(id);
         return ResponseEntity.ok(ApiResponse.success(service.saveDevice(device)));

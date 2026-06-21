@@ -29,7 +29,7 @@ public class ClientController {
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("hasRole('SUPER_ADMIN') or hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<Client>> getClient(@PathVariable UUID id, Authentication authentication) {
         User user = (User) authentication.getPrincipal();
         boolean isSuperAdmin = authentication.getAuthorities().stream()
@@ -54,7 +54,7 @@ public class ClientController {
      * so we can cast it directly and use users.client_id — always correctly linked.
      */
     @GetMapping("/me")
-    @PreAuthorize("hasRole('ADMIN') or hasRole('SUPER_ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<Client>> getCurrentClient(Authentication authentication) {
         System.out.println("===> [DEBUG] ClientController /me: authentication=" + authentication);
         if (authentication == null) {
@@ -68,7 +68,7 @@ public class ClientController {
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("hasRole('ADMIN') or hasRole('SUPER_ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<Client>> updateClient(@PathVariable UUID id, @RequestBody Client client, Authentication authentication) {
         User user = (User) authentication.getPrincipal();
         boolean isSuperAdmin = authentication.getAuthorities().stream()

@@ -24,7 +24,7 @@ public class ConfigurationController {
     }
 
     @PutMapping
-    @PreAuthorize("hasRole('SUPER_ADMIN') or hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<ConfigurationDto>> updateConfiguration(@RequestBody ConfigurationDto dto) {
         return ResponseEntity.ok(ApiResponse.success(configurationService.updateConfiguration(dto)));
     }
@@ -38,7 +38,7 @@ public class ConfigurationController {
      * Accessible by SUPER_ADMIN and ADMIN to allow branch managers to view their billing settings.
      */
     @GetMapping("/branch/{orgId}")
-    @PreAuthorize("hasRole('SUPER_ADMIN') or hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<ConfigurationDto>> getBranchConfiguration(@PathVariable UUID orgId) {
         return ResponseEntity.ok(ApiResponse.success(configurationService.getConfigurationForBranch(orgId)));
     }
@@ -48,7 +48,7 @@ public class ConfigurationController {
      * including fallback to client default when no branch override exists.
      */
     @GetMapping("/branch/{orgId}/effective")
-    @PreAuthorize("hasRole('SUPER_ADMIN') or hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<ConfigurationDto>> getEffectiveBranchConfiguration(@PathVariable UUID orgId) {
         return ResponseEntity.ok(ApiResponse.success(configurationService.getEffectiveConfigurationForBranch(orgId)));
     }
