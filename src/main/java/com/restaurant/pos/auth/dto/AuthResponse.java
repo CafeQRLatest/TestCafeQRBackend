@@ -27,4 +27,7 @@ public class AuthResponse {
     private String country;
     private String subscriptionStatus;
     private java.time.LocalDateTime subscriptionExpiryDate;
+    private Boolean canCancelOrder;
+    private Boolean canDeleteOrderItem;
+    private Boolean canDecrementOrderItem;
 }
