@@ -1907,6 +1907,78 @@ public class OrderService {
         BigDecimal additionalDiscount = discountAmount.subtract(existingDiscount);
         if (additionalDiscount.compareTo(BigDecimal.ZERO) > 0) {
             order.setTotalDiscountAmount(existingDiscount.add(additionalDiscount));
+
+            // Allocate the discount proportionally across lines so that:
+            //  • the per-line DISCOUNT column shows correctly in document viewer
+            //  • taxableAmount / taxAmount / lineTotal are recalculated correctly
+            //  • calculateTaxExclusiveDiscount returns the right ex-tax value
+            if (order.getLines() != null && !order.getLines().isEmpty()) {
+                // Compute the total gross (inc-tax) across active lines as the distribution base.
+                BigDecimal totalLineGross = order.getLines().stream()
+                        .filter(OrderLine::isActive)
+                        .map(l -> l.getGrossLineAmount() != null ? l.getGrossLineAmount()
+                                : (l.getLineTotal() != null ? l.getLineTotal() : BigDecimal.ZERO))
+                        .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+                if (totalLineGross.compareTo(BigDecimal.ZERO) > 0) {
+                    BigDecimal updatedTotalTax = BigDecimal.ZERO;
+                    for (OrderLine line : order.getLines()) {
+                        if (!line.isActive()) continue;
+                        BigDecimal gross = line.getGrossLineAmount() != null ? line.getGrossLineAmount()
+                                : (line.getLineTotal() != null ? line.getLineTotal() : BigDecimal.ZERO);
+                        // Proportional share of the order discount for this line (inc-tax)
+                        BigDecimal lineDiscShare = additionalDiscount
+                                .multiply(gross)
+                                .divide(totalLineGross, 4, RoundingMode.HALF_UP);
+                        // Accumulate allocatedOrderDiscount on the line
+                        BigDecimal prevAlloc = line.getAllocatedOrderDiscount() != null
+                                ? line.getAllocatedOrderDiscount() : BigDecimal.ZERO;
+                        line.setAllocatedOrderDiscount(prevAlloc.add(lineDiscShare).setScale(2, RoundingMode.HALF_UP));
+                        // Also update discountAmount (total line-level discount)
+                        BigDecimal prevDisc = line.getDiscountAmount() != null
+                                ? line.getDiscountAmount() : BigDecimal.ZERO;
+                        line.setDiscountAmount(prevDisc.add(lineDiscShare).setScale(2, RoundingMode.HALF_UP));
+
+                        // Recalculate ex-tax taxable base and tax amount for the line
+                        if (line.getGrossLineAmount() != null && line.getTaxType() != null) {
+                            BigDecimal taxRate = line.getTaxRate() != null ? line.getTaxRate() : BigDecimal.ZERO;
+                            boolean inclusive = "INCLUSIVE".equalsIgnoreCase(String.valueOf(line.getTaxType()));
+                            // Convert the line's discount share to ex-tax
+                            BigDecimal lineDiscExTax = inclusive
+                                    ? lineDiscShare.divide(
+                                            BigDecimal.ONE.add(taxRate.divide(BigDecimal.valueOf(100), 6, RoundingMode.HALF_UP)),
+                                            4, RoundingMode.HALF_UP)
+                                    : lineDiscShare;
+                            BigDecimal oldTaxable = line.getTaxableAmount() != null
+                                    ? line.getTaxableAmount() : BigDecimal.ZERO;
+                            BigDecimal newTaxable = oldTaxable.subtract(lineDiscExTax).max(BigDecimal.ZERO)
+                                    .setScale(2, RoundingMode.HALF_UP);
+                            line.setTaxableAmount(newTaxable);
+                            BigDecimal newTax = newTaxable
+                                    .multiply(taxRate)
+                                    .divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
+                            line.setTaxAmount(newTax);
+                            updatedTotalTax = updatedTotalTax.add(newTax);
+                            // lineTotal = taxable base + tax
+                            line.setLineTotal(newTaxable.add(newTax).setScale(2, RoundingMode.HALF_UP));
+                        }
+                    }
+                    // Sync order-level tax total so tax report is correct
+                    if (updatedTotalTax.compareTo(BigDecimal.ZERO) > 0) {
+                        order.setTotalTaxAmount(updatedTotalTax.setScale(2, RoundingMode.HALF_UP));
+                    }
+                    // Set grossAmount (pre-discount inc-tax face value) for accounting/reporting
+                    if (order.getGrossAmount() == null || order.getGrossAmount().compareTo(BigDecimal.ZERO) == 0) {
+                        order.setGrossAmount(totalLineGross.setScale(2, RoundingMode.HALF_UP));
+                    }
+                    // Set discount metadata so reports can query it
+                    if (order.getOrderDiscountType() == null) {
+                        order.setOrderDiscountType("AMOUNT");
+                        order.setOrderDiscountValue(discountAmount);
+                        order.setDiscountSource(com.restaurant.pos.order.domain.DiscountSource.MANUAL);
+                    }
+                }
+            }
         }
 
         BigDecimal payable = currentTotal
