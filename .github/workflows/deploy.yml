@@ -77,5 +77,9 @@ jobs:
           script: |
             set -euo pipefail
             cd /home/cafeqr/app
+            # Temporary fix: move .env.frontend out of the way so git status is clean for the pull
+            if [ -f .env.frontend ]; then mv .env.frontend ../.env.frontend.tmp; fi
+            git pull --ff-only || true
+            if [ -f ../.env.frontend.tmp ]; then mv ../.env.frontend.tmp .env.frontend; fi
             chmod +x scripts/hostinger/deploy.sh
             ./scripts/hostinger/deploy.sh backend
