@@ -47,7 +47,11 @@ public class RoleService {
     }
 
     public List<Menu> getAllMenus() {
-        return menuRepository.findByIsactive("Y");
+        UUID currentTenant = TenantContext.getCurrentTenant();
+        if (currentTenant == null) {
+            return menuRepository.findByIsactive("Y");
+        }
+        return menuRepository.findByIsactiveAndClientId("Y", currentTenant);
     }
 
     @Transactional

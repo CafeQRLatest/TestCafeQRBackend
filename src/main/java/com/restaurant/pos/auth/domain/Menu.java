@@ -17,7 +17,10 @@ public class Menu {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
-    @Column(unique = true, nullable = false)
+    @Column(name = "client_id")
+    private UUID clientId;
+
+    @Column(nullable = false)
     private String name;
 
     @Column(nullable = false)
