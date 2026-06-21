@@ -886,6 +886,9 @@ public class AccountingService {
             BigDecimal lineDiscountExTax = lineGrossExTax.subtract(taxable).max(BigDecimal.ZERO);
             totalExTaxDiscount = totalExTaxDiscount.add(lineDiscountExTax);
         }
+        if (totalExTaxDiscount.compareTo(BigDecimal.ZERO) == 0 && order.getTotalDiscountAmount() != null) {
+            totalExTaxDiscount = money(order.getTotalDiscountAmount());
+        }
         return totalExTaxDiscount.setScale(2, RoundingMode.HALF_UP);
     }
 
