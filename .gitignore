@@ -18,6 +18,9 @@ maven.zip
 # OS
 .DS_Store
 Thumbs.db
+*.swp
+.*.swp
+
 
 # Logs
 *.log
