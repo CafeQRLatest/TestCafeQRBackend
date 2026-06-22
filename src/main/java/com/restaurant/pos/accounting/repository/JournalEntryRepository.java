@@ -87,8 +87,8 @@ public interface JournalEntryRepository extends JpaRepository<JournalEntry, UUID
             WHERE j.clientId = :clientId
               AND (:orgId IS NULL OR j.orgId = :orgId)
               AND (:terminalId IS NULL OR j.terminalId = :terminalId)
-              AND (:from IS NULL OR j.entryDate >= :from)
-              AND (:to IS NULL OR j.entryDate <= :to)
+              AND (CAST(:from AS timestamp) IS NULL OR j.entryDate >= :from)
+              AND (CAST(:to AS timestamp) IS NULL OR j.entryDate <= :to)
               AND j.status = :status
               AND COALESCE(UPPER(j.isactive), 'Y') <> 'N'
             GROUP BY l.accountId
@@ -107,8 +107,8 @@ public interface JournalEntryRepository extends JpaRepository<JournalEntry, UUID
             WHERE j.clientId = :clientId
               AND (:orgId IS NULL OR j.orgId = :orgId)
               AND (:terminalId IS NULL OR j.terminalId = :terminalId)
-              AND (:from IS NULL OR j.entryDate >= :from)
-              AND (:to IS NULL OR j.entryDate <= :to)
+              AND (CAST(:from AS timestamp) IS NULL OR j.entryDate >= :from)
+              AND (CAST(:to AS timestamp) IS NULL OR j.entryDate <= :to)
               AND j.status = :status
               AND COALESCE(UPPER(j.isactive), 'Y') <> 'N'
             """)
@@ -127,8 +127,8 @@ public interface JournalEntryRepository extends JpaRepository<JournalEntry, UUID
             WHERE j.clientId = :clientId
               AND (:orgId IS NULL OR j.orgId = :orgId)
               AND (:terminalId IS NULL OR j.terminalId = :terminalId)
-              AND (:from IS NULL OR j.entryDate >= :from)
-              AND (:to IS NULL OR j.entryDate <= :to)
+              AND (CAST(:from AS timestamp) IS NULL OR j.entryDate >= :from)
+              AND (CAST(:to AS timestamp) IS NULL OR j.entryDate <= :to)
               AND j.status = :status
               AND COALESCE(UPPER(j.isactive), 'Y') <> 'N'
               AND j.sourceId IS NOT NULL
