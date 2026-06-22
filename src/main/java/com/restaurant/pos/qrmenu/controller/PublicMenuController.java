@@ -138,6 +138,27 @@ public class PublicMenuController {
     }
 
     /**
+     * GET /api/v1/public/menu/{clientId}/default-org
+     * Helper endpoint for legacy QR code redirects. Returns the default orgId for a given clientId.
+     */
+    @GetMapping("/{clientId}/default-org")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getDefaultOrg(@PathVariable UUID clientId) {
+        List<com.restaurant.pos.client.domain.Organization> orgs = organizationRepository.findAllByClientId(clientId);
+        
+        if (orgs == null || orgs.isEmpty()) {
+            return ResponseEntity.ok(ApiResponse.success(Map.of("orgId", clientId))); // Fallback
+        }
+        
+        // Find HQ or just use the first one
+        com.restaurant.pos.client.domain.Organization defaultOrg = orgs.stream()
+                .filter(o -> "HQ".equals(o.getBranchCode()))
+                .findFirst()
+                .orElse(orgs.get(0));
+                
+        return ResponseEntity.ok(ApiResponse.success(Map.of("orgId", defaultOrg.getId())));
+    }
+
+    /**
      * POST /api/v1/public/menu/{clientId}/{orgId}/order
      * Places an order from the QR menu (no auth required).
      */
