@@ -2162,6 +2162,7 @@ public class OrderService {
             setTableStatus(oldTableId, "AVAILABLE", saved.getOrgId());
         }
         handleTableStatus(saved);
+        publishOrderStatusUpdate(saved);
         return hydrateOrder(saved);
     }
 
@@ -2814,20 +2815,37 @@ public class OrderService {
     private void publishOrderStatusUpdate(Order order) {
         if (order == null)
             return;
-        try {
-            String baseOrderNo = order.getOrderNo();
-            if (baseOrderNo != null && baseOrderNo.contains("_VOID_")) {
-                baseOrderNo = baseOrderNo.substring(0, baseOrderNo.indexOf("_VOID_"));
+        
+        Runnable publishTask = () -> {
+            try {
+                String baseOrderNo = order.getOrderNo();
+                if (baseOrderNo != null && baseOrderNo.contains("_VOID_")) {
+                    baseOrderNo = baseOrderNo.substring(0, baseOrderNo.indexOf("_VOID_"));
+                }
+                String voidPrefix = baseOrderNo + "_VOID_%";
+                List<Order> revisions = orderRepository.findAllRevisionsByOrderNo(order.getClientId(), baseOrderNo,
+                        voidPrefix);
+                for (Order rev : revisions) {
+                    OrderStatusSseController.publishStatusUpdate(rev.getId(), order.getOrderStatus());
+                }
+            } catch (Exception e) {
+                log.error("Failed to publish order status update to all revisions", e);
+                OrderStatusSseController.publishStatusUpdate(order.getId(), order.getOrderStatus());
             }
-            String voidPrefix = baseOrderNo + "_VOID_%";
-            List<Order> revisions = orderRepository.findAllRevisionsByOrderNo(order.getClientId(), baseOrderNo,
-                    voidPrefix);
-            for (Order rev : revisions) {
-                OrderStatusSseController.publishStatusUpdate(rev.getId(), order.getOrderStatus());
-            }
-        } catch (Exception e) {
-            log.error("Failed to publish order status update to all revisions", e);
-            OrderStatusSseController.publishStatusUpdate(order.getId(), order.getOrderStatus());
+        };
+
+        if (org.springframework.transaction.support.TransactionSynchronizationManager.isSynchronizationActive()
+                && org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive()) {
+            org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
+                new org.springframework.transaction.support.TransactionSynchronization() {
+                    @Override
+                    public void afterCommit() {
+                        publishTask.run();
+                    }
+                }
+            );
+        } else {
+            publishTask.run();
         }
     }
 
