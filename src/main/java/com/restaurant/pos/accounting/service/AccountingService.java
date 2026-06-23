@@ -43,6 +43,7 @@ import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
+@Transactional(readOnly = true)
 public class AccountingService {
 
     private static final int DEFAULT_REPORT_DAYS = 31;
@@ -615,6 +616,10 @@ public class AccountingService {
         Instant instantFrom = range.from.atZone(IST).toInstant();
         Instant instantTo = range.to.atZone(IST).toInstant();
         return orderRepository.findAll((root, query, cb) -> {
+            // Eagerly fetch the order lines to avoid LazyInitializationException and N+1 queries
+            if (Long.class != query.getResultType() && void.class != query.getResultType()) {
+                root.fetch("lines", jakarta.persistence.criteria.JoinType.LEFT);
+            }
             List<Predicate> predicates = new ArrayList<>();
             predicates.add(cb.equal(root.get("clientId"), clientId));
             if (orgId != null) {
