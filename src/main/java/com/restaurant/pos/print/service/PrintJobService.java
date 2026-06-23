@@ -436,6 +436,9 @@ public class PrintJobService {
         if ("manual".equalsIgnoreCase(reason)) {
             return base + ":manual:" + UUID.randomUUID();
         }
+        if ("edit".equalsIgnoreCase(reason)) {
+            return base + ":edit:" + UUID.randomUUID();
+        }
         return base + ":auto";
     }
 
