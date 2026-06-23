@@ -526,7 +526,7 @@ public class ExpenseService {
 
         return expensePage.map(expense -> {
             String updatedByVal = expense.getUpdatedBy();
-            String updaterName = userNames.getOrDefault(updatedByVal, updatedByVal);
+            String updaterName = updatedByVal == null ? null : userNames.getOrDefault(updatedByVal, updatedByVal);
             return expenseMapper.toExpenseResponse(
                     expense,
                     categoryNames.getOrDefault(expense.getCategoryId(), "Uncategorized"),
