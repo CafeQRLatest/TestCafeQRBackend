@@ -1641,6 +1641,33 @@ public class OrderService {
         prepareCreditCustomer(newOrder, Boolean.TRUE.equals(newOrder.getIsCredit()));
         prepareCustomerFields(newOrder);
 
+        // SNAPSHOT the old order's lines BEFORE saving the new order,
+        // because saveAndFlush will merge and mutate the OrderLine entities in the DB,
+        // which would cause oldOrder.getLines() to reflect the new state.
+        Order oldOrderSnapshot = new Order();
+        if (oldOrder.getLines() != null) {
+            for (com.restaurant.pos.order.domain.OrderLine oldLine : oldOrder.getLines()) {
+                com.restaurant.pos.order.domain.OrderLine copy = new com.restaurant.pos.order.domain.OrderLine();
+                copy.setProductId(oldLine.getProductId());
+                copy.setVariantId(oldLine.getVariantId());
+                copy.setProductName(oldLine.getProductName());
+                copy.setCategoryName(oldLine.getCategoryName());
+                copy.setIsPackagedGood(oldLine.getIsPackagedGood());
+                copy.setQuantity(oldLine.getQuantity());
+                copy.setUnitOfMeasure(oldLine.getUnitOfMeasure());
+                copy.setUnitPrice(oldLine.getUnitPrice());
+                copy.setTaxRate(oldLine.getTaxRate());
+                copy.setTaxAmount(oldLine.getTaxAmount());
+                copy.setDiscountAmount(oldLine.getDiscountAmount());
+                copy.setLineTotal(oldLine.getLineTotal());
+                oldOrderSnapshot.addLine(copy);
+            }
+        }
+
+        List<com.restaurant.pos.order.domain.OrderLine> addedLines = new java.util.ArrayList<>();
+        List<com.restaurant.pos.order.domain.OrderLine> removedLines = new java.util.ArrayList<>();
+        calculateKotDelta(oldOrderSnapshot, newOrder, addedLines, removedLines);
+
         Order saved = orderRepository.saveAndFlush(newOrder);
         linkCustomersToSavedOrder(saved);
 
@@ -1691,9 +1718,6 @@ public class OrderService {
 
         Order hydrated = hydrateOrder(saved);
         hydrated.setSkipAutoPrintKinds(newOrder.getSkipAutoPrintKinds());
-        List<OrderLine> addedLines = new java.util.ArrayList<>();
-        List<OrderLine> removedLines = new java.util.ArrayList<>();
-        calculateKotDelta(oldOrder, hydrated, addedLines, removedLines);
         enqueueCloudPrintJobs(hydrated, addedLines, removedLines);
         return hydrated;
     }
