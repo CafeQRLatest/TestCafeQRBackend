@@ -276,7 +276,8 @@ public class PrintJobService {
         if (clientId == null) {
             throw new BusinessException("Print job tenant is missing");
         }
-        String dedupeKey = buildDedupeKey(order, PrintJobKind.KOT, reason);
+        // Append a UUID so multiple edits on the same order generate distinct print jobs
+        String dedupeKey = buildDedupeKey(order, PrintJobKind.KOT, reason) + "_" + UUID.randomUUID().toString();
 
         return printJobRepository.findByClientIdAndDedupeKey(clientId, dedupeKey)
                 .orElseGet(() -> createKotEditJob(order, addedLines, removedLines, reason, dedupeKey, clientId));
