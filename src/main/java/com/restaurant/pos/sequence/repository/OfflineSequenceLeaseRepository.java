@@ -28,4 +28,12 @@ public interface OfflineSequenceLeaseRepository extends JpaRepository<OfflineSeq
             DocumentType documentType,
             String status
     );
+
+    boolean existsByClientIdAndOrgIdAndDocumentTypeAndStartNumberLessThanEqualAndEndNumberGreaterThanEqual(
+            UUID clientId,
+            UUID orgId,
+            DocumentType documentType,
+            Long endNumber,
+            Long startNumber
+    );
 }
