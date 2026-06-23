@@ -188,6 +188,12 @@ public class OfflineSequenceLeaseService {
             long start,
             int blockSize
     ) {
+        long end = start + blockSize - 1;
+        if (leaseRepository.existsByClientIdAndOrgIdAndDocumentTypeAndStartNumberLessThanEqualAndEndNumberGreaterThanEqual(
+                clientId, orgId, documentType, end, start)) {
+            return true;
+        }
+
         for (long number = start; number < start + blockSize; number++) {
             String documentNo = format(prefix, suffix, paddingLength, number);
             if (documentNumberExists(documentType, clientId, orgId, documentNo)) {
