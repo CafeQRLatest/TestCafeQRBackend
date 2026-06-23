@@ -226,7 +226,7 @@ public class OrderService {
                 }
                 if (addedLines != null || removedLines != null) {
                     if (!addedLines.isEmpty() || !removedLines.isEmpty()) {
-                        printJobService.enqueueKotEditJob(order, addedLines, removedLines, "auto");
+                        printJobService.enqueueKotEditJob(order, addedLines, removedLines, "edit");
                     }
                 } else {
                     printJobService.enqueueForOrder(order, PrintJobKind.KOT, "auto");
@@ -1641,7 +1641,7 @@ public class OrderService {
         prepareCreditCustomer(newOrder, Boolean.TRUE.equals(newOrder.getIsCredit()));
         prepareCustomerFields(newOrder);
 
-        Order saved = orderRepository.save(newOrder);
+        Order saved = orderRepository.saveAndFlush(newOrder);
         linkCustomersToSavedOrder(saved);
 
         saved.setRoundOffAmount(newOrder.getRoundOffAmount());
@@ -1726,7 +1726,7 @@ public class OrderService {
                 }
             }
         }
-        Order result = orderRepository.save(order);
+        Order result = orderRepository.saveAndFlush(order);
 
         if (shouldGenerateInvoice(result)) {
             generateInvoice(result);
