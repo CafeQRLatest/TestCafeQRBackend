@@ -1478,6 +1478,10 @@ public class OrderService {
         UUID oldTableId = oldOrder.getTableId();
         oldOrder.setOrderNo(
                 originalOrderNo + "_VOID_" + (oldOrder.getRevisionNumber() != null ? oldOrder.getRevisionNumber() : 0));
+        if (oldOrder.getSourceOperationId() != null) {
+            oldOrder.setSourceOperationId(
+                    oldOrder.getSourceOperationId() + "_VOID_" + (oldOrder.getRevisionNumber() != null ? oldOrder.getRevisionNumber() : 0));
+        }
         oldOrder.setOrderStatus("VOID");
         oldOrder.setIsactive("N");
         oldOrder.setTableId(null);
