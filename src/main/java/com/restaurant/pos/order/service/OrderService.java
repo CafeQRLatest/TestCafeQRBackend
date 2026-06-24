@@ -212,9 +212,11 @@ public class OrderService {
     private void enqueueCloudPrintJobs(Order order, List<OrderLine> addedLines, List<OrderLine> removedLines) {
         try {
             if (order == null || order.getOrderType() != OrderType.SALE || isMainOfflineSync(order)) {
+                log.info("enqueueCloudPrintJobs skipped: order is null or not a sale, or offline sync. Order: {}", order != null ? order.getId() : "null");
                 return;
             }
             String status = order.getOrderStatus();
+            log.info("enqueueCloudPrintJobs check: orderId={}, status={}, addedLines={}, removedLines={}", order.getId(), status, (addedLines != null ? addedLines.size() : 0), (removedLines != null ? removedLines.size() : 0));
             if ("KITCHEN".equalsIgnoreCase(status)
                     || "CONFIRMED".equalsIgnoreCase(status)
                     || "IN_PROGRESS".equalsIgnoreCase(status)
@@ -226,9 +228,13 @@ public class OrderService {
                 }
                 if (addedLines != null || removedLines != null) {
                     if (!addedLines.isEmpty() || !removedLines.isEmpty()) {
+                        log.info("Calling enqueueKotEditJob for order {}", order.getId());
                         printJobService.enqueueKotEditJob(order, addedLines, removedLines, "edit");
+                    } else {
+                        log.info("addedLines and removedLines are both empty for order {}, no KOT edit generated", order.getId());
                     }
                 } else {
+                    log.info("Calling enqueueForOrder (New KOT) for order {}", order.getId());
                     printJobService.enqueueForOrder(order, PrintJobKind.KOT, "auto");
                 }
             } else if ("BILLED".equalsIgnoreCase(status)) {

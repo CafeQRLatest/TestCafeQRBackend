@@ -77,18 +77,33 @@ public interface PrintJobRepository extends JpaRepository<PrintJob, UUID> {
               AND (p.nextAttemptAt IS NULL OR p.nextAttemptAt <= :now)
               AND (
                     p.targetTerminalId = :terminalId
-                    OR (p.targetTerminalId IS NULL AND p.sourceTerminalId = :terminalId)
                     OR (
-                         :fallback = true 
-                         AND p.targetTerminalId IS NULL 
+                         p.targetTerminalId IS NULL
                          AND (
-                              p.sourceTerminalId IS NULL 
-                              OR p.sourceTerminalId NOT IN (
-                                   SELECT s.terminalId 
-                                   FROM PrintStation s 
-                                   WHERE s.clientId = :clientId 
-                                     AND s.isactive = 'Y' 
-                                     AND s.stationTokenHash IS NOT NULL
+                              p.sourceTerminalId = :terminalId
+                              OR (
+                                   (p.sourceTerminalId IS NULL OR p.sourceTerminalId NOT IN (
+                                        SELECT s.terminalId 
+                                        FROM PrintStation s 
+                                        WHERE s.clientId = :clientId 
+                                          AND s.isactive = 'Y' 
+                                          AND s.stationTokenHash IS NOT NULL
+                                          AND s.lastHeartbeatAt IS NOT NULL
+                                          AND s.lastHeartbeatAt >= :offlineTimeout
+                                   ))
+                                   AND (
+                                        :fallback = true
+                                        OR NOT EXISTS (
+                                             SELECT 1 
+                                             FROM PrintStation s2 
+                                             WHERE s2.clientId = :clientId 
+                                               AND s2.isactive = 'Y' 
+                                               AND s2.stationTokenHash IS NOT NULL
+                                               AND s2.terminalId != :terminalId
+                                               AND s2.lastHeartbeatAt IS NOT NULL
+                                               AND s2.lastHeartbeatAt >= :offlineTimeout
+                                        )
+                                   )
                               )
                          )
                     )
@@ -103,6 +118,7 @@ public interface PrintJobRepository extends JpaRepository<PrintJob, UUID> {
             @Param("readyStatuses") Collection<PrintJobStatus> readyStatuses,
             @Param("leasedStatus") PrintJobStatus leasedStatus,
             @Param("now") LocalDateTime now,
+            @Param("offlineTimeout") LocalDateTime offlineTimeout,
             Pageable pageable
     );
 

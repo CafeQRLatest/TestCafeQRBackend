@@ -151,6 +151,7 @@ public class PrintStationService {
         PrintStation station = authenticate(rawToken);
         int limit = Math.max(1, Math.min(requestedLimit <= 0 ? 5 : requestedLimit, MAX_CLAIM));
         LocalDateTime now = LocalDateTime.now();
+        LocalDateTime offlineTimeout = now.minusSeconds(90);
         List<PrintJob> jobs = jobRepository.findStationClaimable(
                 station.getClientId(),
                 station.getOrgId(),
@@ -159,6 +160,7 @@ public class PrintStationService {
                 List.of(PrintJobStatus.PENDING, PrintJobStatus.RETRY, PrintJobStatus.RETRY_WAIT),
                 PrintJobStatus.LEASED,
                 now,
+                offlineTimeout,
                 PageRequest.of(0, limit)
         );
         for (PrintJob job : jobs) {
@@ -187,9 +189,8 @@ public class PrintStationService {
                 .filter(value -> station.getClientId().equals(value.getClientId()))
                 .filter(value -> station.getId().equals(value.getLeasedByStationId()))
                 .orElseThrow(() -> new BusinessException("Print job is not leased by this station"));
-        if (request == null || request.getLeaseToken() == null
-                || !request.getLeaseToken().equals(job.getLeaseToken())) {
-            throw new BusinessException("Print job lease is invalid");
+        if (request == null || request.getLeaseToken() == null) {
+            throw new BusinessException("Print job lease token is required");
         }
 
         PrintJobStatus status;

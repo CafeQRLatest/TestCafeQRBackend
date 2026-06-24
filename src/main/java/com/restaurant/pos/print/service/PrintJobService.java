@@ -276,10 +276,15 @@ public class PrintJobService {
         if (clientId == null) {
             throw new BusinessException("Print job tenant is missing");
         }
-        String dedupeKey = buildDedupeKey(order, PrintJobKind.KOT, reason);
+        // Append a UUID so multiple edits on the same order generate distinct print jobs
+        String dedupeKey = buildDedupeKey(order, PrintJobKind.KOT, reason) + "_" + UUID.randomUUID().toString();
+        log.info("enqueueKotEditJob: generated dedupeKey {} for order {}", dedupeKey, order.getId());
 
         return printJobRepository.findByClientIdAndDedupeKey(clientId, dedupeKey)
-                .orElseGet(() -> createKotEditJob(order, addedLines, removedLines, reason, dedupeKey, clientId));
+                .orElseGet(() -> {
+                    log.info("enqueueKotEditJob: no duplicate found, creating job for order {}", order.getId());
+                    return createKotEditJob(order, addedLines, removedLines, reason, dedupeKey, clientId);
+                });
     }
 
     private PrintJob createKotEditJob(Order order, List<OrderLine> addedLines, List<OrderLine> removedLines, String reason, String dedupeKey, UUID clientId) {
@@ -325,7 +330,9 @@ public class PrintJobService {
                     .build();
             job.setClientId(clientId);
             job.setOrgId(order.getOrgId());
-            return printJobRepository.save(job);
+            PrintJob saved = printJobRepository.save(job);
+            log.info("createKotEditJob: successfully created PrintJob {} for order {} with dedupeKey {}", saved.getId(), order.getId(), dedupeKey);
+            return saved;
         } catch (DataIntegrityViolationException ex) {
             return printJobRepository.findByClientIdAndDedupeKey(clientId, dedupeKey)
                     .orElseThrow(() -> ex);
