@@ -42,6 +42,7 @@ import com.restaurant.pos.print.service.PrintJobService;
 import com.restaurant.pos.push.service.PushNotificationService;
 import com.restaurant.pos.product.domain.Product;
 import com.restaurant.pos.product.repository.ProductRepository;
+import com.restaurant.pos.common.context.TimezoneResolver;
 import com.restaurant.pos.sequence.domain.DocumentType;
 import com.restaurant.pos.sequence.service.DocumentSequenceService;
 import com.restaurant.pos.sequence.service.OfflineSequenceLeaseService;
@@ -93,7 +94,6 @@ public class OrderService {
             "MIXED");
     private static final List<String> PAYMENT_SPLIT_METHODS = List.of("CASH", "ONLINE", "UPI", "CARD", "BANK",
             "CHEQUE");
-    private static final ZoneId BUSINESS_ZONE = ZoneId.of("Asia/Kolkata");
 
     private final OrderRepository orderRepository;
     private final InvoiceRepository invoiceRepository;
@@ -113,6 +113,7 @@ public class OrderService {
     private final BranchContextService branchContext;
     private final com.restaurant.pos.auth.repository.UserRepository userRepository;
     private final PushNotificationService pushNotificationService;
+    private final TimezoneResolver timezoneResolver;
 
     private void prepareSourceFields(Order order) {
         UUID terminalId = TenantContext.getCurrentTerminal();
@@ -183,7 +184,8 @@ public class OrderService {
 
     private LocalDateTime sourceBusinessDateTime(Order order) {
         if (order != null && order.getOrderDate() != null) {
-            return LocalDateTime.ofInstant(order.getOrderDate(), BUSINESS_ZONE);
+            ZoneId zoneId = timezoneResolver.resolveTimezone(order.getClientId(), order.getOrgId());
+            return LocalDateTime.ofInstant(order.getOrderDate(), zoneId);
         }
         if (order != null && order.getOfflineCreatedAt() != null) {
             return order.getOfflineCreatedAt();

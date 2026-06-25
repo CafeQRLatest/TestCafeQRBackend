@@ -38,6 +38,7 @@ public class Organization extends AuditableEntity {
     private String phone;
     private String email;
     private String gstin;
+    private String timezone;
     
     @Builder.Default
     @Column(name = "isactive", length = 1)

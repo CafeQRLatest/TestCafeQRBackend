@@ -50,8 +50,8 @@ public class ReportService {
     private final AccountingPostingService accountingPostingService;
     private final AccountingService accountingService;
     private final OrganizationRepository organizationRepository;
+    private final com.restaurant.pos.common.context.TimezoneResolver timezoneResolver;
 
-    private static final ZoneId IST = ZoneId.of("Asia/Kolkata");
 
     // ─── Sales Summary ──────────────────────────────────────────────────────
 
@@ -138,7 +138,7 @@ public class ReportService {
                     .totalTaxAmount(safe(o.getTotalTaxAmount()))
                     .totalDiscountAmount(safe(o.getTotalDiscountAmount()))
                     .grandTotal(safe(o.getGrandTotal()))
-                    .orderDate(od != null ? LocalDateTime.ofInstant(od, IST) : null)
+                    .orderDate(od != null ? LocalDateTime.ofInstant(od, timezoneResolver.resolveTimezone(o.getClientId(), o.getOrgId())) : null)
                     .createdAt(o.getCreatedAt())
                     .lines(lines)
                     .build();
@@ -330,8 +330,9 @@ public class ReportService {
         Map<Integer, BigDecimal[]> hourlyMap = new TreeMap<>();
 
         for (Order o : orders) {
-            Instant orderTime = o.getOrderDate() != null ? o.getOrderDate() : o.getCreatedAt().atZone(IST).toInstant();
-            int hour = LocalDateTime.ofInstant(orderTime, IST).getHour();
+            ZoneId zoneId = timezoneResolver.resolveTimezone(o.getClientId(), o.getOrgId());
+            Instant orderTime = o.getOrderDate() != null ? o.getOrderDate() : o.getCreatedAt().atZone(zoneId).toInstant();
+            int hour = LocalDateTime.ofInstant(orderTime, zoneId).getHour();
             hourlyMap.computeIfAbsent(hour, k -> new BigDecimal[]{BigDecimal.ZERO, BigDecimal.ZERO});
             BigDecimal[] vals = hourlyMap.get(hour);
             vals[0] = vals[0].add(BigDecimal.ONE);
@@ -360,8 +361,9 @@ public class ReportService {
         }
 
         // invoiceDate is LocalDateTime — convert Instant to LocalDateTime for comparison
-        LocalDateTime ldFrom = from != null ? LocalDateTime.ofInstant(from, IST) : null;
-        LocalDateTime ldTo = to != null ? LocalDateTime.ofInstant(to, IST) : null;
+        ZoneId zoneId = timezoneResolver.resolveTimezone(clientId, resolvedOrgId);
+        LocalDateTime ldFrom = from != null ? LocalDateTime.ofInstant(from, zoneId) : null;
+        LocalDateTime ldTo = to != null ? LocalDateTime.ofInstant(to, zoneId) : null;
 
         List<Invoice> allInvoices = invoiceRepository.findAll((root, query, cb) -> {
             var predicates = new ArrayList<jakarta.persistence.criteria.Predicate>();
@@ -447,8 +449,9 @@ public class ReportService {
     // ─── Profit & Loss ──────────────────────────────────────────────────────
 
     public ProfitLossDto getProfitLoss(Instant from, Instant to, UUID orgId, UUID terminalId) {
-        LocalDateTime ldFrom = from != null ? LocalDateTime.ofInstant(from, IST) : null;
-        LocalDateTime ldTo = to != null ? LocalDateTime.ofInstant(to, IST) : null;
+        ZoneId zoneId = timezoneResolver.resolveTimezone(TenantContext.getCurrentTenant(), orgId);
+        LocalDateTime ldFrom = from != null ? LocalDateTime.ofInstant(from, zoneId) : null;
+        LocalDateTime ldTo = to != null ? LocalDateTime.ofInstant(to, zoneId) : null;
         AccountingSummaryDto summary = accountingService.getSummary(ldFrom, ldTo, orgId, terminalId);
         BigDecimal cashCollectedAfterExpenses = safe(summary.getPaymentCollected())
                 .subtract(safe(summary.getExpenses()))
@@ -505,8 +508,12 @@ public class ReportService {
     // ─── Private Helpers ────────────────────────────────────────────────────
 
     private SalesInvoiceReportDto buildSalesInvoiceRow(Order order, Invoice invoice, Payment payment, boolean preferOrderDate) {
+        ZoneId zoneId = timezoneResolver.resolveTimezone(
+                order != null ? order.getClientId() : (invoice != null ? invoice.getClientId() : null),
+                order != null ? order.getOrgId() : (invoice != null ? invoice.getOrgId() : null)
+        );
         LocalDateTime orderDate = order != null && order.getOrderDate() != null
-                ? LocalDateTime.ofInstant(order.getOrderDate(), IST)
+                ? LocalDateTime.ofInstant(order.getOrderDate(), zoneId)
                 : null;
         LocalDateTime invoiceDate = invoice != null ? invoice.getInvoiceDate() : null;
         LocalDateTime createdAt = order != null ? order.getCreatedAt() : (invoice != null ? invoice.getCreatedAt() : null);
@@ -817,8 +824,9 @@ public class ReportService {
         } else {
             resolvedOrgId = TenantContext.getCurrentOrg();
         }
-        LocalDateTime ldFrom = from != null ? LocalDateTime.ofInstant(from, IST) : null;
-        LocalDateTime ldTo = to != null ? LocalDateTime.ofInstant(to, IST) : null;
+        ZoneId zoneId = timezoneResolver.resolveTimezone(clientId, resolvedOrgId);
+        LocalDateTime ldFrom = from != null ? LocalDateTime.ofInstant(from, zoneId) : null;
+        LocalDateTime ldTo = to != null ? LocalDateTime.ofInstant(to, zoneId) : null;
 
         return invoiceRepository.findAll((root, query, cb) -> {
             var predicates = new ArrayList<jakarta.persistence.criteria.Predicate>();
@@ -913,6 +921,10 @@ public class ReportService {
     public TaxReportDetailsDto getTaxReportDetails(Instant from, Instant to, UUID orgId, UUID terminalId) {
         List<Order> orders = fetchSaleOrders(from, to, orgId, terminalId);
 
+        UUID clientId = TenantContext.getCurrentTenant();
+        UUID resolvedOrgId = SecurityUtils.isSuperAdmin() ? orgId : TenantContext.getCurrentOrg();
+        ZoneId zoneId = timezoneResolver.resolveTimezone(clientId, resolvedOrgId);
+
         // 1. Group lines by tax rate for HSN summary
         Map<BigDecimal, BigDecimal[]> hsnMap = new TreeMap<>();
         // Key: taxRate. Values: [taxableAmount, cgst, sgst, totalQuantity]
@@ -931,9 +943,9 @@ public class ReportService {
         for (Order o : orders) {
             Instant od = o.getOrderDate();
             if (od == null) {
-                od = o.getCreatedAt() != null ? o.getCreatedAt().atZone(IST).toInstant() : Instant.now();
+                od = o.getCreatedAt() != null ? o.getCreatedAt().atZone(zoneId).toInstant() : Instant.now();
             }
-            LocalDateTime ldt = LocalDateTime.ofInstant(od, IST);
+            LocalDateTime ldt = LocalDateTime.ofInstant(od, zoneId);
             String monthKey = ldt.format(java.time.format.DateTimeFormatter.ofPattern("MMM yyyy"));
             String invoiceDateStr = ldt.format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd"));
 

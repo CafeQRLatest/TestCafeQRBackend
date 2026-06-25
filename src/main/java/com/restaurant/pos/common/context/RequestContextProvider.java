@@ -22,10 +22,8 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class RequestContextProvider implements ContextProvider {
 
-    private final ClientRepository clientRepository;
+    private final TimezoneResolver timezoneResolver;
 
-    // Lazy-cached per request — database hit happens at most once
-    private ZoneId resolvedZoneId;
 
     @Override
     public UUID getCurrentTenant() {
@@ -64,34 +62,6 @@ public class RequestContextProvider implements ContextProvider {
 
     @Override
     public ZoneId getCurrentTimezone() {
-        if (resolvedZoneId != null) return resolvedZoneId;
-        try {
-            UUID clientId = getCurrentTenant();
-            if (clientId != null) {
-                resolvedZoneId = clientRepository.findById(clientId)
-                        .map(Client::getTimezone)
-                        .map(this::parseTimezone)
-                        .orElse(ZoneId.of("UTC"));
-                return resolvedZoneId;
-            }
-        } catch (Exception e) {
-            log.warn("Failed to resolve timezone for tenant={}", getCurrentTenant(), e);
-        }
-        return resolvedZoneId = ZoneId.of("UTC");
-    }
-
-    private ZoneId parseTimezone(String tz) {
-        try {
-            if (tz.startsWith("UTC")) {
-                String offset = tz.substring(3).trim();
-                if (offset.isEmpty()) return ZoneId.of("UTC");
-                if (!offset.startsWith("+") && !offset.startsWith("-")) offset = "+" + offset;
-                return ZoneId.of(offset);
-            }
-            return ZoneId.of(tz);
-        } catch (Exception e) {
-            log.warn("Invalid timezone '{}', falling back to UTC", tz, e);
-            return ZoneId.of("UTC");
-        }
+        return timezoneResolver.resolveTimezone(getCurrentTenant(), getCurrentOrg());
     }
 }

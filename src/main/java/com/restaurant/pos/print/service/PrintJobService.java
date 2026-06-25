@@ -10,6 +10,7 @@ import com.restaurant.pos.common.dto.ConfigurationDto;
 import com.restaurant.pos.common.exception.BusinessException;
 import com.restaurant.pos.common.service.SystemConfigurationService;
 import com.restaurant.pos.common.tenant.TenantContext;
+import com.restaurant.pos.common.context.TimezoneResolver;
 import com.restaurant.pos.order.domain.Order;
 import com.restaurant.pos.order.domain.OrderLine;
 import com.restaurant.pos.order.repository.OrderRepository;
@@ -49,6 +50,7 @@ public class PrintJobService {
     private final OrganizationRepository organizationRepository;
     private final SystemConfigurationService systemConfigurationService;
     private final CustomerRepository customerRepository;
+    private final TimezoneResolver timezoneResolver;
 
     @Transactional
     public PrintJob enqueueOrderJob(UUID orderId, String jobKind) {
@@ -470,6 +472,9 @@ public class PrintJobService {
     private Map<String, Object> buildRestaurantDetails(UUID clientId, UUID orgId) {
         Map<String, Object> details = new HashMap<>();
         try {
+            // Add timezone explicitly to the print payload so the renderer knows the branch's local time
+            details.put("timezone", timezoneResolver.resolveTimezone(clientId, orgId).getId());
+
             // Client-level defaults
             if (clientId != null) {
                 clientRepository.findById(clientId).ifPresent(client -> {
