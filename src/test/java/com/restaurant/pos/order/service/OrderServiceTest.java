@@ -227,18 +227,22 @@ class OrderServiceTest {
     }
 
     @Test
-    void salesHistoryAllowsRangesLongerThanThirtyOneDays() {
+    void staffSalesHistoryIgnoresExplicitOrgParamAndUsesAssignedBranchScope() {
         when(orderRepository.findAll(any(Specification.class), any(Pageable.class))).thenReturn(Page.empty());
+        UUID explicitOtherOrgId = UUID.randomUUID();
 
         orderService.getSalesOrderHistory(
-                Instant.parse("2025-12-31T18:30:00Z"),
-                Instant.parse("2026-05-27T18:29:00Z"),
+                Instant.parse("2026-05-23T00:00:00Z"),
+                Instant.parse("2026-05-23T23:59:59Z"),
                 0,
                 20,
+                null,
+                null,
+                explicitOtherOrgId,
                 null
         );
 
-        verify(orderRepository).findAll(any(Specification.class), any(Pageable.class));
+        capturedSalesHistorySpecs(1).forEach(spec -> assertSpecificationFiltersOrg(spec, orgId));
     }
 
     @Test

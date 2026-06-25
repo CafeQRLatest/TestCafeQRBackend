@@ -33,6 +33,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
@@ -46,7 +47,7 @@ import java.util.function.Supplier;
 @RequiredArgsConstructor
 public class AccountingPostingService {
 
-    private static final ZoneId IST = ZoneId.of("Asia/Kolkata");
+    private static final int MAX_BACKFILL_DAYS = 366;
 
     private final AccountingService accountingService;
     private final AccountingDefaultsService defaultsService;
@@ -56,6 +57,8 @@ public class AccountingPostingService {
     private final AccountingPostingJobRepository postingJobRepository;
     private final OrderRepository orderRepository;
     private final InvoiceRepository invoiceRepository;
+    private final com.restaurant.pos.common.context.TimezoneResolver timezoneResolver;
+
     private final PaymentRepository paymentRepository;
     private final PaymentSplitRepository paymentSplitRepository;
     private final ProductRepository productRepository;
@@ -251,8 +254,9 @@ public class AccountingPostingService {
         List<Order> ordersInBusinessPeriod = List.of();
         if (sources.contains("INVOICE") || sources.contains("PAYMENT") || sources.contains("COGS")
                 || sources.contains("PURCHASE")) {
-            Instant fromInstant = range.from.atZone(IST).toInstant();
-            Instant toInstant = range.to.atZone(IST).toInstant();
+            ZoneId zoneId = timezoneResolver.resolveTimezone(clientId, orgId);
+            Instant fromInstant = range.from.atZone(zoneId).toInstant();
+            Instant toInstant = range.to.atZone(zoneId).toInstant();
             log.info("backfill loading orders | clientId={} | orgId={} | fromInstant={} | toInstant={}", clientId, orgId, fromInstant, toInstant);
             ordersInBusinessPeriod = orderRepository.findByClientIdAndOrgIdAndOrderDateBetweenOrderByOrderDateAsc(clientId, orgId, fromInstant, toInstant);
             log.info("backfill loaded {} orders", ordersInBusinessPeriod.size());
@@ -260,8 +264,9 @@ public class AccountingPostingService {
 
         List<Expense> expensesInBusinessPeriod = List.of();
         if (sources.contains("INVOICE") || sources.contains("PAYMENT") || sources.contains("EXPENSE")) {
-            Instant fromInstant = range.from.atZone(IST).toInstant();
-            Instant toInstant = range.to.atZone(IST).toInstant();
+            ZoneId zoneId = timezoneResolver.resolveTimezone(clientId, orgId);
+            Instant fromInstant = range.from.atZone(zoneId).toInstant();
+            Instant toInstant = range.to.atZone(zoneId).toInstant();
             log.info("backfill loading expenses | clientId={} | orgId={} | fromInstant={} | toInstant={}", clientId, orgId, fromInstant, toInstant);
             expensesInBusinessPeriod = expenseRepository.findByClientIdAndOrgIdAndExpenseDateBetweenOrderByExpenseDateAsc(clientId, orgId, fromInstant, toInstant);
             log.info("backfill loaded {} expenses", expensesInBusinessPeriod.size());
@@ -1335,7 +1340,8 @@ public class AccountingPostingService {
 
     private LocalDateTime orderDate(Order order) {
         Instant instant = order.getOrderDate() != null ? order.getOrderDate() : Instant.now();
-        return LocalDateTime.ofInstant(instant, IST);
+        ZoneId zoneId = timezoneResolver.resolveTimezone(order.getClientId(), order.getOrgId());
+        return LocalDateTime.ofInstant(instant, zoneId);
     }
 
     private LocalDateTime sourceDocumentDate(Order order, Expense expense, LocalDateTime fallbackDate) {
@@ -1343,7 +1349,8 @@ public class AccountingPostingService {
             return orderDate(order);
         }
         if (expense != null && expense.getExpenseDate() != null) {
-            return LocalDateTime.ofInstant(expense.getExpenseDate(), IST);
+            ZoneId zoneId = timezoneResolver.resolveTimezone(expense.getClientId(), expense.getOrgId());
+            return LocalDateTime.ofInstant(expense.getExpenseDate(), zoneId);
         }
         return fallbackDate != null ? fallbackDate : LocalDateTime.now();
     }
@@ -1364,12 +1371,13 @@ public class AccountingPostingService {
             return null;
         }
         String trimmed = value.trim();
+        ZoneId zoneId = timezoneResolver.resolveTimezone(com.restaurant.pos.common.tenant.TenantContext.getCurrentTenant(), com.restaurant.pos.common.tenant.TenantContext.getCurrentOrg());
         try {
-            return Instant.parse(trimmed).atZone(IST).toLocalDateTime();
+            return Instant.parse(trimmed).atZone(zoneId).toLocalDateTime();
         } catch (DateTimeParseException ignored) {
         }
         try {
-            return OffsetDateTime.parse(trimmed).atZoneSameInstant(IST).toLocalDateTime();
+            return OffsetDateTime.parse(trimmed).atZoneSameInstant(zoneId).toLocalDateTime();
         } catch (DateTimeParseException ignored) {
         }
         try {
@@ -1384,6 +1392,9 @@ public class AccountingPostingService {
         LocalDateTime resolvedFrom = from != null ? from : resolvedTo.minusDays(31);
         if (resolvedFrom.isAfter(resolvedTo)) {
             throw new BusinessException("From date must be before to date");
+        }
+        if (Duration.between(resolvedFrom, resolvedTo).toDays() > MAX_BACKFILL_DAYS) {
+            throw new BusinessException("Accounting backfill range cannot exceed " + MAX_BACKFILL_DAYS + " days");
         }
         return new DateRange(resolvedFrom, resolvedTo);
     }

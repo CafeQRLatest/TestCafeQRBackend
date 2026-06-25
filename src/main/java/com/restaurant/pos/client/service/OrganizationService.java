@@ -78,6 +78,7 @@ public class OrganizationService {
         organization.setLongitude(details.getLongitude());
         organization.setDeliveryRadiusKm(details.getDeliveryRadiusKm());
         organization.setBranchCode(details.getBranchCode());
+        organization.setTimezone(details.getTimezone());
         
         if (details.getIsactive() != null) {
             organization.setIsactive(details.getIsactive());

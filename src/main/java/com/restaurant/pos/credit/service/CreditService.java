@@ -53,8 +53,6 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 public class CreditService {
-
-    private static final ZoneId IST = ZoneId.of("Asia/Kolkata");
     private static final Set<String> PAYMENT_METHODS = Set.of("CASH", "ONLINE", "UPI", "CARD", "BANK", "CHEQUE");
 
     private final CreditCustomerRepository creditCustomerRepository;
@@ -67,6 +65,8 @@ public class CreditService {
     private final SystemConfigurationService configurationService;
     private final BranchContextService branchContext;
     private final DocumentSequenceService sequenceService;
+    private final com.restaurant.pos.common.context.TimezoneResolver timezoneResolver;
+
 
     @Transactional(readOnly = true)
     public List<CreditCustomerDto> listCustomers(String status) {
@@ -233,8 +233,9 @@ public class CreditService {
         ensureCreditEnabled();
         UUID clientId = requireClient();
         UUID orgId = TenantContext.getCurrentOrg();
-        LocalDateTime fromDate = from != null ? LocalDateTime.ofInstant(from, IST) : null;
-        LocalDateTime toDate = to != null ? LocalDateTime.ofInstant(to, IST) : null;
+        ZoneId zoneId = timezoneResolver.resolveTimezone(clientId, orgId);
+        LocalDateTime fromDate = from != null ? LocalDateTime.ofInstant(from, zoneId) : null;
+        LocalDateTime toDate = to != null ? LocalDateTime.ofInstant(to, zoneId) : null;
 
         List<Invoice> invoices = invoiceRepository.findAll((root, query, cb) -> {
             var predicates = new ArrayList<jakarta.persistence.criteria.Predicate>();
