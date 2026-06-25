@@ -15,7 +15,7 @@ import java.util.UUID;
 public class ClientService {
 
     private final ClientRepository clientRepository;
-
+    private final com.restaurant.pos.common.context.TimezoneResolver timezoneResolver;
 
     public List<Client> getAllClients() {
         return clientRepository.findAll();
@@ -64,7 +64,9 @@ public class ClientService {
         client.setAccountNumber(clientDetails.getAccountNumber());
         client.setIfscCode(clientDetails.getIfscCode());
         
-        return clientRepository.save(client);
+        Client saved = clientRepository.save(client);
+        timezoneResolver.evictCache(saved.getId(), null);
+        return saved;
     }
 
     @Transactional
