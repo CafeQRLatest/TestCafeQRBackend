@@ -7,6 +7,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
@@ -31,8 +32,8 @@ public class OrderReportDto {
     private BigDecimal totalTaxAmount;
     private BigDecimal totalDiscountAmount;
     private BigDecimal grandTotal;
-    private LocalDateTime orderDate;
-    private LocalDateTime createdAt;
+    private Instant orderDate;
+    private Instant createdAt;
     private List<OrderLineReportDto> lines;
 
     @Data
