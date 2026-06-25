@@ -49,7 +49,6 @@ public class AccountingService {
     private static final int DEFAULT_REPORT_DAYS = 31;
     private static final int MAX_REPORT_DAYS = 366;
     private static final int MAX_JOURNAL_ROWS = 500;
-    private static final ZoneId IST = ZoneId.of("Asia/Kolkata");
     private static final Set<String> FINANCIAL_PAYMENT_METHODS = Set.of("CASH", "ONLINE", "UPI", "CARD", "BANK", "CHEQUE");
 
     private final AccountingAccountRepository accountRepository;
@@ -61,6 +60,8 @@ public class AccountingService {
     private final InvoiceRepository invoiceRepository;
     private final OrderRepository orderRepository;
     private final BranchContextService branchContext;
+    private final com.restaurant.pos.common.context.TimezoneResolver timezoneResolver;
+
 
     public List<AccountingAccount> getAccounts(boolean includeInactive) {
         UUID clientId = requireTenant();
@@ -613,8 +614,9 @@ public class AccountingService {
     }
 
     private List<Order> findCompletedSaleOrdersInPeriod(UUID clientId, UUID orgId, UUID terminalId, DateRange range) {
-        Instant instantFrom = range.from.atZone(IST).toInstant();
-        Instant instantTo = range.to.atZone(IST).toInstant();
+        ZoneId zoneId = timezoneResolver.resolveTimezone(clientId, orgId);
+        Instant instantFrom = range.from.atZone(zoneId).toInstant();
+        Instant instantTo = range.to.atZone(zoneId).toInstant();
         return orderRepository.findAll((root, query, cb) -> {
             // Eagerly fetch the order lines to avoid LazyInitializationException and N+1 queries
             if (Long.class != query.getResultType() && void.class != query.getResultType()) {

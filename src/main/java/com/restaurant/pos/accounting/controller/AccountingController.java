@@ -32,11 +32,10 @@ import java.util.UUID;
 @RequestMapping("/api/v1/accounting")
 @RequiredArgsConstructor
 public class AccountingController {
-    private static final ZoneId BUSINESS_ZONE = ZoneId.of("Asia/Kolkata");
-
     private final AccountingService accountingService;
     private final AccountingDefaultsService defaultsService;
     private final AccountingPostingService postingService;
+    private final com.restaurant.pos.common.context.TimezoneResolver timezoneResolver;
 
     @GetMapping("/accounts")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
@@ -187,12 +186,13 @@ public class AccountingController {
             return null;
         }
         String trimmed = value.trim();
+        ZoneId zoneId = timezoneResolver.resolveTimezone(com.restaurant.pos.common.tenant.TenantContext.getCurrentTenant(), com.restaurant.pos.common.tenant.TenantContext.getCurrentOrg());
         try {
-            return Instant.parse(trimmed).atZone(BUSINESS_ZONE).toLocalDateTime();
+            return Instant.parse(trimmed).atZone(zoneId).toLocalDateTime();
         } catch (DateTimeParseException ignored) {
         }
         try {
-            return OffsetDateTime.parse(trimmed).atZoneSameInstant(BUSINESS_ZONE).toLocalDateTime();
+            return OffsetDateTime.parse(trimmed).atZoneSameInstant(zoneId).toLocalDateTime();
         } catch (DateTimeParseException ignored) {
         }
         try {

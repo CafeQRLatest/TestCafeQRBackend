@@ -78,8 +78,8 @@ class PrintStationServiceTest {
                 eq(true),
                 anyCollection(),
                 eq(PrintJobStatus.LEASED),
-                any(),
-                any(),
+                any(java.time.LocalDateTime.class),
+                any(java.time.LocalDateTime.class),
                 any(Pageable.class)
         )).thenReturn(List.of(stale));
         when(jobRepository.saveAll(anyList())).thenAnswer(invocation -> invocation.getArgument(0));

@@ -137,6 +137,9 @@ public class DeliveryController {
                     if (org.getGoogleMapsUrl() != null && !org.getGoogleMapsUrl().isBlank()) {
                         settings.put("googleMapsUrl", org.getGoogleMapsUrl());
                     }
+                    if (org.getTimezone() != null && !org.getTimezone().isBlank()) {
+                        settings.put("timezone", org.getTimezone());
+                    }
                     // Delivery radius and branch coordinates for delivery zone validation
                     settings.put("deliveryRadiusKm", org.getDeliveryRadiusKm());
                     settings.put("branchLatitude", org.getLatitude());
