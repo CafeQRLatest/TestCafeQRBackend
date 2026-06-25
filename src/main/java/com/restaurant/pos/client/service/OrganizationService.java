@@ -21,6 +21,7 @@ public class OrganizationService {
 
     private final OrganizationRepository repository;
     private final ClientRepository clientRepository;
+    private final com.restaurant.pos.common.context.TimezoneResolver timezoneResolver;
 
     public List<Organization> getMyOrganizations() {
         UUID tenantId = TenantContext.getCurrentTenant();
@@ -79,7 +80,9 @@ public class OrganizationService {
             organization.setIsactive(details.getIsactive());
         }
 
-        return repository.save(organization);
+        Organization saved = repository.save(organization);
+        timezoneResolver.evictCache(saved.getClientId(), saved.getId());
+        return saved;
     }
 
     @Transactional
