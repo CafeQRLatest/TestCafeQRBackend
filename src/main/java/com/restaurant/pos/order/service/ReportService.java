@@ -138,8 +138,8 @@ public class ReportService {
                     .totalTaxAmount(safe(o.getTotalTaxAmount()))
                     .totalDiscountAmount(safe(o.getTotalDiscountAmount()))
                     .grandTotal(safe(o.getGrandTotal()))
-                    .orderDate(od != null ? LocalDateTime.ofInstant(od, timezoneResolver.resolveTimezone(o.getClientId(), o.getOrgId())) : null)
-                    .createdAt(o.getCreatedAt())
+                    .orderDate(od)
+                    .createdAt(o.getCreatedAt() != null ? o.getCreatedAt().toInstant(java.time.ZoneOffset.UTC) : null)
                     .lines(lines)
                     .build();
         }).collect(Collectors.toList());
@@ -330,7 +330,7 @@ public class ReportService {
         Map<Integer, BigDecimal[]> hourlyMap = new TreeMap<>();
 
         for (Order o : orders) {
-            ZoneId zoneId = timezoneResolver.resolveTimezone(o.getClientId(), o.getOrgId());
+            ZoneId zoneId = ZoneOffset.UTC;
             Instant orderTime = o.getOrderDate() != null ? o.getOrderDate() : o.getCreatedAt().atZone(zoneId).toInstant();
             int hour = LocalDateTime.ofInstant(orderTime, zoneId).getHour();
             hourlyMap.computeIfAbsent(hour, k -> new BigDecimal[]{BigDecimal.ZERO, BigDecimal.ZERO});
@@ -361,7 +361,7 @@ public class ReportService {
         }
 
         // invoiceDate is LocalDateTime — convert Instant to LocalDateTime for comparison
-        ZoneId zoneId = timezoneResolver.resolveTimezone(clientId, resolvedOrgId);
+        ZoneId zoneId = ZoneOffset.UTC;
         LocalDateTime ldFrom = from != null ? LocalDateTime.ofInstant(from, zoneId) : null;
         LocalDateTime ldTo = to != null ? LocalDateTime.ofInstant(to, zoneId) : null;
 
@@ -449,7 +449,7 @@ public class ReportService {
     // ─── Profit & Loss ──────────────────────────────────────────────────────
 
     public ProfitLossDto getProfitLoss(Instant from, Instant to, UUID orgId, UUID terminalId) {
-        ZoneId zoneId = timezoneResolver.resolveTimezone(TenantContext.getCurrentTenant(), orgId);
+        ZoneId zoneId = ZoneOffset.UTC;
         LocalDateTime ldFrom = from != null ? LocalDateTime.ofInstant(from, zoneId) : null;
         LocalDateTime ldTo = to != null ? LocalDateTime.ofInstant(to, zoneId) : null;
         AccountingSummaryDto summary = accountingService.getSummary(ldFrom, ldTo, orgId, terminalId);
@@ -508,10 +508,7 @@ public class ReportService {
     // ─── Private Helpers ────────────────────────────────────────────────────
 
     private SalesInvoiceReportDto buildSalesInvoiceRow(Order order, Invoice invoice, Payment payment, boolean preferOrderDate) {
-        ZoneId zoneId = timezoneResolver.resolveTimezone(
-                order != null ? order.getClientId() : (invoice != null ? invoice.getClientId() : null),
-                order != null ? order.getOrgId() : (invoice != null ? invoice.getOrgId() : null)
-        );
+        ZoneId zoneId = ZoneOffset.UTC;
         LocalDateTime orderDate = order != null && order.getOrderDate() != null
                 ? LocalDateTime.ofInstant(order.getOrderDate(), zoneId)
                 : null;
@@ -824,7 +821,7 @@ public class ReportService {
         } else {
             resolvedOrgId = TenantContext.getCurrentOrg();
         }
-        ZoneId zoneId = timezoneResolver.resolveTimezone(clientId, resolvedOrgId);
+        ZoneId zoneId = ZoneOffset.UTC;
         LocalDateTime ldFrom = from != null ? LocalDateTime.ofInstant(from, zoneId) : null;
         LocalDateTime ldTo = to != null ? LocalDateTime.ofInstant(to, zoneId) : null;
 
@@ -923,7 +920,7 @@ public class ReportService {
 
         UUID clientId = TenantContext.getCurrentTenant();
         UUID resolvedOrgId = SecurityUtils.isSuperAdmin() ? orgId : TenantContext.getCurrentOrg();
-        ZoneId zoneId = timezoneResolver.resolveTimezone(clientId, resolvedOrgId);
+        ZoneId zoneId = ZoneOffset.UTC;
 
         // 1. Group lines by tax rate for HSN summary
         Map<BigDecimal, BigDecimal[]> hsnMap = new TreeMap<>();
