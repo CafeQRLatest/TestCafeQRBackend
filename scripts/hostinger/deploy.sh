@@ -129,13 +129,13 @@ wait_for_service() {
       return 0
     fi
 
+    # Don't abort on "unhealthy" — the container may restart and recover.
+    # Only report it and keep waiting.
     if [ "${health}" = "unhealthy" ]; then
-      echo "  ${service}: unhealthy"
-      print_failure_details "${service}"
-      return 1
+      echo "  attempt ${i}/${attempts}: state=${state} health=${health} (waiting for restart...)"
+    else
+      echo "  attempt ${i}/${attempts}: state=${state} health=${health}"
     fi
-
-    echo "  attempt ${i}/${attempts}: state=${state} health=${health}"
     sleep "${delay}"
   done
 
