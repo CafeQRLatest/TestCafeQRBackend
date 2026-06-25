@@ -74,6 +74,7 @@ class AccountingPostingServiceTest {
                 postingJobRepository,
                 mock(OrderRepository.class),
                 mock(InvoiceRepository.class),
+                mock(com.restaurant.pos.common.context.TimezoneResolver.class),
                 mock(PaymentRepository.class),
                 mock(PaymentSplitRepository.class),
                 mock(ProductRepository.class),
@@ -108,6 +109,7 @@ class AccountingPostingServiceTest {
                 mock(AccountingPostingJobRepository.class),
                 mock(OrderRepository.class),
                 mock(InvoiceRepository.class),
+                mock(com.restaurant.pos.common.context.TimezoneResolver.class),
                 mock(PaymentRepository.class),
                 mock(PaymentSplitRepository.class),
                 mock(ProductRepository.class),
@@ -156,6 +158,7 @@ class AccountingPostingServiceTest {
                 postingJobRepository,
                 orderRepository,
                 invoiceRepository,
+                mock(com.restaurant.pos.common.context.TimezoneResolver.class),
                 mock(PaymentRepository.class),
                 mock(PaymentSplitRepository.class),
                 mock(ProductRepository.class),
@@ -294,6 +297,9 @@ class AccountingPostingServiceTest {
         order.setOrgId(orgId);
         when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
 
+        com.restaurant.pos.common.context.TimezoneResolver timezoneResolver = mock(com.restaurant.pos.common.context.TimezoneResolver.class);
+        when(timezoneResolver.resolveTimezone(any(), any())).thenReturn(java.time.ZoneId.of("UTC"));
+
         AccountingPostingService service = new AccountingPostingService(
                 mock(AccountingService.class),
                 mock(AccountingDefaultsService.class),
@@ -303,6 +309,7 @@ class AccountingPostingServiceTest {
                 postingJobRepository,
                 orderRepository,
                 mock(InvoiceRepository.class),
+                timezoneResolver,
                 mock(PaymentRepository.class),
                 mock(PaymentSplitRepository.class),
                 mock(ProductRepository.class),
@@ -424,6 +431,9 @@ class AccountingPostingServiceTest {
             return entry;
         });
 
+        com.restaurant.pos.common.context.TimezoneResolver timezoneResolver = mock(com.restaurant.pos.common.context.TimezoneResolver.class);
+        when(timezoneResolver.resolveTimezone(any(), any())).thenReturn(java.time.ZoneId.of("UTC"));
+
         AccountingPostingService service = new AccountingPostingService(
                 accountingService,
                 mock(AccountingDefaultsService.class),
@@ -433,6 +443,7 @@ class AccountingPostingServiceTest {
                 postingJobRepository,
                 orderRepository,
                 mock(InvoiceRepository.class),
+                timezoneResolver,
                 paymentRepository,
                 mock(PaymentSplitRepository.class),
                 mock(ProductRepository.class),

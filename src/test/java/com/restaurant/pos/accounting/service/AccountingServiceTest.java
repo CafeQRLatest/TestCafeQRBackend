@@ -70,6 +70,9 @@ class AccountingServiceTest {
         when(paymentRepository.findActivePaymentsInPeriod(eq(clientId), eq(orgId), any(), any())).thenReturn(List.of());
         when(paymentSplitRepository.findByPaymentIdInOrderByCreatedAtAsc(any())).thenReturn(List.of());
 
+        com.restaurant.pos.common.context.TimezoneResolver timezoneResolver = mock(com.restaurant.pos.common.context.TimezoneResolver.class);
+        when(timezoneResolver.resolveTimezone(any(), any())).thenReturn(java.time.ZoneId.of("UTC"));
+
         AccountingService service = new AccountingService(
                 accountRepository,
                 journalEntryRepository,
@@ -79,7 +82,8 @@ class AccountingServiceTest {
                 paymentSplitRepository,
                 mock(InvoiceRepository.class),
                 orderRepository,
-                mock(BranchContextService.class)
+                mock(BranchContextService.class),
+                timezoneResolver
         );
 
         AccountingSummaryDto summary = service.getSummary(
