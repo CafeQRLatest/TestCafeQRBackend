@@ -1874,14 +1874,10 @@ public class OrderService {
         return null;
     }
 
-    @Transactional
     public Order updateOrderStatus(UUID id, String status) {
         return updateOrderStatus(id, status, null, null);
     }
 
-    @Transactional
-    @org.springframework.retry.annotation.Retryable(value = {
-            org.springframework.orm.ObjectOptimisticLockingFailureException.class }, maxAttempts = 3, backoff = @org.springframework.retry.annotation.Backoff(delay = 50))
     public Order updateOrderStatus(UUID id, OrderStatus status, PaymentStatus paymentStatus, String description) {
         return updateOrderStatus(
                 id,
@@ -1890,9 +1886,6 @@ public class OrderService {
                 description);
     }
 
-    @Transactional
-    @org.springframework.retry.annotation.Retryable(value = {
-            org.springframework.orm.ObjectOptimisticLockingFailureException.class }, maxAttempts = 3, backoff = @org.springframework.retry.annotation.Backoff(delay = 50))
     public Order updateOrderStatus(UUID id, OrderStatus status) {
         return updateOrderStatus(id, status, null, null);
     }
