@@ -46,8 +46,8 @@ services:
     restart: unless-stopped
     env_file: .env
     environment:
-      # JVM tuning for 4 GB VPS
-      - JAVA_TOOL_OPTIONS=-Xmx512m -Xms256m -XX:+UseG1GC -XX:MaxGCPauseMillis=200
+      # JVM tuning for VPS
+      - JAVA_TOOL_OPTIONS=-Xmx768m -Xms256m -XX:+UseG1GC -XX:MaxGCPauseMillis=200
       # Internal Docker service addresses
       - SPRING_DATASOURCE_URL=jdbc:postgresql://db:5432/${DB_NAME:-pos_db}
       - SPRING_DATASOURCE_USERNAME=${DB_USER:-cafeqr_prod}
@@ -84,7 +84,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 768M
+          memory: 1024M
 
   # ── Frontend (Next.js) ──
   frontend:
