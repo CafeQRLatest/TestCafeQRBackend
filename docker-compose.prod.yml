@@ -75,9 +75,11 @@ services:
       test: ["CMD-SHELL", "curl -fsS http://localhost:8080/actuator/health >/dev/null || exit 1"]
       interval: 30s
       timeout: 5s
-      retries: 10
-      # KVM1 can take several minutes to boot Spring after large imports/high CPU.
-      start_period: 300s
+      retries: 15
+      # The VPS is resource-constrained; Spring Boot + Hibernate + Flyway
+      # can easily take 3-5 minutes on cold start. Give it 7 minutes
+      # before even counting failures.
+      start_period: 420s
     networks:
       - frontend_net
       - backend_net

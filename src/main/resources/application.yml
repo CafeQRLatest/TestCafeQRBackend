@@ -111,11 +111,17 @@ management:
     health:
       probes:
         enabled: true
-      # Only consider DB as critical for container health.
-      # Redis/RabbitMQ blips should NOT cause Docker to kill the container.
-      group:
-        readiness:
-          include: db,diskSpace
+  health:
+    # Disable Redis and RabbitMQ health indicators.
+    # The reactive Redis health check runs during startup and throws
+    # InterruptedException when Redis DNS hasn't resolved yet, which
+    # crashes the entire Spring context. Redis/RabbitMQ connectivity
+    # is not critical for the health probe — the app gracefully
+    # reconnects on its own.
+    redis:
+      enabled: false
+    rabbit:
+      enabled: false
 
 springdoc:
   api-docs:
