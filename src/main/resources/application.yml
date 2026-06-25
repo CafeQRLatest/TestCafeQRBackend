@@ -111,6 +111,11 @@ management:
     health:
       probes:
         enabled: true
+  health:
+    redis:
+      enabled: false
+    rabbit:
+      enabled: false
 
 springdoc:
   api-docs:
