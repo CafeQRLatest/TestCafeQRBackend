@@ -10,6 +10,7 @@ import com.restaurant.pos.common.exception.BusinessException;
 import com.restaurant.pos.common.service.BranchContextService;
 import com.restaurant.pos.common.service.SystemConfigurationService;
 import com.restaurant.pos.common.tenant.TenantContext;
+import com.restaurant.pos.common.util.SecurityUtils;
 import com.restaurant.pos.credit.domain.CreditCustomer;
 import com.restaurant.pos.credit.repository.CreditCustomerRepository;
 import com.restaurant.pos.inventory.service.InventoryService;
@@ -1211,7 +1212,12 @@ public class OrderService {
                 clampPageSize(size),
                 Sort.by(Sort.Order.desc("orderDate"), Sort.Order.desc("createdAt")));
 
-        UUID orgId = paramOrgId != null ? paramOrgId : branchContext.getReadOrgId(null);
+        UUID orgId;
+        if (SecurityUtils.isSuperAdmin()) {
+            orgId = paramOrgId != null ? paramOrgId : branchContext.getReadOrgId(null);
+        } else {
+            orgId = TenantContext.getCurrentOrg();
+        }
         if (normalizedSearch != null) {
             Page<Order> exactDocumentMatches = orderRepository.findAll(
                     salesHistorySpec(orgId, terminalId, null, null, normalizedSearch, true, Set.of(), Set.of(), status),

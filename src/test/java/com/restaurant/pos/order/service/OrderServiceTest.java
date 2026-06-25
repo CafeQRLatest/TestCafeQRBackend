@@ -227,6 +227,25 @@ class OrderServiceTest {
     }
 
     @Test
+    void staffSalesHistoryIgnoresExplicitOrgParamAndUsesAssignedBranchScope() {
+        when(orderRepository.findAll(any(Specification.class), any(Pageable.class))).thenReturn(Page.empty());
+        UUID explicitOtherOrgId = UUID.randomUUID();
+
+        orderService.getSalesOrderHistory(
+                Instant.parse("2026-05-23T00:00:00Z"),
+                Instant.parse("2026-05-23T23:59:59Z"),
+                0,
+                20,
+                null,
+                null,
+                explicitOtherOrgId,
+                null
+        );
+
+        capturedSalesHistorySpecs(1).forEach(spec -> assertSpecificationFiltersOrg(spec, orgId));
+    }
+
+    @Test
     void createOrderStoresMultipleCustomerLinksOnCustomersTable() throws Exception {
         UUID orderId = UUID.randomUUID();
         UUID customerAId = UUID.randomUUID();
