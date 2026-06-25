@@ -152,7 +152,8 @@ class AccountingServiceTest {
                 mock(PaymentSplitRepository.class),
                 mock(InvoiceRepository.class),
                 mock(OrderRepository.class),
-                mock(BranchContextService.class)
+                mock(BranchContextService.class),
+                mock(com.restaurant.pos.common.context.TimezoneResolver.class)
         );
     }
 

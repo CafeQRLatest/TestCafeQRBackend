@@ -140,6 +140,7 @@ class AccountingPostingServiceTest {
                 mock(AccountingPostingJobRepository.class),
                 mock(OrderRepository.class),
                 mock(InvoiceRepository.class),
+                mock(com.restaurant.pos.common.context.TimezoneResolver.class),
                 mock(PaymentRepository.class),
                 mock(PaymentSplitRepository.class),
                 mock(ProductRepository.class),
