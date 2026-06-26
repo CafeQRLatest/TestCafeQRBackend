@@ -363,6 +363,7 @@ public class PrintJobService {
         out.put("id", order.getId());
         out.put("orgId", order.getOrgId());
         out.put("org_id", order.getOrgId());
+        out.put("timezone", timezoneResolver.resolveTimezone(order.getClientId(), order.getOrgId()).getId());
         out.put("orderNo", order.getOrderNo());
         out.put("order_no", order.getOrderNo());
         out.put("invoiceNo", order.getInvoiceNo());
