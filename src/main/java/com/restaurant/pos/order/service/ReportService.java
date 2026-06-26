@@ -22,6 +22,11 @@ import com.restaurant.pos.order.repository.PaymentRepository;
 import com.restaurant.pos.order.repository.PaymentSplitRepository;
 import com.restaurant.pos.purchasing.domain.Customer;
 import com.restaurant.pos.purchasing.repository.CustomerRepository;
+import com.restaurant.pos.product.domain.Product;
+import com.restaurant.pos.product.repository.ProductRepository;
+import com.restaurant.pos.expense.domain.Expense;
+import com.restaurant.pos.expense.repository.ExpenseRepository;
+import com.restaurant.pos.credit.service.CreditService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -51,6 +56,9 @@ public class ReportService {
     private final AccountingService accountingService;
     private final OrganizationRepository organizationRepository;
     private final com.restaurant.pos.common.context.TimezoneResolver timezoneResolver;
+    private final ProductRepository productRepository;
+    private final ExpenseRepository expenseRepository;
+    private final CreditService creditService;
 
 
     // ─── Sales Summary ──────────────────────────────────────────────────────
@@ -328,9 +336,11 @@ public class ReportService {
         List<Order> orders = fetchSaleOrders(from, to, orgId, terminalId);
 
         Map<Integer, BigDecimal[]> hourlyMap = new TreeMap<>();
+        UUID clientId = TenantContext.getCurrentTenant();
+        UUID resolvedOrgId = orgId != null ? orgId : TenantContext.getCurrentOrg();
+        ZoneId zoneId = timezoneResolver.resolveTimezone(clientId, resolvedOrgId);
 
         for (Order o : orders) {
-            ZoneId zoneId = ZoneOffset.UTC;
             Instant orderTime = o.getOrderDate() != null ? o.getOrderDate() : o.getCreatedAt().atZone(zoneId).toInstant();
             int hour = LocalDateTime.ofInstant(orderTime, zoneId).getHour();
             hourlyMap.computeIfAbsent(hour, k -> new BigDecimal[]{BigDecimal.ZERO, BigDecimal.ZERO});
@@ -449,28 +459,94 @@ public class ReportService {
     // ─── Profit & Loss ──────────────────────────────────────────────────────
 
     public ProfitLossDto getProfitLoss(Instant from, Instant to, UUID orgId, UUID terminalId) {
-        ZoneId zoneId = ZoneOffset.UTC;
-        LocalDateTime ldFrom = from != null ? LocalDateTime.ofInstant(from, zoneId) : null;
-        LocalDateTime ldTo = to != null ? LocalDateTime.ofInstant(to, zoneId) : null;
-        AccountingSummaryDto summary = accountingService.getSummary(ldFrom, ldTo, orgId, terminalId);
-        BigDecimal cashCollectedAfterExpenses = safe(summary.getPaymentCollected())
-                .subtract(safe(summary.getExpenses()))
-                .subtract(safe(summary.getCogsPurchases()));
+        List<Order> orders = fetchSaleOrders(from, to, orgId, terminalId);
+
+        BigDecimal grossSales = BigDecimal.ZERO;
+        BigDecimal discounts = BigDecimal.ZERO;
+        BigDecimal outputTax = BigDecimal.ZERO;
+        BigDecimal roundOff = BigDecimal.ZERO;
+        BigDecimal billedTotal = BigDecimal.ZERO;
+        BigDecimal cogs = BigDecimal.ZERO;
+
+        for (Order o : orders) {
+            billedTotal = billedTotal.add(safe(o.getGrandTotal()));
+            discounts = discounts.add(accountingService.calculateTaxExclusiveDiscount(o));
+            outputTax = outputTax.add(safe(o.getTotalTaxAmount()));
+            roundOff = roundOff.add(safe(o.getRoundOffAmount()));
+
+            if (o.getLines() != null) {
+                for (OrderLine line : o.getLines()) {
+                    if (line != null && line.isActive()) {
+                        BigDecimal unitCost = BigDecimal.ZERO;
+                        if (line.getProductId() != null) {
+                            unitCost = productRepository.findById(line.getProductId())
+                                    .map(Product::getCostPrice)
+                                    .orElse(BigDecimal.ZERO);
+                        }
+                        cogs = cogs.add(safe(unitCost).multiply(safe(line.getQuantity())));
+                    }
+                }
+            }
+        }
+
+        BigDecimal netSales = billedTotal.subtract(outputTax).subtract(roundOff);
+        grossSales = netSales.add(discounts);
+
+        // Operating expenses from stand-alone expenses table
+        UUID clientId = TenantContext.getCurrentTenant();
+        UUID resolvedOrgId = orgId != null ? orgId : TenantContext.getCurrentOrg();
+        List<Expense> expensesList = expenseRepository.findByClientIdAndOrgIdAndExpenseDateBetweenOrderByExpenseDateAsc(
+                clientId, resolvedOrgId, from, to);
+
+        BigDecimal operatingExpenses = expensesList.stream()
+                .filter(e -> e != null && e.isActive() && "COMPLETED".equalsIgnoreCase(e.getDocStatus()))
+                .map(Expense::getAmount)
+                .filter(Objects::nonNull)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        BigDecimal totalExpenses = cogs.add(operatingExpenses);
+        BigDecimal netProfit = netSales.subtract(totalExpenses);
+
+        // Payment breakdown collected
+        BigDecimal paymentCollected = getPaymentBreakdown(from, to, resolvedOrgId, terminalId).stream()
+                .map(PaymentBreakdownDto::getTotalAmount)
+                .filter(Objects::nonNull)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        BigDecimal cashCollectedAfterExpenses = paymentCollected.subtract(totalExpenses);
+
+        // Credit outstanding from CreditService (safely switched with TenantContext orgId)
+        UUID originalOrg = TenantContext.getCurrentOrg();
+        boolean switched = false;
+        if (resolvedOrgId != null && !Objects.equals(originalOrg, resolvedOrgId)) {
+            TenantContext.setCurrentOrg(resolvedOrgId);
+            switched = true;
+        }
+        BigDecimal creditOutstanding = BigDecimal.ZERO;
+        try {
+            creditOutstanding = creditService.report(from, to).getOutstanding();
+        } catch (Exception ex) {
+            log.warn("Failed to fetch credit report for operational P&L: {}", ex.getMessage());
+        } finally {
+            if (switched) {
+                TenantContext.setCurrentOrg(originalOrg);
+            }
+        }
 
         return ProfitLossDto.builder()
-                .grossSales(safe(summary.getGrossSales()))
-                .discounts(safe(summary.getDiscounts()))
-                .netSales(safe(summary.getNetSales()))
-                .totalTax(safe(summary.getOutputTax()))
-                .inputTax(safe(summary.getInputTax()))
-                .cogsPurchases(safe(summary.getCogsPurchases()))
-                .operatingExpenses(safe(summary.getExpenses()))
-                .totalExpenses(safe(summary.getExpenses()).add(safe(summary.getCogsPurchases())))
-                .netProfit(safe(summary.getProfit()))
-                .creditOutstanding(safe(summary.getReceivable()))
+                .grossSales(grossSales)
+                .discounts(discounts)
+                .netSales(netSales)
+                .totalTax(outputTax)
+                .inputTax(BigDecimal.ZERO)
+                .cogsPurchases(cogs)
+                .operatingExpenses(operatingExpenses)
+                .totalExpenses(totalExpenses)
+                .netProfit(netProfit)
+                .creditOutstanding(safe(creditOutstanding))
                 .netCashProfit(cashCollectedAfterExpenses)
                 .cashCollectedAfterExpenses(cashCollectedAfterExpenses)
-                .basis("ACCOUNTING_JOURNALS")
+                .basis("OPERATIONAL_TRANSACTIONS")
                 .build();
     }
 
