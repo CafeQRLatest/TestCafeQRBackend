@@ -128,6 +128,9 @@ public class OrderResponseDto {
     @Schema(description = "User who last updated the order")
     private String updatedBy;
 
+    @Schema(description = "Timezone of the branch/organization where the order was created")
+    private String timezone;
+
     @Schema(description = "Date and time the order was created")
     private Instant createdAt;
 
