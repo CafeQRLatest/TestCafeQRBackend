@@ -17,6 +17,7 @@ import java.util.List;
 public class OrderDtoMapper {
 
     private final com.restaurant.pos.auth.repository.UserRepository userRepository;
+    private final com.restaurant.pos.common.context.TimezoneResolver timezoneResolver;
 
     private java.time.Instant toInstant(java.time.LocalDateTime ldt) {
         if (ldt == null)
@@ -87,6 +88,7 @@ public class OrderDtoMapper {
                 .originalOrderId(order.getOriginalOrderId())
                 .createdBy(resolveUserDisplayName(order.getCreatedBy()))
                 .updatedBy(resolveUserDisplayName(order.getUpdatedBy()))
+                .timezone(timezoneResolver.resolveTimezone(order.getClientId(), order.getOrgId()).getId())
                 .createdAt(toInstant(order.getCreatedAt()))
                 .updatedAt(toInstant(order.getUpdatedAt()))
                 .build();
