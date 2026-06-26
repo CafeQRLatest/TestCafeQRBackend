@@ -30,4 +30,5 @@ public class AuthResponse {
     private Boolean canCancelOrder;
     private Boolean canDeleteOrderItem;
     private Boolean canDecrementOrderItem;
+    private String timezone;
 }
