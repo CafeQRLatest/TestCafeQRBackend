@@ -361,6 +361,8 @@ public class PrintJobService {
     private Map<String, Object> orderSnapshot(Order order) {
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("id", order.getId());
+        out.put("orgId", order.getOrgId());
+        out.put("org_id", order.getOrgId());
         out.put("orderNo", order.getOrderNo());
         out.put("order_no", order.getOrderNo());
         out.put("invoiceNo", order.getInvoiceNo());
