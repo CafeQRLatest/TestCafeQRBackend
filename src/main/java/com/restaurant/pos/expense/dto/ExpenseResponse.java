@@ -66,4 +66,10 @@ public class ExpenseResponse {
 
     @Schema(description = "ISO-8601 timestamp of the last record update")
     private LocalDateTime updatedAt;
+
+    @Schema(description = "Cash amount for mixed payment", example = "500.00")
+    private BigDecimal cashAmount;
+
+    @Schema(description = "Online amount for mixed payment", example = "1000.00")
+    private BigDecimal onlineAmount;
 }

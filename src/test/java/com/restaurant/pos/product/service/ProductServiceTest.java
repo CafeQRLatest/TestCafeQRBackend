@@ -29,6 +29,7 @@ import static org.mockito.Mockito.when;
 class ProductServiceTest {
 
     private ProductRepository productRepository;
+    private CategoryRepository categoryRepository;
     private ProductService productService;
     private UUID clientId;
     private UUID branchId;
@@ -37,9 +38,10 @@ class ProductServiceTest {
     @BeforeEach
     void setUp() {
         productRepository = mock(ProductRepository.class);
+        categoryRepository = mock(CategoryRepository.class);
         productService = new ProductService(
                 productRepository,
-                mock(CategoryRepository.class),
+                categoryRepository,
                 mock(UomRepository.class),
                 mock(VariantGroupRepository.class),
                 mock(VariantOptionRepository.class)
@@ -91,10 +93,12 @@ class ProductServiceTest {
         Product request = Product.builder()
                 .name("Updated")
                 .price(new BigDecimal("20.00"))
+                .category(existing.getCategory())
                 .isActive(true)
                 .isAvailable(true)
                 .build();
         when(productRepository.findById(productId)).thenReturn(Optional.of(existing));
+        when(categoryRepository.findById(existing.getCategory().getId())).thenReturn(Optional.of(existing.getCategory()));
         when(productRepository.save(any(Product.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         Product saved = productService.updateProduct(productId, request);
@@ -104,10 +108,16 @@ class ProductServiceTest {
     }
 
     private Product branchProduct(UUID productId, UUID ownerBranchId) {
+        com.restaurant.pos.product.domain.Category category = com.restaurant.pos.product.domain.Category.builder()
+                .id(UUID.randomUUID())
+                .name("Food")
+                .build();
+        category.setClientId(clientId);
         Product product = Product.builder()
                 .id(productId)
                 .name("Biryani")
                 .price(new BigDecimal("10.00"))
+                .category(category)
                 .isActive(true)
                 .isAvailable(true)
                 .build();

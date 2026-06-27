@@ -314,15 +314,28 @@ public class SystemConfigurationService {
         String resolvedLogoUrl = resolveLogoUrl(entity.getClientId(), orgId);
 
         Integer decimalPlaces = 2;
+        String currencySymbol = entity.getCurrencySymbol() != null ? entity.getCurrencySymbol() : "₹";
+        
         if (entity.getClientId() != null) {
             try {
-                decimalPlaces = currencyRepository.findByClientIdAndIsDefaultTrue(entity.getClientId())
-                        .stream()
-                        .findFirst()
-                        .map(c -> c.getDecimalPlaces() != null ? c.getDecimalPlaces() : 2)
-                        .orElse(2);
+                var defaultCurrencyOpt = orgId != null 
+                        ? currencyRepository.findByClientIdAndOrgIdAndIsDefaultTrue(entity.getClientId(), orgId).stream().findFirst()
+                        : currencyRepository.findByClientIdAndIsDefaultTrue(entity.getClientId()).stream().findFirst();
+                
+                if (defaultCurrencyOpt.isPresent()) {
+                    var currency = defaultCurrencyOpt.get();
+                    decimalPlaces = currency.getDecimalPlaces() != null ? currency.getDecimalPlaces() : 2;
+                    currencySymbol = currency.getSymbol() != null ? currency.getSymbol() : currencySymbol;
+                } else if (orgId != null) {
+                    var clientDefaultCurrencyOpt = currencyRepository.findByClientIdAndIsDefaultTrue(entity.getClientId()).stream().findFirst();
+                    if (clientDefaultCurrencyOpt.isPresent()) {
+                        var currency = clientDefaultCurrencyOpt.get();
+                        decimalPlaces = currency.getDecimalPlaces() != null ? currency.getDecimalPlaces() : 2;
+                        currencySymbol = currency.getSymbol() != null ? currency.getSymbol() : currencySymbol;
+                    }
+                }
             } catch (Exception e) {
-                log.warn("Failed to fetch default currency decimal places for client {}", entity.getClientId(), e);
+                log.warn("Failed to fetch default currency details for client {}, org {}", entity.getClientId(), orgId, e);
             }
         }
         return ConfigurationDto.builder()
@@ -358,7 +371,7 @@ public class SystemConfigurationService {
                 .taxDefaultId(entity.getTaxDefaultId())
                 .pricesIncludeTax(entity.isPricesIncludeTax())
                 .taxSplitEnabled(entity.isTaxSplitEnabled())
-                .currencySymbol(entity.getCurrencySymbol())
+                .currencySymbol(currencySymbol)
                 .currencyPosition(entity.getCurrencyPosition())
                 .currencyDecimalPlaces(decimalPlaces)
                 .billFooter(entity.getBillFooter())

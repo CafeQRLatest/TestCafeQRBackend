@@ -30,7 +30,13 @@ public interface OrderRepository extends JpaRepository<Order, UUID>, JpaSpecific
     List<Order> findByClientIdAndOrderTypeOrderByCreatedAtDesc(UUID clientId, OrderType orderType);
 
     @EntityGraph(attributePaths = "lines")
+    org.springframework.data.domain.Page<Order> findByClientIdAndOrderTypeOrderByCreatedAtDesc(UUID clientId, OrderType orderType, org.springframework.data.domain.Pageable pageable);
+
+    @EntityGraph(attributePaths = "lines")
     List<Order> findByClientIdAndOrgIdAndOrderTypeOrderByCreatedAtDesc(UUID clientId, UUID orgId, OrderType orderType);
+
+    @EntityGraph(attributePaths = "lines")
+    org.springframework.data.domain.Page<Order> findByClientIdAndOrgIdAndOrderTypeOrderByCreatedAtDesc(UUID clientId, UUID orgId, OrderType orderType, org.springframework.data.domain.Pageable pageable);
 
     @EntityGraph(attributePaths = "lines")
     @Query("""

@@ -84,6 +84,7 @@ public class ExpenseService {
     private final IdempotencyStore idempotencyStore;
     private final ContextProvider contextProvider;
     private final ExpenseCategoryPolicy categoryPolicy;
+    private final com.restaurant.pos.order.repository.PaymentSplitRepository paymentSplitRepository;
 
     // ─────────────────────────────────────────────────────────────
     // Sort Field Translation
@@ -170,13 +171,13 @@ public class ExpenseService {
 
             // Construct and save the associated Invoice & Payment (timezone pre-resolved)
             Invoice savedInvoice = createExpenseInvoice(savedExpense, category, targetScope, zoneId);
-            Payment savedPayment = createExpensePayment(savedExpense, savedInvoice, category, targetScope, zoneId);
+            Payment savedPayment = createExpensePayment(savedExpense, savedInvoice, category, targetScope, zoneId, request.getCashAmount(), request.getOnlineAmount());
 
             // Post to Accounting Posting Service (null for order)
             postAccountingEntries(savedInvoice, savedPayment);
 
             String updaterName = resolveUserDisplayName(savedExpense.getUpdatedBy());
-            ExpenseResponse response = expenseMapper.toExpenseResponse(savedExpense, category.getName(), updaterName);
+            ExpenseResponse response = populateSplits(expenseMapper.toExpenseResponse(savedExpense, category.getName(), updaterName), savedExpense.getId());
 
             idempotencyStore.put(cacheKey, response);
 
@@ -241,7 +242,7 @@ public class ExpenseService {
     }
 
     private Payment createExpensePayment(Expense savedExpense, Invoice savedInvoice, ExpenseCategory category,
-            ExpenseWriteScope targetScope, ZoneId zoneId) {
+            ExpenseWriteScope targetScope, ZoneId zoneId, BigDecimal cashAmount, BigDecimal onlineAmount) {
         String paymentNo = sequenceService.generateNextSequence(DocumentType.OUTBOUND_PAYMENT, targetScope.orgId());
         String normalizedMethod = normalizePaymentMethod(savedExpense.getPaymentMethod());
         Payment payment = Payment.builder()
@@ -262,7 +263,33 @@ public class ExpenseService {
         payment.setOrgId(savedExpense.getOrgId());
         payment.setCreatedBy(savedExpense.getCreatedBy());
         payment.setUpdatedBy(savedExpense.getUpdatedBy());
-        return paymentRepository.save(payment);
+        Payment savedPayment = paymentRepository.save(payment);
+
+        if ("MIXED".equals(normalizedMethod)) {
+            BigDecimal cash = cashAmount != null ? cashAmount : BigDecimal.ZERO;
+            BigDecimal online = onlineAmount != null ? onlineAmount : BigDecimal.ZERO;
+            if (cash.compareTo(BigDecimal.ZERO) > 0) {
+                com.restaurant.pos.order.domain.PaymentSplit cashSplit = com.restaurant.pos.order.domain.PaymentSplit.builder()
+                        .paymentId(savedPayment.getId())
+                        .paymentMethod("CASH")
+                        .amount(cash)
+                        .build();
+                cashSplit.setClientId(savedExpense.getClientId());
+                cashSplit.setOrgId(savedExpense.getOrgId());
+                paymentSplitRepository.save(cashSplit);
+            }
+            if (online.compareTo(BigDecimal.ZERO) > 0) {
+                com.restaurant.pos.order.domain.PaymentSplit onlineSplit = com.restaurant.pos.order.domain.PaymentSplit.builder()
+                        .paymentId(savedPayment.getId())
+                        .paymentMethod("ONLINE")
+                        .amount(online)
+                        .build();
+                onlineSplit.setClientId(savedExpense.getClientId());
+                onlineSplit.setOrgId(savedExpense.getOrgId());
+                paymentSplitRepository.save(onlineSplit);
+            }
+        }
+        return savedPayment;
     }
 
     /**
@@ -367,13 +394,13 @@ public class ExpenseService {
                 paymentRepository.flush();
 
                 // Create new payment
-                Payment savedNewPayment = createExpensePayment(savedNew, savedNewInvoice, category, targetScope, zoneId);
+                Payment savedNewPayment = createExpensePayment(savedNew, savedNewInvoice, category, targetScope, zoneId, request.getCashAmount(), request.getOnlineAmount());
 
                 postAccountingEntries(savedNewInvoice, savedNewPayment);
             }
         } else {
             // Create new payment
-            Payment savedNewPayment = createExpensePayment(savedNew, savedNewInvoice, category, targetScope, zoneId);
+            Payment savedNewPayment = createExpensePayment(savedNew, savedNewInvoice, category, targetScope, zoneId, request.getCashAmount(), request.getOnlineAmount());
 
             postAccountingEntries(savedNewInvoice, savedNewPayment);
         }
@@ -381,7 +408,7 @@ public class ExpenseService {
         log.info("Expense revision finalized | oldId={} | newId={} | rev={} | keyPresent={}", 
                 id, savedNew.getId(), revision + 1, hasIdempotencyKey);
         String updaterName = resolveUserDisplayName(savedNew.getUpdatedBy());
-        ExpenseResponse response = expenseMapper.toExpenseResponse(savedNew, category.getName(), updaterName);
+        ExpenseResponse response = populateSplits(expenseMapper.toExpenseResponse(savedNew, category.getName(), updaterName), savedNew.getId());
 
         idempotencyStore.put(cacheKey, response);
 
@@ -465,8 +492,8 @@ public class ExpenseService {
         log.info("Fetched expense details successfully | id={} | categoryName={} | amount={}", 
                 id, category != null ? category.getName() : "Uncategorized", expense.getAmount());
                 
-        return expenseMapper.toExpenseResponse(expense, category != null ? category.getName() : "Uncategorized",
-                updaterName);
+        return populateSplits(expenseMapper.toExpenseResponse(expense, category != null ? category.getName() : "Uncategorized",
+                updaterName), expense.getId());
     }
 
     /**
@@ -527,10 +554,11 @@ public class ExpenseService {
         return expensePage.map(expense -> {
             String updatedByVal = expense.getUpdatedBy();
             String updaterName = updatedByVal == null ? null : userNames.getOrDefault(updatedByVal, updatedByVal);
-            return expenseMapper.toExpenseResponse(
+            ExpenseResponse response = expenseMapper.toExpenseResponse(
                     expense,
                     categoryNames.getOrDefault(expense.getCategoryId(), "Uncategorized"),
                     updaterName);
+            return populateSplits(response, expense.getId());
         });
     }
 
@@ -570,8 +598,20 @@ public class ExpenseService {
         expense.setTerminalId(contextProvider.getCurrentTerminal());
 
         // Default Currency
-        currencyRepository.findByClientIdAndIsDefaultTrue(contextProvider.getCurrentTenant())
-                .stream().findFirst().ifPresent(c -> expense.setCurrencyId(c.getId()));
+        UUID orgId = expense.getOrgId();
+        UUID clientId = expense.getClientId();
+        if (orgId != null) {
+            currencyRepository.findByClientIdAndOrgIdAndIsDefaultTrue(clientId, orgId)
+                    .stream().findFirst()
+                    .ifPresentOrElse(
+                        c -> expense.setCurrencyId(c.getId()),
+                        () -> currencyRepository.findByClientIdAndIsDefaultTrue(clientId)
+                                .stream().findFirst().ifPresent(c -> expense.setCurrencyId(c.getId()))
+                    );
+        } else {
+            currencyRepository.findByClientIdAndIsDefaultTrue(clientId)
+                    .stream().findFirst().ifPresent(c -> expense.setCurrencyId(c.getId()));
+        }
 
         return expense;
     }
@@ -654,5 +694,31 @@ public class ExpenseService {
         private String cacheKeyPart() {
             return orgId == null ? "GLOBAL" : orgId.toString();
         }
+    }
+
+    private ExpenseResponse populateSplits(ExpenseResponse response, UUID expenseId) {
+        if (!"MIXED".equalsIgnoreCase(response.getPaymentMethod())) {
+            return response;
+        }
+        return paymentRepository.findByExpenseId(expenseId).stream()
+                .filter(p -> "Y".equalsIgnoreCase(p.getIsactive()) && !"VOID".equalsIgnoreCase(p.getDocStatus()))
+                .findFirst()
+                .map(p -> {
+                    List<com.restaurant.pos.order.domain.PaymentSplit> splits = paymentSplitRepository.findByPaymentIdOrderByCreatedAtAsc(p.getId());
+                    BigDecimal cash = BigDecimal.ZERO;
+                    BigDecimal online = BigDecimal.ZERO;
+                    for (com.restaurant.pos.order.domain.PaymentSplit split : splits) {
+                        if ("CASH".equalsIgnoreCase(split.getPaymentMethod())) {
+                            cash = split.getAmount();
+                        } else if ("ONLINE".equalsIgnoreCase(split.getPaymentMethod())) {
+                            online = split.getAmount();
+                        }
+                    }
+                    return response.toBuilder()
+                            .cashAmount(cash)
+                            .onlineAmount(online)
+                            .build();
+                })
+                .orElse(response);
     }
 }

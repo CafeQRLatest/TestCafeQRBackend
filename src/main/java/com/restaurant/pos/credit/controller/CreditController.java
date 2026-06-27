@@ -8,6 +8,9 @@ import com.restaurant.pos.credit.dto.CreditPaymentRequest;
 import com.restaurant.pos.credit.dto.CreditReportDto;
 import com.restaurant.pos.credit.service.CreditService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -62,14 +65,22 @@ public class CreditController {
 
     @GetMapping("/customers/{id}/orders")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
-    public ResponseEntity<ApiResponse<List<CreditOrderDto>>> getCustomerOrders(@PathVariable UUID id) {
-        return ResponseEntity.ok(ApiResponse.success(creditService.getCustomerOrders(id)));
+    public ResponseEntity<ApiResponse<Page<CreditOrderDto>>> getCustomerOrders(
+            @PathVariable UUID id,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "50") int size) {
+        return ResponseEntity.ok(ApiResponse.success(
+                creditService.getCustomerOrders(id, PageRequest.of(page, size, Sort.unsorted()))));
     }
 
     @GetMapping("/customers/{id}/payments")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
-    public ResponseEntity<ApiResponse<List<CreditReportDto.PaymentTransactionDto>>> getCustomerPayments(@PathVariable UUID id) {
-        return ResponseEntity.ok(ApiResponse.success(creditService.getCustomerPayments(id)));
+    public ResponseEntity<ApiResponse<Page<CreditReportDto.PaymentTransactionDto>>> getCustomerPayments(
+            @PathVariable UUID id,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "50") int size) {
+        return ResponseEntity.ok(ApiResponse.success(
+                creditService.getCustomerPayments(id, PageRequest.of(page, size, Sort.unsorted()))));
     }
 
     @PostMapping("/customers/{id}/payments")

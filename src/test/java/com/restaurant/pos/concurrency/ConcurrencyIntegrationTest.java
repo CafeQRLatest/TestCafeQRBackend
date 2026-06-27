@@ -2,6 +2,7 @@ package com.restaurant.pos.concurrency;
 
 import com.restaurant.pos.common.idempotency.IdempotencyGuard;
 import com.restaurant.pos.inventory.repository.StockSnapshotRepository;
+import com.restaurant.pos.invoice.domain.Invoice;
 import com.restaurant.pos.order.domain.Order;
 import com.restaurant.pos.order.domain.OrderStatus;
 import com.restaurant.pos.order.dto.OrderResponseDto;
@@ -76,12 +77,24 @@ public class ConcurrencyIntegrationTest {
                 .thenThrow(new ObjectOptimisticLockingFailureException(Order.class, orderId))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
+        when(orderRepository.saveAndFlush(any(Order.class)))
+                .thenThrow(new ObjectOptimisticLockingFailureException(Order.class, orderId))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        when(invoiceRepository.save(any(Invoice.class))).thenAnswer(invocation -> {
+            Invoice inv = invocation.getArgument(0);
+            if (inv.getInvoiceNo() == null) {
+                inv.setInvoiceNo("INV-MOCK");
+            }
+            return inv;
+        });
+
         // Execute updateOrderStatus which is decorated with @Retryable
         Order result = orderService.updateOrderStatus(orderId, OrderStatus.CONFIRMED);
 
         // Assert that it successfully retried and returned the updated order
         assertThat(result.getOrderStatus()).isEqualTo("CONFIRMED");
-        verify(orderRepository, times(2)).save(any(Order.class)); // 1 failure + 1 retry success
+        verify(orderRepository, times(2)).saveAndFlush(any(Order.class)); // 1 failure + 1 retry success
     }
 
     @Test

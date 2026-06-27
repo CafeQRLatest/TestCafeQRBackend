@@ -6,6 +6,8 @@ import com.restaurant.pos.waste.domain.WasteLog;
 import com.restaurant.pos.waste.repository.WasteCategoryRepository;
 import com.restaurant.pos.waste.repository.WasteLogRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
@@ -48,15 +50,15 @@ public class WasteService {
         categoryRepository.save(c);
     }
 
-    public List<WasteLog> getLogs(LocalDateTime start, LocalDateTime end) {
+    public Page<WasteLog> getLogs(LocalDateTime start, LocalDateTime end, Pageable pageable) {
         UUID clientId = TenantContext.getCurrentTenant();
-        List<WasteLog> logs = (start != null && end != null)
-            ? wasteLogRepository.findByClientIdAndWasteDateBetweenOrderByWasteDateDesc(clientId, start, end)
-            : wasteLogRepository.findByClientIdOrderByWasteDateDesc(clientId);
+        Page<WasteLog> logsPage = (start != null && end != null)
+            ? wasteLogRepository.findByClientIdAndWasteDateBetweenOrderByWasteDateDesc(clientId, start, end, pageable)
+            : wasteLogRepository.findByClientIdOrderByWasteDateDesc(clientId, pageable);
         Map<UUID, String> catMap = categoryRepository.findByClientIdOrderBySortOrderAsc(clientId)
-            .stream().collect(Collectors.toMap(WasteCategory::getId, WasteCategory::getName, (a, b) -> a));
-        logs.forEach(w -> { if (w.getWasteCategoryId() != null) w.setCategoryName(catMap.getOrDefault(w.getWasteCategoryId(), "Other")); });
-        return logs;
+            .stream().collect(java.util.stream.Collectors.toMap(WasteCategory::getId, WasteCategory::getName, (a, b) -> a));
+        logsPage.forEach(w -> { if (w.getWasteCategoryId() != null) w.setCategoryName(catMap.getOrDefault(w.getWasteCategoryId(), "Other")); });
+        return logsPage;
     }
 
     @Transactional

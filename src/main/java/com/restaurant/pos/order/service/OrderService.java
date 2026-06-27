@@ -50,6 +50,7 @@ import com.restaurant.pos.table.domain.RestaurantTable;
 import com.restaurant.pos.table.repository.RestaurantTableRepository;
 import com.restaurant.pos.purchasing.domain.Customer;
 import com.restaurant.pos.purchasing.repository.CustomerRepository;
+import com.restaurant.pos.purchasing.repository.CurrencyRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import jakarta.persistence.criteria.Predicate;
@@ -114,6 +115,7 @@ public class OrderService {
     private final com.restaurant.pos.auth.repository.UserRepository userRepository;
     private final PushNotificationService pushNotificationService;
     private final TimezoneResolver timezoneResolver;
+    private final CurrencyRepository currencyRepository;
 
     private void prepareSourceFields(Order order) {
         UUID terminalId = TenantContext.getCurrentTerminal();
@@ -125,6 +127,27 @@ public class OrderService {
         }
         if (order.getSyncOrigin() == null || order.getSyncOrigin().isBlank()) {
             order.setSyncOrigin(order.getSourceOperationId() == null ? "CLOUD_ONLINE" : "OFFLINE_QUEUE");
+        }
+        if (order.getCurrencyId() == null) {
+            UUID orgId = order.getOrgId();
+            if (orgId == null) {
+                orgId = resolveOrderWriteOrgId(order);
+            }
+            UUID clientId = order.getClientId() != null ? order.getClientId() : TenantContext.getCurrentTenant();
+            if (clientId != null) {
+                if (orgId != null) {
+                    currencyRepository.findByClientIdAndOrgIdAndIsDefaultTrue(clientId, orgId)
+                        .stream().findFirst()
+                        .ifPresentOrElse(
+                            c -> order.setCurrencyId(c.getId()),
+                            () -> currencyRepository.findByClientIdAndIsDefaultTrue(clientId)
+                                .stream().findFirst().ifPresent(c -> order.setCurrencyId(c.getId()))
+                        );
+                } else {
+                    currencyRepository.findByClientIdAndIsDefaultTrue(clientId)
+                        .stream().findFirst().ifPresent(c -> order.setCurrencyId(c.getId()));
+                }
+            }
         }
     }
 
@@ -1169,14 +1192,16 @@ public class OrderService {
     }
 
     @Transactional(readOnly = true)
-    public List<Order> getOrdersByType(OrderType orderType) {
+    public org.springframework.data.domain.Page<Order> getOrdersByType(OrderType orderType, org.springframework.data.domain.Pageable pageable) {
         UUID tenantId = TenantContext.getCurrentTenant();
         UUID orgId = branchContext.getReadOrgId(null);
+        org.springframework.data.domain.Page<Order> page;
         if (orgId == null) {
-            return hydrateOrders(orderRepository.findByClientIdAndOrderTypeOrderByCreatedAtDesc(tenantId, orderType));
+            page = orderRepository.findByClientIdAndOrderTypeOrderByCreatedAtDesc(tenantId, orderType, pageable);
+        } else {
+            page = orderRepository.findByClientIdAndOrgIdAndOrderTypeOrderByCreatedAtDesc(tenantId, orgId, orderType, pageable);
         }
-        return hydrateOrders(orderRepository.findByClientIdAndOrgIdAndOrderTypeOrderByCreatedAtDesc(
-                tenantId, orgId, orderType));
+        return page.map(this::hydrateOrder);
     }
 
     @Transactional(readOnly = true)
@@ -1876,10 +1901,14 @@ public class OrderService {
         return null;
     }
 
+    @org.springframework.retry.annotation.Retryable(value = {
+            org.springframework.orm.ObjectOptimisticLockingFailureException.class }, maxAttempts = 3, backoff = @org.springframework.retry.annotation.Backoff(delay = 50))
     public Order updateOrderStatus(UUID id, String status) {
         return updateOrderStatus(id, status, null, null);
     }
 
+    @org.springframework.retry.annotation.Retryable(value = {
+            org.springframework.orm.ObjectOptimisticLockingFailureException.class }, maxAttempts = 3, backoff = @org.springframework.retry.annotation.Backoff(delay = 50))
     public Order updateOrderStatus(UUID id, OrderStatus status, PaymentStatus paymentStatus, String description) {
         return updateOrderStatus(
                 id,
@@ -1888,6 +1917,8 @@ public class OrderService {
                 description);
     }
 
+    @org.springframework.retry.annotation.Retryable(value = {
+            org.springframework.orm.ObjectOptimisticLockingFailureException.class }, maxAttempts = 3, backoff = @org.springframework.retry.annotation.Backoff(delay = 50))
     public Order updateOrderStatus(UUID id, OrderStatus status) {
         return updateOrderStatus(id, status, null, null);
     }
@@ -2672,19 +2703,17 @@ public class OrderService {
     }
 
     private String normalizePaymentMethod(String paymentMethod) {
-        String method = paymentMethod == null || paymentMethod.isBlank() ? "CASH" : paymentMethod.trim().toUpperCase();
-        if (!PAYMENT_METHODS.contains(method)) {
+        if (paymentMethod == null || paymentMethod.isBlank()) {
             return "CASH";
         }
-        return method;
+        return paymentMethod.trim().toUpperCase();
     }
 
     private String normalizePaymentSplitMethod(String paymentMethod) {
-        String method = paymentMethod == null || paymentMethod.isBlank() ? "" : paymentMethod.trim().toUpperCase();
-        if (!PAYMENT_SPLIT_METHODS.contains(method)) {
-            throw new BusinessException("Unsupported payment split method: " + String.valueOf(paymentMethod));
+        if (paymentMethod == null || paymentMethod.isBlank()) {
+            return "CASH";
         }
-        return method;
+        return paymentMethod.trim().toUpperCase();
     }
 
     private boolean hasExplicitPaymentSplits(OrderSettleRequest request) {

@@ -3,7 +3,7 @@ server:
   max-http-request-header-size: 65536
   tomcat:
     threads:
-      max: 30
+      max: ${SERVER_TOMCAT_THREADS_MAX:30}
       min-spare: 5
     connection-timeout: 20000
     max-connections: 1000
@@ -55,15 +55,6 @@ spring:
       password: ${SPRING_DATA_REDIS_PASSWORD:}
       ssl:
         enabled: ${SPRING_DATA_REDIS_SSL:false}
-
-  rabbitmq:
-    host: ${SPRING_RABBITMQ_HOST:localhost}
-    port: ${SPRING_RABBITMQ_PORT:5672}
-    username: ${SPRING_RABBITMQ_USERNAME:guest}
-    password: ${SPRING_RABBITMQ_PASSWORD:guest}
-    virtual-host: ${SPRING_RABBITMQ_VHOST:/}
-    ssl:
-      enabled: ${SPRING_RABBITMQ_SSL:false}
 
   mail:
     host: ${SMTP_HOST:smtp.gmail.com}

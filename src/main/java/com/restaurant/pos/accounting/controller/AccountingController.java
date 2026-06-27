@@ -42,10 +42,18 @@ public class AccountingController {
     public ResponseEntity<ApiResponse<List<AccountingAccountPeriodDto>>> getAccounts(
             @RequestParam(defaultValue = "false") boolean includeInactive,
             @RequestParam(required = false) String from,
-            @RequestParam(required = false) String to
+            @RequestParam(required = false) String to,
+            @RequestParam(required = false) UUID orgId,
+            @RequestParam(required = false) UUID terminalId
     ) {
-        defaultsService.ensureDefaultAccounts();
-        return ResponseEntity.ok(ApiResponse.success(accountingService.getPeriodAccounts(parseAccountingDateTime(from), parseAccountingDateTime(to), includeInactive)));
+        defaultsService.ensureDefaultAccounts(orgId);
+        return ResponseEntity.ok(ApiResponse.success(accountingService.getPeriodAccounts(
+                parseAccountingDateTime(from),
+                parseAccountingDateTime(to),
+                includeInactive,
+                orgId,
+                terminalId
+        )));
     }
 
     @GetMapping("/accounts/{id}")
@@ -115,10 +123,17 @@ public class AccountingController {
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<AccountingSummaryDto>> getSummary(
             @RequestParam(required = false) String from,
-            @RequestParam(required = false) String to
+            @RequestParam(required = false) String to,
+            @RequestParam(required = false) UUID orgId,
+            @RequestParam(required = false) UUID terminalId
     ) {
-        defaultsService.ensureDefaultAccounts();
-        return ResponseEntity.ok(ApiResponse.success(accountingService.getSummary(parseAccountingDateTime(from), parseAccountingDateTime(to))));
+        defaultsService.ensureDefaultAccounts(orgId);
+        return ResponseEntity.ok(ApiResponse.success(accountingService.getSummary(
+                parseAccountingDateTime(from),
+                parseAccountingDateTime(to),
+                orgId,
+                terminalId
+        )));
     }
 
     @GetMapping("/reconciliation")

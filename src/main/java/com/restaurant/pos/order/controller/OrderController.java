@@ -82,16 +82,19 @@ public class OrderController {
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "Unauthorized access", content = @Content),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "Forbidden access", content = @Content)
     })
-    public ResponseEntity<ApiResponse<List<OrderResponseDto>>> getOrdersByType(
-            @Parameter(description = "The type of orders to retrieve (SALE, PURCHASE, EXPENSE)", required = true, example = "SALE") @PathVariable String type) {
+    public ResponseEntity<ApiResponse<Page<OrderResponseDto>>> getOrdersByType(
+            @Parameter(description = "The type of orders to retrieve (SALE, PURCHASE, EXPENSE)", required = true, example = "SALE") @PathVariable String type,
+            @Parameter(description = "Zero-indexed page number", example = "0") @RequestParam(defaultValue = "0") @Min(0) int page,
+            @Parameter(description = "Page size (maximum 5000)", example = "20") @RequestParam(defaultValue = "20") @Min(1) @Max(value = 5000, message = "Page size cannot exceed 5000") int size) {
         OrderType orderType;
         try {
             orderType = OrderType.valueOf(type.toUpperCase());
         } catch (IllegalArgumentException | NullPointerException e) {
             return ResponseEntity.badRequest().body(ApiResponse.error("INVALID_ORDER_TYPE", "Invalid order type: " + type));
         }
-        List<Order> orders = orderService.getOrdersByType(orderType);
-        List<OrderResponseDto> dtos = orders.stream().map(orderDtoMapper::toResponseDto).toList();
+        Pageable pageable = PageRequest.of(page, size);
+        Page<Order> orders = orderService.getOrdersByType(orderType, pageable);
+        Page<OrderResponseDto> dtos = orders.map(orderDtoMapper::toResponseDto);
         return ResponseEntity.ok(ApiResponse.success(dtos));
     }
 

@@ -42,18 +42,19 @@ public class JwtService {
     @PostConstruct
     public void init() {
         try {
-            if (isBlank(privateKeyStr) || isBlank(publicKeyStr)) {
-                throw new InvalidKeySpecException("JWT_PRIVATE_KEY and JWT_PUBLIC_KEY must be configured");
+            if (privateKeyStr == null || privateKeyStr.trim().isEmpty() || publicKeyStr == null || publicKeyStr.trim().isEmpty()) {
+                java.security.KeyPairGenerator keyPairGenerator = java.security.KeyPairGenerator.getInstance("RSA");
+                keyPairGenerator.initialize(2048);
+                java.security.KeyPair keyPair = keyPairGenerator.generateKeyPair();
+                this.privateKey = keyPair.getPrivate();
+                this.publicKey = keyPair.getPublic();
+            } else {
+                this.privateKey = loadPrivateKey(privateKeyStr);
+                this.publicKey = loadPublicKey(publicKeyStr);
             }
-            this.privateKey = loadPrivateKey(privateKeyStr);
-            this.publicKey = loadPublicKey(publicKeyStr);
         } catch (Exception e) {
-            throw new RuntimeException("Failed to initialize JWT keys. Configure JWT_PRIVATE_KEY and JWT_PUBLIC_KEY with Base64 PKCS8/X509 RSA key material.", e);
+            throw new RuntimeException("Failed to initialize JWT keys. Please check your application.yml configuration for jwt.private-key and jwt.public-key.", e);
         }
-    }
-
-    private boolean isBlank(String value) {
-        return value == null || value.trim().isEmpty();
     }
 
     private PrivateKey loadPrivateKey(String key) throws NoSuchAlgorithmException, InvalidKeySpecException {

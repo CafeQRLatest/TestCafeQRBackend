@@ -6,6 +6,8 @@ import com.restaurant.pos.client.repository.OrganizationRepository;
 import com.restaurant.pos.client.repository.ClientRepository;
 import com.restaurant.pos.common.exception.ResourceNotFoundException;
 import com.restaurant.pos.common.tenant.TenantContext;
+import com.restaurant.pos.purchasing.domain.PaymentType;
+import com.restaurant.pos.purchasing.repository.PaymentTypeRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -21,6 +23,7 @@ public class OrganizationService {
 
     private final OrganizationRepository repository;
     private final ClientRepository clientRepository;
+    private final PaymentTypeRepository paymentTypeRepository;
     private final com.restaurant.pos.common.context.TimezoneResolver timezoneResolver;
 
     public List<Organization> getMyOrganizations() {
@@ -60,7 +63,9 @@ public class OrganizationService {
                 .orElseThrow(() -> new ResourceNotFoundException("Client not found for ID: " + clientId));
         organization.setClient(client);
 
-        return repository.save(organization);
+        Organization saved = repository.save(organization);
+        seedDefaultPaymentTypes(saved);
+        return saved;
     }
 
     @Transactional
@@ -97,5 +102,46 @@ public class OrganizationService {
                 .orElseThrow(() -> new ResourceNotFoundException("Organization not found"));
         organization.setIsactive("N");
         repository.save(organization);
+    }
+
+    /**
+     * Seeds 6 default payment types for a newly created branch.
+     * Called automatically inside createOrganization().
+     */
+    private void seedDefaultPaymentTypes(Organization org) {
+        UUID clientId = org.getClientId();
+        UUID orgId = org.getId();
+
+        record Seed(String display, String paymentType, String sales, String purchase, String expense, int sort, boolean isDefault) {}
+
+        List<Seed> defaults = List.of(
+            new Seed("Cash",   "OTHERS", "Y", "Y", "Y",                        1, true),
+            new Seed("Online", "OTHERS", "Y", "Y", "Y",                        2, false),
+            new Seed("UPI",    "OTHERS", "Y", "Y", "Y",                        3, false),
+            new Seed("Card",   "OTHERS", "Y", "Y", "Y",                        4, false),
+            new Seed("Mixed",  "OTHERS", "Y", "Y", "Y",                        5, false),
+            new Seed("Credit", "CREDIT", "Y", "N", "N",                      6, false)
+        );
+
+        for (Seed s : defaults) {
+            boolean exists = paymentTypeRepository.existsByClientIdAndOrgIdAndDisplayName(clientId, orgId, s.display());
+            if (!exists) {
+                PaymentType pt = PaymentType.builder()
+                        .displayName(s.display())
+                        .paymentType(s.paymentType())
+                        .sales(s.sales())
+                        .purchase(s.purchase())
+                        .expense(s.expense())
+                        .sortOrder(s.sort())
+                        .isDefault(s.isDefault())
+                        .isactive("Y")
+                        .build();
+                pt.setClientId(clientId);
+                pt.setOrgId(orgId);
+                pt.setCreatedBy("SYSTEM");
+                paymentTypeRepository.save(pt);
+            }
+        }
+        log.info("Seeded {} default payment types for new branch '{}'", defaults.size(), org.getName());
     }
 }

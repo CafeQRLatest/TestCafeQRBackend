@@ -24,6 +24,7 @@ import com.restaurant.pos.print.service.PrintJobService;
 import com.restaurant.pos.product.repository.ProductRepository;
 import com.restaurant.pos.purchasing.domain.Customer;
 import com.restaurant.pos.purchasing.repository.CustomerRepository;
+import com.restaurant.pos.purchasing.repository.CurrencyRepository;
 import com.restaurant.pos.sequence.domain.DocumentType;
 import com.restaurant.pos.sequence.service.DocumentSequenceService;
 import com.restaurant.pos.sequence.service.OfflineSequenceLeaseService;
@@ -87,7 +88,19 @@ class OrderServiceTest {
         creditCustomerRepository = mock(CreditCustomerRepository.class);
         configurationService = mock(SystemConfigurationService.class);
 
+        when(invoiceRepository.save(any(Invoice.class))).thenAnswer(invocation -> {
+            Invoice inv = invocation.getArgument(0);
+            if (inv.getInvoiceNo() == null) {
+                inv.setInvoiceNo("INV-MOCK");
+            }
+            return inv;
+        });
+        when(paymentRepository.save(any(Payment.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
         accountingPostingService = mock(AccountingPostingService.class);
+
+        com.restaurant.pos.common.context.TimezoneResolver timezoneResolver = mock(com.restaurant.pos.common.context.TimezoneResolver.class);
+        when(timezoneResolver.resolveTimezone(any(), any())).thenReturn(java.time.ZoneId.of("UTC"));
 
         orderService = new OrderService(
                 orderRepository,
@@ -108,7 +121,8 @@ class OrderServiceTest {
                 new com.restaurant.pos.common.service.BranchContextService(),
                 mock(com.restaurant.pos.auth.repository.UserRepository.class),
                 mock(com.restaurant.pos.push.service.PushNotificationService.class),
-                mock(com.restaurant.pos.common.context.TimezoneResolver.class)
+                timezoneResolver,
+                mock(CurrencyRepository.class)
         );
 
         clientId = UUID.randomUUID();

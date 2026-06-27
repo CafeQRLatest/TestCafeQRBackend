@@ -7,6 +7,7 @@ import com.restaurant.pos.common.tenant.TenantContext;
 import com.restaurant.pos.common.util.SecurityUtils;
 import com.restaurant.pos.purchasing.domain.*;
 import com.restaurant.pos.purchasing.repository.*;
+import org.springframework.util.StringUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -22,6 +23,7 @@ public class PurchasingService {
     private final VendorRepository vendorRepository;
     private final CurrencyRepository currencyRepository;
     private final PricelistRepository pricelistRepository;
+    private final PaymentTypeRepository paymentTypeRepository;
     private final BranchContextService branchContext;
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -158,7 +160,11 @@ public class PurchasingService {
 
     public List<Currency> getCurrencies() {
         UUID tenantId = TenantContext.getCurrentTenant();
-        return currencyRepository.findByClientIdOrderByCodeAsc(tenantId);
+        UUID orgId = branchContext.getReadOrgId(null);
+        if (orgId == null) {
+            return currencyRepository.findByClientIdOrderByCodeAsc(tenantId);
+        }
+        return currencyRepository.findByClientIdAndOrgIdOrderByCodeAsc(tenantId, orgId);
     }
 
     @Transactional
@@ -166,7 +172,7 @@ public class PurchasingService {
         currency.setClientId(TenantContext.getCurrentTenant());
         currency.setOrgId(branchContext.requireWriteOrgId(currency.getOrgId()));
         if (Boolean.TRUE.equals(currency.getIsDefault())) {
-            clearDefaultCurrencies(currency.getClientId());
+            clearDefaultCurrencies(currency.getClientId(), currency.getOrgId());
         }
         return currencyRepository.save(currency);
     }
@@ -176,6 +182,8 @@ public class PurchasingService {
         UUID tenantId = TenantContext.getCurrentTenant();
         Currency existing = currencyRepository.findByIdAndClientId(id, tenantId)
                 .orElseThrow(() -> new ResourceNotFoundException("Currency not found"));
+        UUID orgId = branchContext.requireWriteOrgId(existing.getOrgId());
+        
         existing.setCode(updates.getCode());
         existing.setSymbol(updates.getSymbol());
         existing.setName(updates.getName());
@@ -184,17 +192,23 @@ public class PurchasingService {
         existing.setDecimalPlaces(updates.getDecimalPlaces());
         existing.setCountryCode(updates.getCountryCode());
         if (Boolean.TRUE.equals(updates.getIsDefault())) {
-            clearDefaultCurrencies(tenantId);
+            clearDefaultCurrencies(tenantId, orgId);
         }
         existing.setIsDefault(updates.getIsDefault());
         existing.setIsactive(updates.getIsactive());
         return currencyRepository.save(existing);
     }
 
-    private void clearDefaultCurrencies(UUID clientId) {
-        List<Currency> defaults = currencyRepository.findByClientIdAndIsDefaultTrue(clientId);
-        defaults.forEach(c -> c.setIsDefault(false));
-        currencyRepository.saveAll(defaults);
+    private void clearDefaultCurrencies(UUID clientId, UUID orgId) {
+        if (orgId == null) {
+            List<Currency> defaults = currencyRepository.findByClientIdAndIsDefaultTrue(clientId);
+            defaults.forEach(c -> c.setIsDefault(false));
+            currencyRepository.saveAll(defaults);
+        } else {
+            List<Currency> defaults = currencyRepository.findByClientIdAndOrgIdAndIsDefaultTrue(clientId, orgId);
+            defaults.forEach(c -> c.setIsDefault(false));
+            currencyRepository.saveAll(defaults);
+        }
     }
 
     @Transactional
@@ -202,6 +216,7 @@ public class PurchasingService {
         UUID tenantId = TenantContext.getCurrentTenant();
         Currency currency = currencyRepository.findByIdAndClientId(id, tenantId)
                 .orElseThrow(() -> new ResourceNotFoundException("Currency not found"));
+        branchContext.requireWriteOrgId(currency.getOrgId());
         currencyRepository.delete(currency);
     }
 
@@ -223,6 +238,24 @@ public class PurchasingService {
     public Pricelist savePricelist(Pricelist pricelist) {
         pricelist.setClientId(TenantContext.getCurrentTenant());
         pricelist.setOrgId(branchContext.requireWriteOrgId(pricelist.getOrgId()));
+        
+        if (pricelist.getCurrencyId() == null) {
+            UUID orgId = pricelist.getOrgId();
+            UUID clientId = pricelist.getClientId();
+            if (orgId != null) {
+                currencyRepository.findByClientIdAndOrgIdAndIsDefaultTrue(clientId, orgId)
+                    .stream().findFirst()
+                    .ifPresentOrElse(
+                        c -> pricelist.setCurrencyId(c.getId()),
+                        () -> currencyRepository.findByClientIdAndIsDefaultTrue(clientId)
+                            .stream().findFirst().ifPresent(c -> pricelist.setCurrencyId(c.getId()))
+                    );
+            } else {
+                currencyRepository.findByClientIdAndIsDefaultTrue(clientId)
+                    .stream().findFirst().ifPresent(c -> pricelist.setCurrencyId(c.getId()));
+            }
+        }
+
         if (Boolean.TRUE.equals(pricelist.getIsDefault())) {
             clearDefaultPricelists(pricelist.getClientId(), pricelist.getPricelistType());
         }
@@ -265,5 +298,117 @@ public class PurchasingService {
         Pricelist pricelist = pricelistRepository.findByIdAndClientId(id, tenantId)
                 .orElseThrow(() -> new ResourceNotFoundException("Pricelist not found"));
         pricelistRepository.delete(pricelist);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // PAYMENT TYPES
+    // ═══════════════════════════════════════════════════════════════════════
+
+    public List<PaymentType> getPaymentTypes() {
+        return getPaymentTypes(null);
+    }
+
+    public List<PaymentType> getPaymentTypes(UUID orgIdOverride) {
+        UUID tenantId = TenantContext.getCurrentTenant();
+        UUID orgId = branchContext.getReadOrgId(orgIdOverride);
+        if (orgId == null) {
+            return paymentTypeRepository.findByClientIdOrderBySortOrderAscDisplayNameAsc(tenantId);
+        }
+        return paymentTypeRepository.findByClientIdAndOrgIdOrderBySortOrderAscDisplayNameAsc(tenantId, orgId);
+    }
+
+    public List<PaymentType> getPaymentTypesByApplicableFor(String context) {
+        return getPaymentTypesByApplicableFor(context, null);
+    }
+
+    public List<PaymentType> getPaymentTypesByApplicableFor(String context, UUID orgIdOverride) {
+        UUID tenantId = TenantContext.getCurrentTenant();
+        UUID orgId = branchContext.getReadOrgId(orgIdOverride);
+        if (!StringUtils.hasText(context)) {
+            return getPaymentTypes(orgIdOverride);
+        }
+        String upper = context.trim().toUpperCase();
+        if (orgId == null) {
+            return paymentTypeRepository.findByClientIdOrderBySortOrderAscDisplayNameAsc(tenantId)
+                    .stream()
+                    .filter(pt -> {
+                        if ("SALES".equals(upper)) return "Y".equals(pt.getSales());
+                        if ("PURCHASES".equals(upper)) return "Y".equals(pt.getPurchase());
+                        if ("EXPENSES".equals(upper)) return "Y".equals(pt.getExpense());
+                        return true;
+                    })
+                    .toList();
+        }
+        if ("SALES".equals(upper)) {
+            return paymentTypeRepository.findByClientIdAndOrgIdAndSalesOrderBySortOrderAsc(tenantId, orgId, "Y");
+        }
+        if ("PURCHASES".equals(upper)) {
+            return paymentTypeRepository.findByClientIdAndOrgIdAndPurchaseOrderBySortOrderAsc(tenantId, orgId, "Y");
+        }
+        if ("EXPENSES".equals(upper)) {
+            return paymentTypeRepository.findByClientIdAndOrgIdAndExpenseOrderBySortOrderAsc(tenantId, orgId, "Y");
+        }
+        return getPaymentTypes(orgIdOverride);
+    }
+
+    @Transactional
+    public PaymentType savePaymentType(PaymentType paymentType) {
+        UUID tenantId = TenantContext.getCurrentTenant();
+        UUID orgId = branchContext.requireWriteOrgId(paymentType.getOrgId());
+        paymentType.setClientId(tenantId);
+        paymentType.setOrgId(orgId);
+        if (paymentType.getSortOrder() != null) {
+            boolean sortExists = paymentTypeRepository.existsByClientIdAndOrgIdAndSortOrder(tenantId, orgId, paymentType.getSortOrder());
+            if (sortExists) {
+                throw new IllegalArgumentException("Sort order " + paymentType.getSortOrder() + " is already assigned to another payment type");
+            }
+        }
+        if (Boolean.TRUE.equals(paymentType.getIsDefault())) {
+            clearDefaultPaymentTypes(tenantId, orgId);
+        }
+        return paymentTypeRepository.save(paymentType);
+    }
+
+    @Transactional
+    public PaymentType updatePaymentType(UUID id, PaymentType updates) {
+        UUID tenantId = TenantContext.getCurrentTenant();
+        PaymentType existing = paymentTypeRepository.findByIdAndClientId(id, tenantId)
+                .orElseThrow(() -> new ResourceNotFoundException("Payment type not found"));
+        branchContext.requireWriteOrgId(existing.getOrgId());
+        if (updates.getSortOrder() != null) {
+            boolean sortExists = paymentTypeRepository.existsByClientIdAndOrgIdAndSortOrderAndIdNot(tenantId, existing.getOrgId(), updates.getSortOrder(), id);
+            if (sortExists) {
+                throw new IllegalArgumentException("Sort order " + updates.getSortOrder() + " is already assigned to another payment type");
+            }
+        }
+        existing.setDisplayName(updates.getDisplayName());
+        existing.setPaymentType(updates.getPaymentType());
+        existing.setSales(updates.getSales());
+        existing.setPurchase(updates.getPurchase());
+        existing.setExpense(updates.getExpense());
+        existing.setLedgerRef(updates.getLedgerRef());
+        existing.setSortOrder(updates.getSortOrder());
+        existing.setDescription(updates.getDescription());
+        if (Boolean.TRUE.equals(updates.getIsDefault())) {
+            clearDefaultPaymentTypes(tenantId, existing.getOrgId());
+        }
+        existing.setIsDefault(updates.getIsDefault());
+        existing.setIsactive(updates.getIsactive());
+        return paymentTypeRepository.save(existing);
+    }
+
+    @Transactional
+    public void deletePaymentType(UUID id) {
+        UUID tenantId = TenantContext.getCurrentTenant();
+        PaymentType existing = paymentTypeRepository.findByIdAndClientId(id, tenantId)
+                .orElseThrow(() -> new ResourceNotFoundException("Payment type not found"));
+        branchContext.requireWriteOrgId(existing.getOrgId());
+        paymentTypeRepository.delete(existing);
+    }
+
+    private void clearDefaultPaymentTypes(UUID clientId, UUID orgId) {
+        List<PaymentType> defaults = paymentTypeRepository.findByClientIdAndIsDefaultTrueAndOrgId(clientId, orgId);
+        defaults.forEach(pt -> pt.setIsDefault(false));
+        paymentTypeRepository.saveAll(defaults);
     }
 }

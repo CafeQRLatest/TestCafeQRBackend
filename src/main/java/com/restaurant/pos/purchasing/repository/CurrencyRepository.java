@@ -13,5 +13,7 @@ public interface CurrencyRepository extends JpaRepository<Currency, UUID> {
     List<Currency> findByClientIdOrderByCodeAsc(UUID clientId);
     List<Currency> findByClientIdAndOrgIdOrderByCodeAsc(UUID clientId, UUID orgId);
     Optional<Currency> findByIdAndClientId(UUID id, UUID clientId);
+    Optional<Currency> findByIdAndClientIdAndOrgId(UUID id, UUID clientId, UUID orgId);
     List<Currency> findByClientIdAndIsDefaultTrue(UUID clientId);
+    List<Currency> findByClientIdAndOrgIdAndIsDefaultTrue(UUID clientId, UUID orgId);
 }
