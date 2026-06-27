@@ -524,7 +524,9 @@ public class ReportService {
         }
         BigDecimal creditOutstanding = BigDecimal.ZERO;
         try {
-            creditOutstanding = creditService.report(from, to).getOutstanding();
+            if (creditService.isCreditEnabled()) {
+                creditOutstanding = creditService.report(from, to).getOutstanding();
+            }
         } catch (Exception ex) {
             log.warn("Failed to fetch credit report for operational P&L: {}", ex.getMessage());
         } finally {

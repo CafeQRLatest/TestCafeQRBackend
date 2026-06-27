@@ -67,6 +67,14 @@ public class CreditService {
     private final DocumentSequenceService sequenceService;
     private final com.restaurant.pos.common.context.TimezoneResolver timezoneResolver;
 
+    public boolean isCreditEnabled() {
+        try {
+            ConfigurationDto config = configurationService.getConfiguration();
+            return config != null && config.isCreditEnabled();
+        } catch (Exception ex) {
+            return false;
+        }
+    }
 
     @Transactional(readOnly = true)
     public List<CreditCustomerDto> listCustomers(String status) {
