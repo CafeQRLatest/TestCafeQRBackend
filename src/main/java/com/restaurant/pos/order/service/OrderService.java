@@ -1192,14 +1192,16 @@ public class OrderService {
     }
 
     @Transactional(readOnly = true)
-    public List<Order> getOrdersByType(OrderType orderType) {
+    public org.springframework.data.domain.Page<Order> getOrdersByType(OrderType orderType, org.springframework.data.domain.Pageable pageable) {
         UUID tenantId = TenantContext.getCurrentTenant();
         UUID orgId = branchContext.getReadOrgId(null);
+        org.springframework.data.domain.Page<Order> page;
         if (orgId == null) {
-            return hydrateOrders(orderRepository.findByClientIdAndOrderTypeOrderByCreatedAtDesc(tenantId, orderType));
+            page = orderRepository.findByClientIdAndOrderTypeOrderByCreatedAtDesc(tenantId, orderType, pageable);
+        } else {
+            page = orderRepository.findByClientIdAndOrgIdAndOrderTypeOrderByCreatedAtDesc(tenantId, orgId, orderType, pageable);
         }
-        return hydrateOrders(orderRepository.findByClientIdAndOrgIdAndOrderTypeOrderByCreatedAtDesc(
-                tenantId, orgId, orderType));
+        return page.map(this::hydrateOrder);
     }
 
     @Transactional(readOnly = true)

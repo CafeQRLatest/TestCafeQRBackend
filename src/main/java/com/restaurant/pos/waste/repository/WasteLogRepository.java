@@ -1,6 +1,8 @@
 package com.restaurant.pos.waste.repository;
 
 import com.restaurant.pos.waste.domain.WasteLog;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -15,6 +17,8 @@ import java.util.UUID;
 public interface WasteLogRepository extends JpaRepository<WasteLog, UUID> {
     List<WasteLog> findByClientIdOrderByWasteDateDesc(UUID clientId);
     List<WasteLog> findByClientIdAndWasteDateBetweenOrderByWasteDateDesc(UUID clientId, LocalDateTime start, LocalDateTime end);
+    Page<WasteLog> findByClientIdOrderByWasteDateDesc(UUID clientId, Pageable pageable);
+    Page<WasteLog> findByClientIdAndWasteDateBetweenOrderByWasteDateDesc(UUID clientId, LocalDateTime start, LocalDateTime end, Pageable pageable);
     long countByClientId(UUID clientId);
 
     @Query("SELECT COALESCE(SUM(w.totalCost), 0) FROM WasteLog w WHERE w.clientId = :clientId AND w.wasteDate BETWEEN :start AND :end")

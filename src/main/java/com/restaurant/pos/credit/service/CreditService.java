@@ -49,6 +49,9 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
 
 @Service
 @RequiredArgsConstructor
@@ -156,17 +159,21 @@ public class CreditService {
     }
 
     @Transactional(readOnly = true)
-    public List<CreditOrderDto> getCustomerOrders(UUID creditCustomerId) {
+    public Page<CreditOrderDto> getCustomerOrders(UUID creditCustomerId, Pageable pageable) {
         ensureCreditEnabled();
         CreditCustomer customer = getCreditCustomer(creditCustomerId, requireClient());
-        return openAndClosedInvoices(customer.getId()).stream()
+        List<CreditOrderDto> all = openAndClosedInvoices(customer.getId()).stream()
                 .map(invoice -> toOrderDto(invoice, customer, resolveOrder(invoice.getOrderId())))
                 .sorted(Comparator.comparing(CreditOrderDto::getDate, Comparator.nullsLast(Comparator.reverseOrder())))
                 .collect(Collectors.toList());
+        int start = (int) pageable.getOffset();
+        int end = Math.min(start + pageable.getPageSize(), all.size());
+        List<CreditOrderDto> pageContent = start >= all.size() ? List.of() : all.subList(start, end);
+        return new PageImpl<>(pageContent, pageable, all.size());
     }
 
     @Transactional(readOnly = true)
-    public List<CreditReportDto.PaymentTransactionDto> getCustomerPayments(UUID creditCustomerId) {
+    public Page<CreditReportDto.PaymentTransactionDto> getCustomerPayments(UUID creditCustomerId, Pageable pageable) {
         ensureCreditEnabled();
         CreditCustomer customer = getCreditCustomer(creditCustomerId, requireClient());
         List<Payment> payments = paymentRepository.findAll((root, query, cb) -> {
@@ -177,10 +184,14 @@ public class CreditService {
             predicates.add(cb.or(cb.isNull(root.get("docStatus")), cb.not(cb.upper(root.get("docStatus").as(String.class)).in("VOID", "VOIDED"))));
             return cb.and(predicates.toArray(new jakarta.persistence.criteria.Predicate[0]));
         });
-        return payments.stream()
+        List<CreditReportDto.PaymentTransactionDto> all = payments.stream()
                 .map(payment -> toPaymentTransaction(payment, customer))
                 .sorted(Comparator.comparing(CreditReportDto.PaymentTransactionDto::getTransactionDate, Comparator.nullsLast(Comparator.reverseOrder())))
                 .collect(Collectors.toList());
+        int start = (int) pageable.getOffset();
+        int end = Math.min(start + pageable.getPageSize(), all.size());
+        List<CreditReportDto.PaymentTransactionDto> pageContent = start >= all.size() ? List.of() : all.subList(start, end);
+        return new PageImpl<>(pageContent, pageable, all.size());
     }
 
     @Transactional
