@@ -149,6 +149,9 @@ class AccountingPostingServiceTest {
         PlatformTransactionManager transactionManager = mock(PlatformTransactionManager.class);
         when(transactionManager.getTransaction(any(TransactionDefinition.class))).thenReturn(new SimpleTransactionStatus());
 
+        com.restaurant.pos.common.context.TimezoneResolver timezoneResolver = mock(com.restaurant.pos.common.context.TimezoneResolver.class);
+        when(timezoneResolver.resolveTimezone(any(), any())).thenReturn(java.time.ZoneId.of("UTC"));
+
         AccountingPostingService service = new AccountingPostingService(
                 accountingService,
                 defaultsService,
@@ -158,7 +161,7 @@ class AccountingPostingServiceTest {
                 postingJobRepository,
                 orderRepository,
                 invoiceRepository,
-                mock(com.restaurant.pos.common.context.TimezoneResolver.class),
+                timezoneResolver,
                 mock(PaymentRepository.class),
                 mock(PaymentSplitRepository.class),
                 mock(ProductRepository.class),

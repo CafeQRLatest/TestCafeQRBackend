@@ -158,7 +158,11 @@ public class PurchasingService {
 
     public List<Currency> getCurrencies() {
         UUID tenantId = TenantContext.getCurrentTenant();
-        return currencyRepository.findByClientIdOrderByCodeAsc(tenantId);
+        UUID orgId = branchContext.getReadOrgId(null);
+        if (orgId == null) {
+            return currencyRepository.findByClientIdOrderByCodeAsc(tenantId);
+        }
+        return currencyRepository.findByClientIdAndOrgIdOrderByCodeAsc(tenantId, orgId);
     }
 
     @Transactional
@@ -166,7 +170,7 @@ public class PurchasingService {
         currency.setClientId(TenantContext.getCurrentTenant());
         currency.setOrgId(branchContext.requireWriteOrgId(currency.getOrgId()));
         if (Boolean.TRUE.equals(currency.getIsDefault())) {
-            clearDefaultCurrencies(currency.getClientId());
+            clearDefaultCurrencies(currency.getClientId(), currency.getOrgId());
         }
         return currencyRepository.save(currency);
     }
@@ -176,6 +180,8 @@ public class PurchasingService {
         UUID tenantId = TenantContext.getCurrentTenant();
         Currency existing = currencyRepository.findByIdAndClientId(id, tenantId)
                 .orElseThrow(() -> new ResourceNotFoundException("Currency not found"));
+        UUID orgId = branchContext.requireWriteOrgId(existing.getOrgId());
+        
         existing.setCode(updates.getCode());
         existing.setSymbol(updates.getSymbol());
         existing.setName(updates.getName());
@@ -184,17 +190,23 @@ public class PurchasingService {
         existing.setDecimalPlaces(updates.getDecimalPlaces());
         existing.setCountryCode(updates.getCountryCode());
         if (Boolean.TRUE.equals(updates.getIsDefault())) {
-            clearDefaultCurrencies(tenantId);
+            clearDefaultCurrencies(tenantId, orgId);
         }
         existing.setIsDefault(updates.getIsDefault());
         existing.setIsactive(updates.getIsactive());
         return currencyRepository.save(existing);
     }
 
-    private void clearDefaultCurrencies(UUID clientId) {
-        List<Currency> defaults = currencyRepository.findByClientIdAndIsDefaultTrue(clientId);
-        defaults.forEach(c -> c.setIsDefault(false));
-        currencyRepository.saveAll(defaults);
+    private void clearDefaultCurrencies(UUID clientId, UUID orgId) {
+        if (orgId == null) {
+            List<Currency> defaults = currencyRepository.findByClientIdAndIsDefaultTrue(clientId);
+            defaults.forEach(c -> c.setIsDefault(false));
+            currencyRepository.saveAll(defaults);
+        } else {
+            List<Currency> defaults = currencyRepository.findByClientIdAndOrgIdAndIsDefaultTrue(clientId, orgId);
+            defaults.forEach(c -> c.setIsDefault(false));
+            currencyRepository.saveAll(defaults);
+        }
     }
 
     @Transactional
@@ -202,6 +214,7 @@ public class PurchasingService {
         UUID tenantId = TenantContext.getCurrentTenant();
         Currency currency = currencyRepository.findByIdAndClientId(id, tenantId)
                 .orElseThrow(() -> new ResourceNotFoundException("Currency not found"));
+        branchContext.requireWriteOrgId(currency.getOrgId());
         currencyRepository.delete(currency);
     }
 
@@ -223,6 +236,24 @@ public class PurchasingService {
     public Pricelist savePricelist(Pricelist pricelist) {
         pricelist.setClientId(TenantContext.getCurrentTenant());
         pricelist.setOrgId(branchContext.requireWriteOrgId(pricelist.getOrgId()));
+        
+        if (pricelist.getCurrencyId() == null) {
+            UUID orgId = pricelist.getOrgId();
+            UUID clientId = pricelist.getClientId();
+            if (orgId != null) {
+                currencyRepository.findByClientIdAndOrgIdAndIsDefaultTrue(clientId, orgId)
+                    .stream().findFirst()
+                    .ifPresentOrElse(
+                        c -> pricelist.setCurrencyId(c.getId()),
+                        () -> currencyRepository.findByClientIdAndIsDefaultTrue(clientId)
+                            .stream().findFirst().ifPresent(c -> pricelist.setCurrencyId(c.getId()))
+                    );
+            } else {
+                currencyRepository.findByClientIdAndIsDefaultTrue(clientId)
+                    .stream().findFirst().ifPresent(c -> pricelist.setCurrencyId(c.getId()));
+            }
+        }
+
         if (Boolean.TRUE.equals(pricelist.getIsDefault())) {
             clearDefaultPricelists(pricelist.getClientId(), pricelist.getPricelistType());
         }

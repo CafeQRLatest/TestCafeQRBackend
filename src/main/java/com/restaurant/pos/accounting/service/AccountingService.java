@@ -64,8 +64,11 @@ public class AccountingService {
 
 
     public List<AccountingAccount> getAccounts(boolean includeInactive) {
+        return getAccounts(includeInactive, TenantContext.getCurrentOrg());
+    }
+
+    public List<AccountingAccount> getAccounts(boolean includeInactive, UUID orgId) {
         UUID clientId = requireTenant();
-        UUID orgId = TenantContext.getCurrentOrg();
         List<AccountingAccount> accounts;
         if (orgId == null) {
             accounts = accountRepository.findByClientIdOrderByCodeAsc(clientId);
@@ -294,7 +297,7 @@ public class AccountingService {
     public List<AccountingAccountPeriodDto> getPeriodAccounts(LocalDateTime from, LocalDateTime to, boolean includeInactive, UUID orgId, UUID terminalId) {
         DateRange range = boundedRange(from, to);
         UUID clientId = requireTenant();
-        List<AccountingAccount> accounts = getAccounts(true);
+        List<AccountingAccount> accounts = getAccounts(true, orgId);
         Set<UUID> visibleAccountIds = accounts.stream()
                 .filter(account -> includeInactive || !"N".equalsIgnoreCase(account.getIsactive()))
                 .map(AccountingAccount::getId)

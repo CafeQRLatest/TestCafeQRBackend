@@ -59,8 +59,12 @@ public class AccountingDefaultsService {
 
     @Transactional
     public List<AccountingAccount> ensureDefaultAccounts() {
+        return ensureDefaultAccounts(TenantContext.getCurrentOrg());
+    }
+
+    @Transactional
+    public List<AccountingAccount> ensureDefaultAccounts(UUID orgId) {
         UUID clientId = requireClient();
-        UUID orgId = TenantContext.getCurrentOrg();
         Map<String, AccountingAccount> accountsByKey = new LinkedHashMap<>();
 
         for (AccountTemplate template : ACCOUNT_TEMPLATES) {
@@ -167,7 +171,7 @@ public class AccountingDefaultsService {
             ensuredDefaults.put(cacheKey, true);
             return;
         }
-        ensureDefaultAccounts();
+        ensureDefaultAccounts(orgId);
     }
 
     private String defaultsKey(UUID clientId, UUID orgId) {

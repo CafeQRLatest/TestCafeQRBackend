@@ -570,8 +570,20 @@ public class ExpenseService {
         expense.setTerminalId(contextProvider.getCurrentTerminal());
 
         // Default Currency
-        currencyRepository.findByClientIdAndIsDefaultTrue(contextProvider.getCurrentTenant())
-                .stream().findFirst().ifPresent(c -> expense.setCurrencyId(c.getId()));
+        UUID orgId = expense.getOrgId();
+        UUID clientId = expense.getClientId();
+        if (orgId != null) {
+            currencyRepository.findByClientIdAndOrgIdAndIsDefaultTrue(clientId, orgId)
+                    .stream().findFirst()
+                    .ifPresentOrElse(
+                        c -> expense.setCurrencyId(c.getId()),
+                        () -> currencyRepository.findByClientIdAndIsDefaultTrue(clientId)
+                                .stream().findFirst().ifPresent(c -> expense.setCurrencyId(c.getId()))
+                    );
+        } else {
+            currencyRepository.findByClientIdAndIsDefaultTrue(clientId)
+                    .stream().findFirst().ifPresent(c -> expense.setCurrencyId(c.getId()));
+        }
 
         return expense;
     }
