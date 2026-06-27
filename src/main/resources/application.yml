@@ -56,15 +56,6 @@ spring:
       ssl:
         enabled: ${SPRING_DATA_REDIS_SSL:false}
 
-  rabbitmq:
-    host: ${SPRING_RABBITMQ_HOST:localhost}
-    port: ${SPRING_RABBITMQ_PORT:5672}
-    username: ${SPRING_RABBITMQ_USERNAME:guest}
-    password: ${SPRING_RABBITMQ_PASSWORD:guest}
-    virtual-host: ${SPRING_RABBITMQ_VHOST:/}
-    ssl:
-      enabled: ${SPRING_RABBITMQ_SSL:false}
-
   mail:
     host: ${SMTP_HOST:smtp.gmail.com}
     port: ${SMTP_PORT:587}
