@@ -37,7 +37,8 @@ public class WebMvcConfig implements WebMvcConfigurer {
     }
 
     @Override
-    public void addCorsMappings(@org.springframework.lang.NonNull org.springframework.web.servlet.config.annotation.CorsRegistry registry) {
+    public void addCorsMappings(
+            @org.springframework.lang.NonNull org.springframework.web.servlet.config.annotation.CorsRegistry registry) {
         String[] configuredOrigins = java.util.Arrays.stream(allowedOrigins)
                 .filter(origin -> origin != null && !origin.isBlank())
                 .map(String::trim)

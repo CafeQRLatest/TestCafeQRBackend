@@ -3,7 +3,7 @@ server:
   max-http-request-header-size: 65536
   tomcat:
     threads:
-      max: 30
+      max: ${SERVER_TOMCAT_THREADS_MAX:30}
       min-spare: 5
     connection-timeout: 20000
     max-connections: 1000
