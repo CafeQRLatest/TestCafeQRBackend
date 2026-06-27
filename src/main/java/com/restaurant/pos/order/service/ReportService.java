@@ -982,11 +982,7 @@ public class ReportService {
         if (paymentMethod == null || paymentMethod.isBlank()) {
             return "UNASSIGNED";
         }
-        String method = paymentMethod.trim().toUpperCase(Locale.ROOT);
-        if (Set.of("CASH", "ONLINE", "UPI", "CARD", "BANK", "CHEQUE").contains(method)) {
-            return method;
-        }
-        return "UNASSIGNED";
+        return paymentMethod.trim().toUpperCase(Locale.ROOT);
     }
 
     private BigDecimal safe(BigDecimal value) {

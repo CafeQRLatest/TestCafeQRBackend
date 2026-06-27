@@ -151,4 +151,43 @@ public class PurchasingController {
         purchasingService.deletePricelist(id);
         return ResponseEntity.ok(ApiResponse.success(null));
     }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // PAYMENT TYPES
+    // ═══════════════════════════════════════════════════════════════════════
+
+    @GetMapping("/payment-types")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
+    public ResponseEntity<ApiResponse<List<com.restaurant.pos.purchasing.domain.PaymentType>>> getPaymentTypes(
+            @RequestParam(required = false) String applicableFor,
+            @RequestParam(required = false) UUID orgId) {
+        List<com.restaurant.pos.purchasing.domain.PaymentType> result =
+                (applicableFor != null && !applicableFor.isBlank())
+                        ? purchasingService.getPaymentTypesByApplicableFor(applicableFor, orgId)
+                        : purchasingService.getPaymentTypes(orgId);
+        return ResponseEntity.ok(ApiResponse.success(result));
+    }
+
+    @PostMapping("/payment-types")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
+    public ResponseEntity<ApiResponse<com.restaurant.pos.purchasing.domain.PaymentType>> createPaymentType(
+            @RequestBody com.restaurant.pos.purchasing.domain.PaymentType paymentType) {
+        return ResponseEntity.ok(ApiResponse.success(purchasingService.savePaymentType(paymentType)));
+    }
+
+    @PutMapping("/payment-types/{id}")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
+    public ResponseEntity<ApiResponse<com.restaurant.pos.purchasing.domain.PaymentType>> updatePaymentType(
+            @PathVariable UUID id,
+            @RequestBody com.restaurant.pos.purchasing.domain.PaymentType paymentType) {
+        return ResponseEntity.ok(ApiResponse.success(purchasingService.updatePaymentType(id, paymentType)));
+    }
+
+    @DeleteMapping("/payment-types/{id}")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
+    public ResponseEntity<ApiResponse<Void>> deletePaymentType(@PathVariable UUID id) {
+        purchasingService.deletePaymentType(id);
+        return ResponseEntity.ok(ApiResponse.success(null));
+    }
 }
+

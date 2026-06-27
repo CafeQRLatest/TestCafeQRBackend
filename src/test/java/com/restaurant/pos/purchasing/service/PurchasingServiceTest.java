@@ -35,6 +35,7 @@ class PurchasingServiceTest {
                 mock(VendorRepository.class),
                 mock(CurrencyRepository.class),
                 mock(PricelistRepository.class),
+                mock(com.restaurant.pos.purchasing.repository.PaymentTypeRepository.class),
                 new com.restaurant.pos.common.service.BranchContextService()
         );
         clientId = UUID.randomUUID();

@@ -632,11 +632,10 @@ public class CreditService {
     }
 
     private String normalizePaymentMethod(String value) {
-        String method = value == null || value.isBlank() ? "CASH" : value.trim().toUpperCase(Locale.ROOT);
-        if (!PAYMENT_METHODS.contains(method)) {
-            throw new BusinessException("Unsupported credit payment method: " + value);
+        if (value == null || value.isBlank()) {
+            return "CASH";
         }
-        return method;
+        return value.trim().toUpperCase(Locale.ROOT);
     }
 
     private String normalizeStatus(String status) {

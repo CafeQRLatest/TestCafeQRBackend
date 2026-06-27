@@ -42,8 +42,16 @@ public class JwtService {
     @PostConstruct
     public void init() {
         try {
-            this.privateKey = loadPrivateKey(privateKeyStr);
-            this.publicKey = loadPublicKey(publicKeyStr);
+            if (privateKeyStr == null || privateKeyStr.trim().isEmpty() || publicKeyStr == null || publicKeyStr.trim().isEmpty()) {
+                java.security.KeyPairGenerator keyPairGenerator = java.security.KeyPairGenerator.getInstance("RSA");
+                keyPairGenerator.initialize(2048);
+                java.security.KeyPair keyPair = keyPairGenerator.generateKeyPair();
+                this.privateKey = keyPair.getPrivate();
+                this.publicKey = keyPair.getPublic();
+            } else {
+                this.privateKey = loadPrivateKey(privateKeyStr);
+                this.publicKey = loadPublicKey(publicKeyStr);
+            }
         } catch (Exception e) {
             throw new RuntimeException("Failed to initialize JWT keys. Please check your application.yml configuration for jwt.private-key and jwt.public-key.", e);
         }

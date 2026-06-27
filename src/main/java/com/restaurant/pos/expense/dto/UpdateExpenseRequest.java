@@ -44,4 +44,10 @@ public class UpdateExpenseRequest implements ExpenseBaseRequest {
     @Pattern(regexp = "GLOBAL|BRANCH", message = "Scope must be GLOBAL or BRANCH")
     @Schema(description = "Expense scope: GLOBAL for organization-level, BRANCH for a specific branch", example = "BRANCH")
     private String scope;
+
+    @Schema(description = "Cash amount for mixed payment", example = "500.00")
+    private BigDecimal cashAmount;
+
+    @Schema(description = "Online amount for mixed payment", example = "1000.00")
+    private BigDecimal onlineAmount;
 }

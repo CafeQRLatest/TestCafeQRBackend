@@ -145,7 +145,8 @@ public class AccountingDefaultsService {
         UUID clientId = requireClient();
         UUID orgId = TenantContext.getCurrentOrg();
         String method = normalizePaymentMethod(paymentMethod);
-        ensureDefaultsIfMissing(clientId, orgId, "CASH".equals(method) ? CASH : BANK_UPI_CLEARING);
+        boolean isCash = "CASH".equalsIgnoreCase(method);
+        ensureDefaultsIfMissing(clientId, orgId, isCash ? CASH : BANK_UPI_CLEARING);
         Optional<AccountingPaymentMethodMapping> override = paymentMappingRepository
                 .findByClientIdAndOrgIdAndPaymentMethodIgnoreCase(clientId, orgId, method)
                 .filter(mapping -> "Y".equalsIgnoreCase(mapping.getIsactive()));
@@ -153,12 +154,14 @@ public class AccountingDefaultsService {
             return accountRepository.findByIdAndClientIdAndOrgId(override.get().getAccountId(), clientId, orgId)
                     .orElseThrow(() -> new BusinessException("Mapped payment account is invalid: " + method));
         }
-        return resolveAccount("CASH".equals(method) ? CASH : BANK_UPI_CLEARING);
+        return resolveAccount(isCash ? CASH : BANK_UPI_CLEARING);
     }
 
     public String normalizePaymentMethod(String paymentMethod) {
-        String method = normalizeKey(paymentMethod == null || paymentMethod.isBlank() ? "CASH" : paymentMethod);
-        return PAYMENT_METHODS.contains(method) ? method : "CASH";
+        if (paymentMethod == null || paymentMethod.isBlank()) {
+            return "CASH";
+        }
+        return normalizeKey(paymentMethod);
     }
 
     private void ensureDefaultsIfMissing(UUID clientId, UUID orgId, String requiredSystemKey) {

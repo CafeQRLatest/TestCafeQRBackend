@@ -31,6 +31,7 @@ public class DataInitializer implements CommandLineRunner {
     private final MenuRepository menuRepository;
     private final com.restaurant.pos.client.repository.OrganizationRepository organizationRepository;
     private final com.restaurant.pos.client.repository.ClientRepository clientRepository;
+    private final com.restaurant.pos.purchasing.repository.PaymentTypeRepository paymentTypeRepository;
 
     @Override
     @Transactional
@@ -39,9 +40,8 @@ public class DataInitializer implements CommandLineRunner {
 
         // 1. Seed Permissions
         List<String> permissionNames = Arrays.asList(
-            "CREATE_ORDER", "VOID_BILL", "VIEW_REPORT", 
-            "MANAGE_USERS", "MANAGE_ORG", "MANAGE_TERMINAL"
-        );
+                "CREATE_ORDER", "VOID_BILL", "VIEW_REPORT",
+                "MANAGE_USERS", "MANAGE_ORG", "MANAGE_TERMINAL");
 
         for (String pName : permissionNames) {
             if (permissionRepository.findByName(pName).isEmpty()) {
@@ -63,9 +63,12 @@ public class DataInitializer implements CommandLineRunner {
 
         // 3. Repair Admin User Role if needed (Fix for "Access Denied")
         repairAdminRoles();
-        
+
         // 4. Ensure Default Organization exists for all Clients
         seedDefaultOrganizations();
+
+        // 5. Ensure Default Payment Types exist for all Organizations
+        seedDefaultPaymentTypesForExistingOrgs();
 
         log.info("Data Initialization complete.");
     }
@@ -73,10 +76,10 @@ public class DataInitializer implements CommandLineRunner {
     private void seedRole(String name, String desc, Set<Permission> permissions, List<Menu> allMenus) {
         RoleEntity role = roleRepository.findByNameAndClientIdIsNull(name).orElseGet(() -> {
             RoleEntity r = RoleEntity.builder()
-                .name(name)
-                .description(desc)
-                .isactive("Y")
-                .build();
+                    .name(name)
+                    .description(desc)
+                    .isactive("Y")
+                    .build();
             r.setCreatedBy("SYSTEM");
             return r;
         });
@@ -105,14 +108,16 @@ public class DataInitializer implements CommandLineRunner {
         List<User> users = userRepository.findAll();
         RoleEntity adminRole = roleRepository.findByNameAndClientIdIsNull("ADMIN").orElse(null);
 
-        if (adminRole == null) return;
+        if (adminRole == null)
+            return;
 
         for (User user : users) {
-           if (user.getRoleEntity() == null) {
-               log.warn("User {} has no role. Assigning ADMIN role by default for emergency recovery.", user.getEmail());
-               user.setRoleEntity(adminRole);
-               userRepository.save(user);
-           }
+            if (user.getRoleEntity() == null) {
+                log.warn("User {} has no role. Assigning ADMIN role by default for emergency recovery.",
+                        user.getEmail());
+                user.setRoleEntity(adminRole);
+                userRepository.save(user);
+            }
         }
     }
 
@@ -123,7 +128,8 @@ public class DataInitializer implements CommandLineRunner {
             var orgs = organizationRepository.findAllByClientId(clientId);
             if (orgs.isEmpty()) {
                 log.info("Auto-creating default organization 'thalassery' for client {}", client.getEmail());
-                com.restaurant.pos.client.domain.Organization defaultOrg = com.restaurant.pos.client.domain.Organization.builder()
+                com.restaurant.pos.client.domain.Organization defaultOrg = com.restaurant.pos.client.domain.Organization
+                        .builder()
                         .name("thalassery")
                         .client(client)
                         .isactive("Y")
@@ -131,6 +137,48 @@ public class DataInitializer implements CommandLineRunner {
                 defaultOrg.setCreatedBy("SYSTEM");
                 defaultOrg.setClientId(clientId);
                 organizationRepository.save(defaultOrg);
+            }
+        }
+    }
+
+    private void seedDefaultPaymentTypesForExistingOrgs() {
+        List<com.restaurant.pos.client.domain.Organization> orgs = organizationRepository.findAll();
+        for (com.restaurant.pos.client.domain.Organization org : orgs) {
+            UUID clientId = org.getClientId();
+            UUID orgId = org.getId();
+            if (clientId == null)
+                continue;
+
+            record Seed(String display, String paymentType, String sales, String purchase, String expense, int sort,
+                    boolean isDefault) {
+            }
+
+            List<Seed> defaults = List.of(
+                    new Seed("Cash", "OTHERS", "Y", "Y", "Y", 1, true),
+                    new Seed("Online", "OTHERS", "Y", "Y", "Y", 2, false),
+                    new Seed("Mixed", "OTHERS", "Y", "Y", "Y", 3, false),
+                    new Seed("Credit", "CREDIT", "Y", "N", "N", 4, false));
+
+            for (Seed s : defaults) {
+                boolean exists = paymentTypeRepository.existsByClientIdAndOrgIdAndDisplayName(clientId, orgId,
+                        s.display());
+                if (!exists) {
+                    com.restaurant.pos.purchasing.domain.PaymentType pt = com.restaurant.pos.purchasing.domain.PaymentType
+                            .builder()
+                            .displayName(s.display())
+                            .paymentType(s.paymentType())
+                            .sales(s.sales())
+                            .purchase(s.purchase())
+                            .expense(s.expense())
+                            .sortOrder(s.sort())
+                            .isDefault(s.isDefault())
+                            .isactive("Y")
+                            .build();
+                    pt.setClientId(clientId);
+                    pt.setOrgId(orgId);
+                    pt.setCreatedBy("SYSTEM");
+                    paymentTypeRepository.save(pt);
+                }
             }
         }
     }

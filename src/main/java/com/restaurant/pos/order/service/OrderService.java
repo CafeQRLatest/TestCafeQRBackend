@@ -2701,19 +2701,17 @@ public class OrderService {
     }
 
     private String normalizePaymentMethod(String paymentMethod) {
-        String method = paymentMethod == null || paymentMethod.isBlank() ? "CASH" : paymentMethod.trim().toUpperCase();
-        if (!PAYMENT_METHODS.contains(method)) {
+        if (paymentMethod == null || paymentMethod.isBlank()) {
             return "CASH";
         }
-        return method;
+        return paymentMethod.trim().toUpperCase();
     }
 
     private String normalizePaymentSplitMethod(String paymentMethod) {
-        String method = paymentMethod == null || paymentMethod.isBlank() ? "" : paymentMethod.trim().toUpperCase();
-        if (!PAYMENT_SPLIT_METHODS.contains(method)) {
-            throw new BusinessException("Unsupported payment split method: " + String.valueOf(paymentMethod));
+        if (paymentMethod == null || paymentMethod.isBlank()) {
+            return "CASH";
         }
-        return method;
+        return paymentMethod.trim().toUpperCase();
     }
 
     private boolean hasExplicitPaymentSplits(OrderSettleRequest request) {
