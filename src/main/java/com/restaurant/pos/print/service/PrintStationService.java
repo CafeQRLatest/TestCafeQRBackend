@@ -187,8 +187,11 @@ public class PrintStationService {
         PrintStation station = authenticate(rawToken);
         PrintJob job = jobRepository.findById(jobId)
                 .filter(value -> station.getClientId().equals(value.getClientId()))
-                .filter(value -> station.getId().equals(value.getLeasedByStationId()))
-                .orElseThrow(() -> new BusinessException("Print job is not leased by this station"));
+                .orElseThrow(() -> new BusinessException("Print job not found"));
+
+        if (job.getLeasedByStationId() != null && !station.getId().equals(job.getLeasedByStationId())) {
+            throw new BusinessException("Print job is leased by another station");
+        }
         if (request == null || request.getLeaseToken() == null) {
             throw new BusinessException("Print job lease token is required");
         }
@@ -225,8 +228,16 @@ public class PrintStationService {
         if (status == PrintJobStatus.LOCAL_QUEUED) {
             job.setLocalQueuedAt(now);
             job.setLeaseExpiresAt(now.plusMinutes(10));
+            job.setLeasedByStationId(station.getId());
+            if (job.getLeaseToken() == null) {
+                job.setLeaseToken(request.getLeaseToken() != null ? request.getLeaseToken() : UUID.randomUUID().toString());
+            }
         } else if (status == PrintJobStatus.SPOOLING) {
             job.setLeaseExpiresAt(now.plusMinutes(5));
+            job.setLeasedByStationId(station.getId());
+            if (job.getLeaseToken() == null) {
+                job.setLeaseToken(request.getLeaseToken() != null ? request.getLeaseToken() : UUID.randomUUID().toString());
+            }
         } else if (status == PrintJobStatus.SPOOLED
                 || status == PrintJobStatus.COMPLETED
                 || status == PrintJobStatus.PRINTED) {
