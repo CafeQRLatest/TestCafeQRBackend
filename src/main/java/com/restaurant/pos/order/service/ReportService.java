@@ -268,7 +268,15 @@ public class ReportService {
                 for (Payment p : payments) {
                     List<PaymentSplit> splits = splitsByPaymentId.getOrDefault(p.getId(), List.of());
                     if (splits.isEmpty()) {
-                        addPaymentBreakdownBucket(payMethodMap, normalizeReportPaymentMethod(p.getPaymentMethod()), safe(p.getAmountPaid()));
+                        String method = normalizeReportPaymentMethod(p.getPaymentMethod());
+                        if ("MIXED".equalsIgnoreCase(method)) {
+                            BigDecimal half = safe(p.getAmountPaid()).divide(BigDecimal.valueOf(2), 2, RoundingMode.HALF_UP);
+                            BigDecimal remaining = safe(p.getAmountPaid()).subtract(half);
+                            addPaymentBreakdownBucket(payMethodMap, "CASH", half);
+                            addPaymentBreakdownBucket(payMethodMap, "ONLINE", remaining);
+                        } else {
+                            addPaymentBreakdownBucket(payMethodMap, method, safe(p.getAmountPaid()));
+                        }
                     } else {
                         for (PaymentSplit split : splits) {
                             addPaymentBreakdownBucket(payMethodMap, normalizeReportPaymentMethod(split.getPaymentMethod()), safe(split.getAmount()));

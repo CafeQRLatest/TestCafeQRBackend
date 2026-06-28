@@ -8,6 +8,7 @@ import com.restaurant.pos.order.domain.Order;
 import com.restaurant.pos.order.domain.OrderType;
 import com.restaurant.pos.order.domain.OrderStatus;
 import com.restaurant.pos.order.domain.PaymentStatus;
+import com.restaurant.pos.order.domain.PaymentSplit;
 import com.restaurant.pos.order.dto.CreateOrderRequest;
 import com.restaurant.pos.order.dto.UpdateOrderRequest;
 import com.restaurant.pos.order.dto.OrderResponseDto;
@@ -200,6 +201,13 @@ public class OrderController {
         List<OrderResponseDto> revisions = orderService.getOrderRevisions(id)
                 .stream().map(orderDtoMapper::toResponseDto).toList();
         return ResponseEntity.ok(ApiResponse.success(revisions));
+    }
+
+    @GetMapping("/{id}/payment-splits")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
+    @Operation(summary = "Get payment splits for an order", description = "Returns payment splits for a settled mixed payment order.")
+    public ResponseEntity<ApiResponse<List<PaymentSplit>>> getPaymentSplits(@PathVariable UUID id) {
+        return ResponseEntity.ok(ApiResponse.success(orderService.getPaymentSplits(id)));
     }
 
     @PostMapping

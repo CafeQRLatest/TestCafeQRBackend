@@ -19,6 +19,7 @@ import com.restaurant.pos.print.domain.PrintJobKind;
 import com.restaurant.pos.print.domain.PrintJobStatus;
 import com.restaurant.pos.print.repository.PrintJobAttemptRepository;
 import com.restaurant.pos.print.repository.PrintJobRepository;
+import com.restaurant.pos.print.controller.PrintSseController;
 import com.restaurant.pos.purchasing.domain.Customer;
 import com.restaurant.pos.purchasing.repository.CustomerRepository;
 import com.restaurant.pos.order.dto.OrderCustomerDto;
@@ -258,7 +259,9 @@ public class PrintJobService {
                     .build();
             job.setClientId(clientId);
             job.setOrgId(order.getOrgId());
-            return printJobRepository.save(job);
+            PrintJob saved = printJobRepository.save(job);
+            PrintSseController.publish(saved.getClientId(), saved.getId());
+            return saved;
         } catch (DataIntegrityViolationException ex) {
             return printJobRepository.findByClientIdAndDedupeKey(clientId, dedupeKey)
                     .orElseThrow(() -> ex);
@@ -333,6 +336,7 @@ public class PrintJobService {
             job.setClientId(clientId);
             job.setOrgId(order.getOrgId());
             PrintJob saved = printJobRepository.save(job);
+            PrintSseController.publish(saved.getClientId(), saved.getId());
             log.info("createKotEditJob: successfully created PrintJob {} for order {} with dedupeKey {}", saved.getId(), order.getId(), dedupeKey);
             return saved;
         } catch (DataIntegrityViolationException ex) {

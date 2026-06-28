@@ -2909,6 +2909,14 @@ public class OrderService {
         }
     }
 
+    public List<PaymentSplit> getPaymentSplits(UUID orderId) {
+        return paymentRepository.findByOrderId(orderId).stream()
+                .filter(p -> "Y".equalsIgnoreCase(p.getIsactive()) && !"VOID".equalsIgnoreCase(p.getDocStatus()))
+                .findFirst()
+                .map(p -> paymentSplitRepository.findByPaymentIdOrderByCreatedAtAsc(p.getId()))
+                .orElse(List.of());
+    }
+
     private String resolveUserDisplayName(String uidStr) {
         if (uidStr == null || uidStr.isBlank() || "SYSTEM".equalsIgnoreCase(uidStr)) {
             return "SYSTEM";
