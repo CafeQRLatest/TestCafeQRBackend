@@ -29,6 +29,7 @@ public class ConfigurationDto {
     private boolean sendToKitchenEnabled;
     private boolean onlineDeliveryEnabled;
     private boolean allowMultipleCustomersPerOrder;
+    private boolean customerAgeEnabled;
     private boolean posProductListingEnabled;
     private boolean discountEnabled;
     private boolean purchaseEnabled;
