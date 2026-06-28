@@ -76,6 +76,10 @@ public class SubscriptionService {
         request.setBillingCycle("ANNUAL");
         long totalAmountPaise = calculateTotalAmount(client, request);
 
+        boolean isUpgrade = "ACTIVE".equalsIgnoreCase(client.getSubscriptionStatus()) 
+                && client.getSubscriptionExpiryDate() != null 
+                && client.getSubscriptionExpiryDate().isAfter(LocalDateTime.now());
+
         Map<String, Object> notes = new LinkedHashMap<>();
         notes.put("purpose", "subscription");
         notes.put("client_id", client.getId().toString());
@@ -86,6 +90,7 @@ public class SubscriptionService {
         notes.put("billing_cycle", request.getBillingCycle() != null ? request.getBillingCycle() : "MONTHLY");
         notes.put("setup_option", request.getSetupOption() != null ? request.getSetupOption() : "DIY");
         notes.put("org_id", request.getOrgId() != null ? request.getOrgId().toString() : "");
+        notes.put("is_upgrade", String.valueOf(isUpgrade));
         
         if (request.getModules() != null && !request.getModules().isEmpty()) {
             StringBuilder sb = new StringBuilder();
@@ -113,20 +118,51 @@ public class SubscriptionService {
 
     long calculateTotalAmount(Client client, SubscriptionPaymentRequest request) {
         boolean isAnnual = "ANNUAL".equalsIgnoreCase(request.getBillingCycle());
+        boolean isAlreadyActive = "ACTIVE".equalsIgnoreCase(client.getSubscriptionStatus()) 
+                && client.getSubscriptionExpiryDate() != null 
+                && client.getSubscriptionExpiryDate().isAfter(LocalDateTime.now());
+
         long total = 0;
 
-        // 1. Calculate Base Plan Price
-        total += isAnnual ? PRICE_BASE_ANNUAL : PRICE_BASE_MONTHLY;
-
-        // 2. Add Setup Fee if White-Glove
-        if ("WHITE_GLOVE".equalsIgnoreCase(request.getSetupOption())) {
-            total += PRICE_SETUP_WHITE_GLOVE;
+        // 1. Calculate Base Plan & Setup Price ONLY if NOT already active
+        if (!isAlreadyActive) {
+            total += isAnnual ? PRICE_BASE_ANNUAL : PRICE_BASE_MONTHLY;
+            if ("WHITE_GLOVE".equalsIgnoreCase(request.getSetupOption())) {
+                total += PRICE_SETUP_WHITE_GLOVE;
+            }
         }
 
-        // 3. Add Sachet Modules
-        if (request.getModules() != null) {
+        // 2. Add Sachet Modules
+        if (request.getModules() != null && !request.getModules().isEmpty()) {
+            java.util.List<ClientSubscriptionModule> activeModules = clientSubscriptionModuleRepository.findByClientId(client.getId());
+            java.util.Set<ModuleName> activeModuleNames = new java.util.HashSet<>();
+            for (ClientSubscriptionModule m : activeModules) {
+                if ("ACTIVE".equalsIgnoreCase(m.getStatus()) && m.getExpiryDate() != null && m.getExpiryDate().isAfter(LocalDateTime.now())) {
+                    if (m.getOrgId() == null || (request.getOrgId() != null && m.getOrgId().equals(request.getOrgId()))) {
+                        activeModuleNames.add(m.getModuleName());
+                    }
+                }
+            }
+
             for (ModuleName module : request.getModules()) {
-                total += getModulePrice(module, isAnnual);
+                if (activeModuleNames.contains(module)) {
+                    // Already active module, do not charge again
+                    continue;
+                }
+
+                long fullModulePrice = getModulePrice(module, isAnnual);
+                if (isAlreadyActive) {
+                    long remainingDays = java.time.temporal.ChronoUnit.DAYS.between(LocalDateTime.now(), client.getSubscriptionExpiryDate());
+                    if (remainingDays > 0) {
+                        double dailyRate = (double) fullModulePrice / 365.0;
+                        long proratedPrice = Math.round(dailyRate * remainingDays);
+                        total += Math.max(proratedPrice, 100); // enforce min ₹1 per module
+                    } else {
+                        total += fullModulePrice;
+                    }
+                } else {
+                    total += fullModulePrice;
+                }
             }
         }
 
@@ -172,8 +208,9 @@ public class SubscriptionService {
         String billingCycle = notes.path("billing_cycle").asText("MONTHLY");
         String modulesStr = notes.path("modules").asText("");
         String orgIdStr = notes.path("org_id").asText("");
+        boolean isUpgrade = "true".equalsIgnoreCase(notes.path("is_upgrade").asText("false"));
 
-        activateModulesAndBasePlan(clientId, billingCycle, modulesStr, orgIdStr);
+        activateModulesAndBasePlan(clientId, billingCycle, modulesStr, orgIdStr, isUpgrade);
 
         return toStatus(findClient(clientId));
     }
@@ -183,20 +220,27 @@ public class SubscriptionService {
         String billingCycle = notes.path("billing_cycle").asText("MONTHLY");
         String modulesStr = notes.path("modules").asText("");
         String orgIdStr = notes.path("org_id").asText("");
+        boolean isUpgrade = "true".equalsIgnoreCase(notes.path("is_upgrade").asText("false"));
 
-        activateModulesAndBasePlan(clientId, billingCycle, modulesStr, orgIdStr);
+        activateModulesAndBasePlan(clientId, billingCycle, modulesStr, orgIdStr, isUpgrade);
 
         return toStatus(findClient(clientId));
     }
 
-    private void activateModulesAndBasePlan(UUID clientId, String billingCycle, String modulesStr, String orgIdStr) {
+    private void activateModulesAndBasePlan(UUID clientId, String billingCycle, String modulesStr, String orgIdStr, boolean isUpgrade) {
         Client client = findClient(clientId);
         
-        // 1. Activate/Renew Base Plan
-        int monthsToAdd = "ANNUAL".equalsIgnoreCase(billingCycle) ? 12 : 1;
-        client.setSubscriptionStatus(ACTIVE);
-        client.setSubscriptionExpiryDate(calculateExpiryDate(client.getSubscriptionExpiryDate(), clientId, null, monthsToAdd));
-        clientRepository.save(client);
+        if (!isUpgrade) {
+            // 1. Activate/Renew Base Plan (Normal new signup or full renewal)
+            int monthsToAdd = "ANNUAL".equalsIgnoreCase(billingCycle) ? 12 : 1;
+            client.setSubscriptionStatus(ACTIVE);
+            client.setSubscriptionExpiryDate(calculateExpiryDate(client.getSubscriptionExpiryDate(), clientId, null, monthsToAdd));
+            clientRepository.save(client);
+        } else {
+            // Base plan is already active; just verify status is ACTIVE
+            client.setSubscriptionStatus(ACTIVE);
+            clientRepository.save(client);
+        }
 
         // 2. Activate/Renew selected sachet modules
         if (modulesStr != null && !modulesStr.isBlank()) {
@@ -219,8 +263,15 @@ public class SubscriptionService {
                                 .orElse(null);
                     }
 
-                    LocalDateTime currentExpiry = (moduleSub != null) ? moduleSub.getExpiryDate() : null;
-                    LocalDateTime newExpiry = calculateExpiryDate(currentExpiry, clientId, orgId, monthsToAdd);
+                    LocalDateTime newExpiry;
+                    if (isUpgrade) {
+                        // Co-terminate with the existing client base subscription expiry date
+                        newExpiry = client.getSubscriptionExpiryDate();
+                    } else {
+                        int monthsToAdd = "ANNUAL".equalsIgnoreCase(billingCycle) ? 12 : 1;
+                        LocalDateTime currentExpiry = (moduleSub != null) ? moduleSub.getExpiryDate() : null;
+                        newExpiry = calculateExpiryDate(currentExpiry, clientId, orgId, monthsToAdd);
+                    }
 
                     if (moduleSub == null) {
                         moduleSub = ClientSubscriptionModule.builder()
@@ -300,12 +351,23 @@ public class SubscriptionService {
                 ? (TRIAL.equals(status) ? "Free trial active" : "Paid subscription active")
                 : "Subscription expired";
 
+        java.util.List<ClientSubscriptionModule> modules = clientSubscriptionModuleRepository.findByClientId(client.getId());
+        java.util.List<ModuleName> activeModulesList = new java.util.ArrayList<>();
+        for (ClientSubscriptionModule m : modules) {
+            if ("ACTIVE".equalsIgnoreCase(m.getStatus())) {
+                if (m.getExpiryDate() == null || m.getExpiryDate().isAfter(LocalDateTime.now())) {
+                    activeModulesList.add(m.getModuleName());
+                }
+            }
+        }
+
         return SubscriptionStatusResponse.builder()
                 .active(active)
                 .status(status)
                 .daysLeft(daysLeft)
                 .expiryDate(expiry)
                 .message(message)
+                .activeModules(activeModulesList)
                 .build();
     }
 

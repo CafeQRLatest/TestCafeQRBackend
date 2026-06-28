@@ -119,4 +119,32 @@ public class SubscriptionTimezoneTest {
         long total = subscriptionService.calculateTotalAmount(client, request);
         assertEquals(149900, total, "Total should be 149900 paise (₹1499)");
     }
+
+    @Test
+    public void testCalculateProratedAmountForActiveSubscription() {
+        UUID clientId = UUID.randomUUID();
+        com.restaurant.pos.client.domain.Client client = new com.restaurant.pos.client.domain.Client();
+        client.setId(clientId);
+        client.setSubscriptionStatus("ACTIVE");
+        // Expiry in exactly 182 days (approx 6 months)
+        client.setSubscriptionExpiryDate(LocalDateTime.now().plusDays(182));
+
+        // Mock empty active modules in repository
+        when(clientSubscriptionModuleRepository.findByClientId(clientId)).thenReturn(new java.util.ArrayList<>());
+
+        SubscriptionPaymentRequest request = SubscriptionPaymentRequest.builder()
+                .billingCycle("ANNUAL")
+                .modules(java.util.List.of(com.restaurant.pos.subscription.domain.ModuleName.INVENTORY))
+                .setupOption("DIY")
+                .build();
+
+        // Inventory Annual price = 199200 paise
+        // Daily rate = 199200 / 365 = 545.7534 paise
+        // 182 days cost = 545.7534 * 182 = 99327 paise (approx ₹993)
+        long total = subscriptionService.calculateTotalAmount(client, request);
+        
+        // Base plan (₹999/yr) is NOT charged again, White-Glove Setup is NOT charged.
+        // Total should be exactly the prorated amount of Inventory (~99327 paise)
+        assertEquals(99327, total, "Total should be exactly the prorated Inventory price");
+    }
 }

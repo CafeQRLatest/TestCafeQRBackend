@@ -14,6 +14,7 @@ public class WebMvcConfig implements WebMvcConfigurer {
 
     private final TenantInterceptor tenantInterceptor;
     private final TenantRestoreLockInterceptor tenantRestoreLockInterceptor;
+    private final com.restaurant.pos.subscription.interceptor.RequireModuleInterceptor requireModuleInterceptor;
 
     @Value("${app.cors.allowed-origins:" +
             "http://localhost:3000," +
@@ -34,6 +35,7 @@ public class WebMvcConfig implements WebMvcConfigurer {
     public void addInterceptors(@org.springframework.lang.NonNull InterceptorRegistry registry) {
         registry.addInterceptor(java.util.Objects.requireNonNull(tenantInterceptor));
         registry.addInterceptor(java.util.Objects.requireNonNull(tenantRestoreLockInterceptor));
+        registry.addInterceptor(java.util.Objects.requireNonNull(requireModuleInterceptor));
     }
 
     @Override
