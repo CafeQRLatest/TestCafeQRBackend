@@ -98,6 +98,12 @@ public class OrderResponseDto {
     @Schema(description = "Associated payment method")
     private String paymentMethod;
 
+    @Schema(description = "Cash split amount if mixed payment")
+    private BigDecimal cashAmount;
+
+    @Schema(description = "Online split amount if mixed payment")
+    private BigDecimal onlineAmount;
+
     @Schema(description = "Pre-discount gross amount")
     private BigDecimal grossAmount;
 
