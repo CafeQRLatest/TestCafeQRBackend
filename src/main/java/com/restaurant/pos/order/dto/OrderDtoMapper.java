@@ -18,6 +18,8 @@ public class OrderDtoMapper {
 
     private final com.restaurant.pos.auth.repository.UserRepository userRepository;
     private final com.restaurant.pos.common.context.TimezoneResolver timezoneResolver;
+    private final com.restaurant.pos.order.repository.PaymentRepository paymentRepository;
+    private final com.restaurant.pos.order.repository.PaymentSplitRepository paymentSplitRepository;
 
     private java.time.Instant toInstant(java.time.LocalDateTime ldt) {
         if (ldt == null)
@@ -51,6 +53,36 @@ public class OrderDtoMapper {
                     .toList();
         }
 
+        BigDecimal cashAmount = null;
+        BigDecimal onlineAmount = null;
+        String referenceNo = order.getReference();
+
+        if ("MIXED".equalsIgnoreCase(order.getPaymentMethod()) || "MIXED".equalsIgnoreCase(referenceNo)) {
+            try {
+                java.util.List<com.restaurant.pos.order.domain.Payment> payments = paymentRepository.findByOrderId(order.getId());
+                for (com.restaurant.pos.order.domain.Payment p : payments) {
+                    if ("Y".equalsIgnoreCase(p.getIsactive()) && !"VOID".equalsIgnoreCase(p.getDocStatus())) {
+                        java.util.List<com.restaurant.pos.order.domain.PaymentSplit> splits = paymentSplitRepository.findByPaymentIdOrderByCreatedAtAsc(p.getId());
+                        for (com.restaurant.pos.order.domain.PaymentSplit s : splits) {
+                            if ("CASH".equalsIgnoreCase(s.getPaymentMethod())) {
+                                cashAmount = (cashAmount == null) ? s.getAmount() : cashAmount.add(s.getAmount());
+                            } else {
+                                onlineAmount = (onlineAmount == null) ? s.getAmount() : onlineAmount.add(s.getAmount());
+                            }
+                        }
+                        if ((splits == null || splits.isEmpty()) && p.getAmountPaid() != null) {
+                            BigDecimal half = p.getAmountPaid().divide(BigDecimal.valueOf(2), 2, java.math.RoundingMode.HALF_UP);
+                            cashAmount = half;
+                            onlineAmount = p.getAmountPaid().subtract(half);
+                        }
+                        break;
+                    }
+                }
+            } catch (Exception e) {
+                // Safe guard
+            }
+        }
+
         return OrderResponseDto.builder()
                 .id(order.getId())
                 .orderNo(order.getOrderNo())
@@ -78,6 +110,8 @@ public class OrderDtoMapper {
                 .dailyBillNo(order.getDailyBillNo())
                 .paymentNo(order.getPaymentNo())
                 .paymentMethod(order.getPaymentMethod())
+                .cashAmount(cashAmount)
+                .onlineAmount(onlineAmount)
                 .grossAmount(order.getGrossAmount())
                 .roundOffAmount(order.getRoundOffAmount())
                 .orderDiscountType(order.getOrderDiscountType())

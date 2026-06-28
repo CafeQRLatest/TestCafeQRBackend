@@ -2913,7 +2913,19 @@ public class OrderService {
         return paymentRepository.findByOrderId(orderId).stream()
                 .filter(p -> "Y".equalsIgnoreCase(p.getIsactive()) && !"VOID".equalsIgnoreCase(p.getDocStatus()))
                 .findFirst()
-                .map(p -> paymentSplitRepository.findByPaymentIdOrderByCreatedAtAsc(p.getId()))
+                .map(p -> {
+                    List<PaymentSplit> splits = paymentSplitRepository.findByPaymentIdOrderByCreatedAtAsc(p.getId());
+                    if (splits.isEmpty() && "MIXED".equalsIgnoreCase(p.getPaymentMethod())) {
+                        BigDecimal total = p.getAmountPaid() != null ? p.getAmountPaid() : BigDecimal.ZERO;
+                        BigDecimal half = total.divide(BigDecimal.valueOf(2), 2, RoundingMode.HALF_UP);
+                        BigDecimal remaining = total.subtract(half);
+                        return List.of(
+                            PaymentSplit.builder().paymentId(p.getId()).paymentMethod("CASH").amount(half).build(),
+                            PaymentSplit.builder().paymentId(p.getId()).paymentMethod("ONLINE").amount(remaining).build()
+                        );
+                    }
+                    return splits;
+                })
                 .orElse(List.of());
     }
 

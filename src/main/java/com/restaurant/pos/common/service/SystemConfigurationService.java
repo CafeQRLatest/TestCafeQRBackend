@@ -19,6 +19,7 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.Collections;
 import java.util.UUID;
 
@@ -107,8 +108,10 @@ public class SystemConfigurationService {
     }
 
     /**
-     * Returns the effective (resolved) configuration that a branch actually uses at runtime.
-     * Branch override is merged on top of client default — identical to what POS uses.
+     * Returns the effective (resolved) configuration that a branch actually uses at
+     * runtime.
+     * Branch override is merged on top of client default — identical to what POS
+     * uses.
      * Also sets branchOverride=true if a custom override row exists.
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
@@ -128,7 +131,8 @@ public class SystemConfigurationService {
 
     /**
      * Save a branch-level configuration override (full copy strategy).
-     * Creates a new branch config row if none exists, copying from the client default first.
+     * Creates a new branch config row if none exists, copying from the client
+     * default first.
      */
     @Transactional
     public ConfigurationDto updateBranchConfiguration(UUID orgId, ConfigurationDto dto) {
@@ -171,7 +175,8 @@ public class SystemConfigurationService {
             throw new BusinessException("Branch ID is required");
         }
         repository.deleteByClientIdAndOrgId(clientId, orgId);
-        log.info("Branch configuration override deleted (reverted to client default). clientId={}, orgId={}", clientId, orgId);
+        log.info("Branch configuration override deleted (reverted to client default). clientId={}, orgId={}", clientId,
+                orgId);
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -208,6 +213,7 @@ public class SystemConfigurationService {
                 .orgId(null)
                 .qrOrderingEnabled(true)
                 .sendToKitchenEnabled(true)
+                .customerAgeEnabled(false)
                 .posProductListingEnabled(true)
                 .discountEnabled(true)
                 .purchaseEnabled(true)
@@ -249,6 +255,7 @@ public class SystemConfigurationService {
                 .sendToKitchenEnabled(source.isSendToKitchenEnabled())
                 .onlineDeliveryEnabled(source.isOnlineDeliveryEnabled())
                 .allowMultipleCustomersPerOrder(source.isAllowMultipleCustomersPerOrder())
+                .customerAgeEnabled(source.isCustomerAgeEnabled())
                 .posProductListingEnabled(source.isPosProductListingEnabled())
                 .discountEnabled(source.isDiscountEnabled())
                 .defaultBillingUiMode(source.getDefaultBillingUiMode())
@@ -314,28 +321,31 @@ public class SystemConfigurationService {
         String resolvedLogoUrl = resolveLogoUrl(entity.getClientId(), orgId);
 
         Integer decimalPlaces = 2;
-        String currencySymbol = entity.getCurrencySymbol() != null ? entity.getCurrencySymbol() : "₹";
-        
+        String currencySymbol = "";
+
         if (entity.getClientId() != null) {
             try {
-                var defaultCurrencyOpt = orgId != null 
-                        ? currencyRepository.findByClientIdAndOrgIdAndIsDefaultTrue(entity.getClientId(), orgId).stream().findFirst()
-                        : currencyRepository.findByClientIdAndIsDefaultTrue(entity.getClientId()).stream().findFirst();
-                
+                Optional<com.restaurant.pos.purchasing.domain.Currency> defaultCurrencyOpt = Optional.empty();
+                if (orgId != null) {
+                    defaultCurrencyOpt = currencyRepository
+                            .findByClientIdAndOrgIdAndIsDefaultTrue(entity.getClientId(), orgId)
+                            .stream()
+                            .findFirst();
+                }
+                if (defaultCurrencyOpt.isEmpty()) {
+                    defaultCurrencyOpt = currencyRepository.findByClientIdAndIsDefaultTrue(entity.getClientId())
+                            .stream()
+                            .findFirst();
+                }
+
                 if (defaultCurrencyOpt.isPresent()) {
                     var currency = defaultCurrencyOpt.get();
                     decimalPlaces = currency.getDecimalPlaces() != null ? currency.getDecimalPlaces() : 2;
-                    currencySymbol = currency.getSymbol() != null ? currency.getSymbol() : currencySymbol;
-                } else if (orgId != null) {
-                    var clientDefaultCurrencyOpt = currencyRepository.findByClientIdAndIsDefaultTrue(entity.getClientId()).stream().findFirst();
-                    if (clientDefaultCurrencyOpt.isPresent()) {
-                        var currency = clientDefaultCurrencyOpt.get();
-                        decimalPlaces = currency.getDecimalPlaces() != null ? currency.getDecimalPlaces() : 2;
-                        currencySymbol = currency.getSymbol() != null ? currency.getSymbol() : currencySymbol;
-                    }
+                    currencySymbol = currency.getSymbol() != null ? currency.getSymbol() : "";
                 }
             } catch (Exception e) {
-                log.warn("Failed to fetch default currency details for client {}, org {}", entity.getClientId(), orgId, e);
+                log.warn("Failed to fetch default currency details for client {}, org {}", entity.getClientId(), orgId,
+                        e);
             }
         }
         return ConfigurationDto.builder()
@@ -353,6 +363,7 @@ public class SystemConfigurationService {
                 .sendToKitchenEnabled(entity.isSendToKitchenEnabled())
                 .onlineDeliveryEnabled(entity.isOnlineDeliveryEnabled())
                 .allowMultipleCustomersPerOrder(entity.isAllowMultipleCustomersPerOrder())
+                .customerAgeEnabled(entity.isCustomerAgeEnabled())
                 .posProductListingEnabled(entity.isPosProductListingEnabled())
                 .discountEnabled(entity.isDiscountEnabled())
                 .defaultBillingUiMode(entity.getDefaultBillingUiMode())
@@ -404,12 +415,12 @@ public class SystemConfigurationService {
         entity.setSendToKitchenEnabled(dto.isSendToKitchenEnabled());
         entity.setOnlineDeliveryEnabled(dto.isOnlineDeliveryEnabled());
         entity.setAllowMultipleCustomersPerOrder(dto.isAllowMultipleCustomersPerOrder());
+        entity.setCustomerAgeEnabled(dto.isCustomerAgeEnabled());
         entity.setPosProductListingEnabled(dto.isPosProductListingEnabled());
         entity.setDiscountEnabled(dto.isDiscountEnabled());
         if (dto.getDefaultBillingUiMode() != null) entity.setDefaultBillingUiMode(dto.getDefaultBillingUiMode());
         entity.setOfflineSyncEnabled(dto.isOfflineSyncEnabled());
         entity.setOfflineSyncInterval(dto.getOfflineSyncInterval());
-        entity.setOfflineLeaseBlockSize(dto.getOfflineLeaseBlockSize());
         entity.setOfflineFailOpenPayments(dto.isOfflineFailOpenPayments());
         entity.setOfflineLocalEncryption(dto.isOfflineLocalEncryption());
         entity.setRoundOffEnabled(dto.isRoundOffEnabled());
@@ -435,7 +446,8 @@ public class SystemConfigurationService {
         if (dto.getPaperMm() != null) entity.setPaperMm(dto.getPaperMm());
         if (dto.getPrintCols() != null) entity.setPrintCols(dto.getPrintCols());
         if (dto.getPrintLeftMarginDots() != null) entity.setPrintLeftMarginDots(dto.getPrintLeftMarginDots());
-        if (dto.getPrintRightMarginDots() != null) entity.setPrintRightMarginDots(dto.getPrintRightMarginDots());
+        if (dto.getPrintRightMarginDots() != null)
+            entity.setPrintRightMarginDots(dto.getPrintRightMarginDots());
         entity.setPrintAutoCut(dto.isPrintAutoCut());
         if (dto.getPrintWinListUrl() != null) entity.setPrintWinListUrl(dto.getPrintWinListUrl());
         if (dto.getPrintWinPostUrl() != null) entity.setPrintWinPostUrl(dto.getPrintWinPostUrl());
