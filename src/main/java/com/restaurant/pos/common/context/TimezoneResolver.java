@@ -66,16 +66,30 @@ public class TimezoneResolver {
     }
 
     private ZoneId parseTimezone(String tz) {
+        if (tz == null || tz.isBlank()) return ZoneId.of("UTC");
+        String clean = tz.trim();
+        int spaceIdx = clean.indexOf(' ');
+        if (spaceIdx > 0) {
+            clean = clean.substring(0, spaceIdx).trim();
+        }
+        int parenIdx = clean.indexOf('(');
+        if (parenIdx > 0) {
+            clean = clean.substring(0, parenIdx).trim();
+        }
+
         try {
-            if (tz.startsWith("UTC")) {
-                String offset = tz.substring(3).trim();
+            if (clean.startsWith("UTC") || clean.startsWith("GMT")) {
+                String offset = clean.replaceAll("^(UTC|GMT)", "").trim();
                 if (offset.isEmpty()) return ZoneId.of("UTC");
                 if (!offset.startsWith("+") && !offset.startsWith("-")) offset = "+" + offset;
                 return ZoneId.of(offset);
             }
-            return ZoneId.of(tz);
+            if ("India".equalsIgnoreCase(clean)) return ZoneId.of("Asia/Kolkata");
+            if ("Oman".equalsIgnoreCase(clean)) return ZoneId.of("Asia/Muscat");
+            if ("UAE".equalsIgnoreCase(clean)) return ZoneId.of("Asia/Dubai");
+            return ZoneId.of(clean);
         } catch (Exception e) {
-            log.warn("Invalid timezone '{}', falling back to UTC", tz, e);
+            log.warn("Invalid timezone '{}' (cleaned from '{}'), falling back to UTC", clean, tz, e);
             return ZoneId.of("UTC");
         }
     }
