@@ -64,7 +64,7 @@ public class AuthService {
                 .country(request.getCountry())
                 .posType(request.getPosType())
                 .subscriptionStatus("TRIAL")
-                .subscriptionExpiryDate(LocalDateTime.now().plusDays(14))
+                .subscriptionExpiryDate(LocalDateTime.now().plusDays(7))
                 .isactive("Y")
                 .build();
         client.setCreatedBy("SYSTEM");
