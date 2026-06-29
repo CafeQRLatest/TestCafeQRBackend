@@ -31,8 +31,10 @@ public class SubscriptionController {
     }
 
     @PostMapping("/api/v1/subscription/create-payment")
-    public ResponseEntity<ApiResponse<SubscriptionPaymentResponse>> createPayment(Authentication authentication) {
-        return ResponseEntity.ok(ApiResponse.success(subscriptionService.createPayment(currentClientId(authentication))));
+    public ResponseEntity<ApiResponse<SubscriptionPaymentResponse>> createPayment(
+            Authentication authentication,
+            @RequestBody com.restaurant.pos.subscription.dto.SubscriptionPaymentRequest request) {
+        return ResponseEntity.ok(ApiResponse.success(subscriptionService.createPayment(currentClientId(authentication), request)));
     }
 
     @PostMapping("/api/v1/subscription/activate")
@@ -76,7 +78,7 @@ public class SubscriptionController {
         if ("payment.captured".equals(root.path("event").asText())) {
             JsonNode notes = root.path("payload").path("payment").path("entity").path("notes");
             if ("subscription".equals(notes.path("purpose").asText()) && notes.hasNonNull("client_id")) {
-                subscriptionService.activateFromWebhook(UUID.fromString(notes.path("client_id").asText()));
+                subscriptionService.activateFromWebhook(UUID.fromString(notes.path("client_id").asText()), notes);
             }
         }
 
