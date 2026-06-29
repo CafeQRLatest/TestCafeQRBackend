@@ -70,15 +70,15 @@ email:
 
 gmail:
   api:
-    client-id: ${GMAIL_CLIENT_ID}
-    client-secret: ${GMAIL_CLIENT_SECRET}
-    refresh-token: ${GMAIL_REFRESH_TOKEN}
+    client-id: ${GMAIL_CLIENT_ID:}
+    client-secret: ${GMAIL_CLIENT_SECRET:}
+    refresh-token: ${GMAIL_REFRESH_TOKEN:}
     sender-email: ${GMAIL_SENDER_EMAIL:testcafeqr@gmail.com}
 
 # JWT Configuration
 jwt:
-  private-key: ${JWT_PRIVATE_KEY}
-  public-key: ${JWT_PUBLIC_KEY}
+  private-key: ${JWT_PRIVATE_KEY:}
+  public-key: ${JWT_PUBLIC_KEY:}
   expiration: 14400000 # 4 hours in ms
   refresh-expiration: 2592000000 # 30 days in ms
 

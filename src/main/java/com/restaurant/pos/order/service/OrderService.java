@@ -1539,7 +1539,9 @@ public class OrderService {
             invoiceRepository.saveAndFlush(inv);
         });
 
+        List<PaymentSplit> oldSplits = new java.util.ArrayList<>();
         paymentRepository.findByOrderId(id).forEach(payment -> {
+            oldSplits.addAll(paymentSplitRepository.findByPaymentIdOrderByCreatedAtAsc(payment.getId()));
             accountingPostingService.reversePayment(payment, "Order revised");
             payment.setReferenceNo((payment.getReferenceNo() != null ? payment.getReferenceNo() : "PAYMENT")
                     + "_VOID_" + (oldOrder.getRevisionNumber() != null ? oldOrder.getRevisionNumber() : 0));
@@ -1739,7 +1741,39 @@ public class OrderService {
             // Sales
             if ("PAID".equalsIgnoreCase(saved.getPaymentStatus())) {
                 String salePaymentMethod = saved.getReference() != null ? saved.getReference() : "CASH";
-                generatePayment(saved, salePaymentMethod);
+                List<OrderSettleRequest.PaymentSplitRequest> paymentSplits = new java.util.ArrayList<>();
+                if ("MIXED".equalsIgnoreCase(normalizePaymentMethod(salePaymentMethod)) && !oldSplits.isEmpty()) {
+                    BigDecimal oldSplitsTotal = oldSplits.stream()
+                            .map(PaymentSplit::getAmount)
+                            .filter(Objects::nonNull)
+                            .reduce(BigDecimal.ZERO, BigDecimal::add);
+                    BigDecimal newTotal = saved.getGrandTotal();
+                    if (oldSplitsTotal.compareTo(BigDecimal.ZERO) > 0 && newTotal != null) {
+                        BigDecimal ratio = newTotal.divide(oldSplitsTotal, 10, RoundingMode.HALF_UP);
+                        BigDecimal runningSum = BigDecimal.ZERO;
+                        for (int i = 0; i < oldSplits.size(); i++) {
+                            PaymentSplit oldSplit = oldSplits.get(i);
+                            BigDecimal newSplitAmt;
+                            if (i == oldSplits.size() - 1) {
+                                newSplitAmt = newTotal.subtract(runningSum);
+                            } else {
+                                newSplitAmt = oldSplit.getAmount().multiply(ratio).setScale(2, RoundingMode.HALF_UP);
+                                runningSum = runningSum.add(newSplitAmt);
+                            }
+                            OrderSettleRequest.PaymentSplitRequest req = new OrderSettleRequest.PaymentSplitRequest();
+                            req.setPaymentMethod(oldSplit.getPaymentMethod());
+                            req.setAmount(newSplitAmt);
+                            req.setReferenceNo(oldSplit.getReferenceNo());
+                            paymentSplits.add(req);
+                        }
+                    }
+                }
+                
+                if (!paymentSplits.isEmpty()) {
+                    generatePayment(saved, salePaymentMethod, null, saved.getGrandTotal(), null, null, null, paymentSplits);
+                } else {
+                    generatePayment(saved, salePaymentMethod);
+                }
                 accountingPostingService.postSaleCogs(saved);
             } else if (isCompletedCreditSale(saved)) {
                 accountingPostingService.postSaleCogs(saved);
