@@ -162,28 +162,6 @@ public class RazorpayService {
         }
     }
 
-    public JsonNode fetchOrder(String orderId) {
-        ensureConfigured();
-        try {
-            HttpRequest request = HttpRequest.newBuilder(URI.create("https://api.razorpay.com/v1/orders/" + orderId))
-                    .header("Authorization", "Basic " + Base64.getEncoder()
-                            .encodeToString((keyId + ":" + keySecret).getBytes(StandardCharsets.UTF_8)))
-                    .GET()
-                    .build();
-
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            JsonNode body = objectMapper.readTree(response.body());
-            if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                String description = body.path("error").path("description").asText("Failed to fetch Razorpay order");
-                throw new BusinessException(description);
-            }
-            return body;
-        } catch (BusinessException ex) {
-            throw ex;
-        } catch (Exception ex) {
-            throw new BusinessException("Unable to fetch Razorpay order: " + ex.getMessage());
-        }
-    }
 
     private boolean isBlank(String value) {
         return value == null || value.isBlank();
