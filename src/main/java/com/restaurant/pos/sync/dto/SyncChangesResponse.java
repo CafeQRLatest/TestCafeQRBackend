@@ -22,6 +22,7 @@ import java.util.List;
 public class SyncChangesResponse {
     private Instant since;
     private Instant serverTime;
+    private String syncToken;
     private SyncBootstrapResponse snapshot;
     private List<ProductListDto> products;
     private List<Category> categories;

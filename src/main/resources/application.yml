@@ -1,13 +1,6 @@
 server:
   port: 8080
   max-http-request-header-size: 65536
-  tomcat:
-    threads:
-      max: ${SERVER_TOMCAT_THREADS_MAX:30}
-      min-spare: 5
-    connection-timeout: 20000
-    max-connections: 1000
-
 
 spring:
   profiles:
@@ -18,25 +11,20 @@ spring:
     name: cafe-qr-backend
 
   datasource:
-    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5433/pos_db}
-    username: ${SPRING_DATASOURCE_USERNAME:pos_user}
-    password: ${SPRING_DATASOURCE_PASSWORD:pos_password}
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/cafeqr_db}
+    username: ${SPRING_DATASOURCE_USERNAME:postgres}
+    password: ${SPRING_DATASOURCE_PASSWORD:postgres}
     driver-class-name: org.postgresql.Driver
     hikari:
-      maximum-pool-size: ${DB_POOL_MAX_SIZE:5}
-      minimum-idle: ${DB_POOL_MIN_IDLE:1}
-      idle-timeout: ${DB_POOL_IDLE_TIMEOUT_MS:30000}
-      max-lifetime: ${DB_POOL_MAX_LIFETIME_MS:1800000}
-      connection-timeout: ${DB_POOL_CONNECTION_TIMEOUT_MS:10000}
-      validation-timeout: ${DB_POOL_VALIDATION_TIMEOUT_MS:3000}
-      leak-detection-threshold: ${DB_POOL_LEAK_DETECTION_MS:30000}
-      connection-init-sql: "SET statement_timeout = '60s'; SET idle_in_transaction_session_timeout = '60s'"
+      maximum-pool-size: 5
+      minimum-idle: 2
+      idle-timeout: 30000
+      max-lifetime: 1800000
 
   jpa:
-    open-in-view: false
     hibernate:
       ddl-auto: none
-    show-sql: ${SPRING_JPA_SHOW_SQL:false}
+    show-sql: true
   flyway:
     baseline-on-migrate: true
     validate-on-migrate: false
@@ -56,11 +44,13 @@ spring:
       ssl:
         enabled: ${SPRING_DATA_REDIS_SSL:false}
 
+
+
   mail:
     host: ${SMTP_HOST:smtp.gmail.com}
-    port: ${SMTP_PORT:587}
-    username: ${SMTP_USERNAME:cafeqrllp@gmail.com}
-    password: ${SMTP_PASSWORD:}
+    port: 587
+    username: uksayoojjayarajan@gmail.com
+    password: ynvtzfkcvlhvpmmb
     default-encoding: UTF-8
     properties:
       mail:
@@ -80,33 +70,17 @@ email:
 
 gmail:
   api:
-    client-id: ${GMAIL_CLIENT_ID:}
-    client-secret: ${GMAIL_CLIENT_SECRET:}
-    refresh-token: ${GMAIL_REFRESH_TOKEN:}
-    sender-email: ${GMAIL_SENDER_EMAIL:${SMTP_USERNAME:cafeqrllp@gmail.com}}
-
+    client-id: ${GMAIL_CLIENT_ID}
+    client-secret: ${GMAIL_CLIENT_SECRET}
+    refresh-token: ${GMAIL_REFRESH_TOKEN}
+    sender-email: ${GMAIL_SENDER_EMAIL:testcafeqr@gmail.com}
 
 # JWT Configuration
 jwt:
-  private-key: ${JWT_PRIVATE_KEY:}
-  public-key: ${JWT_PUBLIC_KEY:}
+  private-key: ${JWT_PRIVATE_KEY}
+  public-key: ${JWT_PUBLIC_KEY}
   expiration: 14400000 # 4 hours in ms
   refresh-expiration: 2592000000 # 30 days in ms
-
-management:
-  endpoints:
-    web:
-      exposure:
-        include: health
-  endpoint:
-    health:
-      probes:
-        enabled: true
-  health:
-    redis:
-      enabled: false
-    rabbit:
-      enabled: false
 
 springdoc:
   api-docs:
@@ -116,18 +90,10 @@ springdoc:
 
 app:
   cors:
-    allowed-origins: ${ALLOWED_ORIGINS:http://localhost:3000,http://localhost:3001,https://cafe-test-qr-frontend.vercel.app,https://cafe-qr-frontend.vercel.app,https://test-cafe-qr-delivery-app.vercel.app,https://cafe-qr-delivery-app.vercel.app,https://test-cafe-qr-delivery-website.vercel.app,https://cafe-qr-delivery-website.vercel.app,https://cafeqr-delivery-website.vercel.app,https://cafeqr-frontend.pages.dev,https://*.pages.dev}
+    allowed-origins: ${ALLOWED_ORIGINS:http://localhost:3000,http://localhost:3001}
   frontend-url: ${FRONTEND_URL:http://localhost:3000}
   otp:
     log-code: ${OTP_LOG_CODE:false}
-  backup:
-    storage-dir: ${CAFEQR_BACKUP_STORAGE_DIR:./data/backups}
-    restore-token-minutes: ${CAFEQR_BACKUP_RESTORE_TOKEN_MINUTES:30}
-  firebase:
-    project-id: ${FIREBASE_PROJECT_ID:}
-    client-email: ${FIREBASE_CLIENT_EMAIL:}
-    private-key: ${FIREBASE_PRIVATE_KEY:}
-
 
 razorpay:
   key-id: ${RAZORPAY_KEY_ID:}
@@ -135,7 +101,7 @@ razorpay:
   webhook-secret: ${RAZORPAY_WEBHOOK_SECRET:}
 
 subscription:
-  monthly-amount-paise: ${SUBSCRIPTION_MONTHLY_AMOUNT_PAISE:9900}
+  monthly-amount-paise: ${SUBSCRIPTION_MONTHLY_AMOUNT_PAISE:100}
 
 logging:
   level:

@@ -177,7 +177,8 @@ public class OrderService {
     }
 
     private boolean isMainOfflineSync(Order order) {
-        return order != null && "MAIN_OFFLINE".equalsIgnoreCase(order.getSyncOrigin());
+        return order != null && ("MAIN_OFFLINE".equalsIgnoreCase(order.getSyncOrigin()) 
+                || "OFFLINE_QUEUE".equalsIgnoreCase(order.getSyncOrigin()));
     }
 
     private UUID resolveOrderWriteOrgId(Order order) {
