@@ -21,6 +21,7 @@ import java.util.List;
 @AllArgsConstructor
 public class SyncBootstrapResponse {
     private Instant serverTime;
+    private String syncToken;
     private List<ProductListDto> products;
     private List<Category> categories;
     private List<Uom> uoms;

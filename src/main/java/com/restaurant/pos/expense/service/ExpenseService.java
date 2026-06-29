@@ -562,6 +562,21 @@ public class ExpenseService {
         });
     }
 
+    @Transactional(readOnly = true)
+    public BigDecimal getExpenseTotal(ExpenseSearchCriteria criteria) {
+        UUID clientId = contextProvider.getCurrentTenant();
+        UUID orgId = contextProvider.getCurrentOrg();
+
+        log.info("Calculating total expenses | clientId={} | orgId={} | criteria={}", clientId, orgId, criteria);
+
+        Specification<Expense> spec = ExpenseSpecification.filterBy(criteria, clientId, orgId, canUseOrganizationScope());
+        return expenseRepository.findAll(spec).stream()
+                .map(Expense::getAmount)
+                .filter(Objects::nonNull)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+
     /**
      * Helper to post accounting entries cleanly in a single step.
      */

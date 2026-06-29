@@ -26,6 +26,8 @@ import java.time.ZonedDateTime;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
+import java.util.List;
+import java.util.ArrayList;
 
 @Service
 @RequiredArgsConstructor
@@ -40,28 +42,18 @@ public class SubscriptionService {
     private final TimezoneResolver timezoneResolver;
     private final ClientSubscriptionModuleRepository clientSubscriptionModuleRepository;
 
-    // Monthly Prices in Paise (1 INR = 100 paise)
-    private static final long PRICE_BASE_MONTHLY = 9900;          // ₹99
-    private static final long PRICE_KOT_MONTHLY = 5000;           // ₹50
-    private static final long PRICE_INVENTORY_MONTHLY = 19900;    // ₹199
-    private static final long PRICE_CRM_MONTHLY = 9900;           // ₹99
-    private static final long PRICE_CREDIT_LEDGER_MONTHLY = 4900;  // ₹49
-    private static final long PRICE_TABLE_QR_MONTHLY = 0;         // Free
-    private static final long PRICE_MENU_IMAGES_MONTHLY = 0;       // Free
-    private static final long PRICE_ONLINE_DELIVERY_MONTHLY = 0;   // Free
-
-    // Annual Prices in Paise
-    private static final long PRICE_BASE_ANNUAL = 99900;          // ₹999
-    private static final long PRICE_KOT_ANNUAL = 50000;           // ₹500
-    private static final long PRICE_INVENTORY_ANNUAL = 199200;    // ₹1992 (₹166/mo * 12)
-    private static final long PRICE_CRM_ANNUAL = 99000;           // ₹990 (₹83/mo * 12)
-    private static final long PRICE_CREDIT_LEDGER_ANNUAL = 49200;  // ₹492 (₹41/mo * 12)
+    // Annual Prices in Paise (1 INR = 100 paise)
+    private static final long PRICE_BASE_ANNUAL = 99900;          // ₹999/yr
+    private static final long PRICE_KOT_ANNUAL = 50000;           // ₹500/yr
+    private static final long PRICE_INVENTORY_ANNUAL = 199200;    // ₹1992/yr
+    private static final long PRICE_CRM_ANNUAL = 99000;           // ₹990/yr
+    private static final long PRICE_CREDIT_LEDGER_ANNUAL = 49200;  // ₹492/yr
     private static final long PRICE_TABLE_QR_ANNUAL = 0;          // Free
     private static final long PRICE_MENU_IMAGES_ANNUAL = 0;        // Free
-    private static final long PRICE_ONLINE_DELIVERY_ANNUAL = 0;    // Free
+    private static final long PRICE_ONLINE_DELIVERY_ANNUAL = 0;   // Free
 
     // One-Time Setup Fee
-    private static final long PRICE_SETUP_WHITE_GLOVE = 149900;   // ₹1499
+    private static final long PRICE_SETUP_FEE = 149900;           // ₹1499 setup fee
 
     @Transactional(readOnly = true)
     public SubscriptionStatusResponse getStatus(UUID clientId) {
@@ -72,122 +64,81 @@ public class SubscriptionService {
     @Transactional
     public SubscriptionPaymentResponse createPayment(UUID clientId, SubscriptionPaymentRequest request) {
         Client client = findClient(clientId);
-        // Force Yearly-Only business billing model
-        request.setBillingCycle("ANNUAL");
-        long totalAmountPaise = calculateTotalAmount(client, request);
+        ZoneId zone = timezoneResolver.resolveTimezone(client.getId(), null);
+        ZonedDateTime nowInZone = ZonedDateTime.now(zone);
 
-        boolean isUpgrade = "ACTIVE".equalsIgnoreCase(client.getSubscriptionStatus()) 
-                && client.getSubscriptionExpiryDate() != null 
+        long amountPaise = 0;
+        boolean hasBase = request.isIncludeBasePlan();
+        boolean hasSetup = request.isIncludeSetupService();
+
+        // 1. Base Plan Calculation
+        if (hasBase) {
+            amountPaise += PRICE_BASE_ANNUAL;
+        }
+
+        // 2. Setup Fee Calculation
+        if (hasSetup) {
+            amountPaise += PRICE_SETUP_FEE;
+        }
+
+        // 3. Module calculations (checking if active client upgrading mid-cycle)
+        boolean isActiveClient = (ACTIVE.equalsIgnoreCase(client.getSubscriptionStatus()) || TRIAL.equalsIgnoreCase(client.getSubscriptionStatus()))
+                && client.getSubscriptionExpiryDate() != null
                 && client.getSubscriptionExpiryDate().isAfter(LocalDateTime.now());
+
+        long daysRemaining = 0;
+        if (isActiveClient) {
+            ZonedDateTime expiryInZone = client.getSubscriptionExpiryDate().atZone(ZoneId.systemDefault()).withZoneSameInstant(zone);
+            daysRemaining = Math.max(0, Duration.between(nowInZone, expiryInZone).toDays());
+        }
+
+        List<String> modulesToBuy = request.getSelectedModules() != null ? request.getSelectedModules() : new ArrayList<>();
+        
+        for (String mStr : modulesToBuy) {
+            ModuleName modName;
+            try {
+                modName = ModuleName.valueOf(mStr.toUpperCase());
+            } catch (Exception e) {
+                throw new BusinessException("Invalid module name: " + mStr);
+            }
+            long moduleAnnualPrice = getModuleAnnualPrice(modName);
+
+            if (isActiveClient && !hasBase) {
+                // Mid-cycle upgrade: Prorated price
+                long proratedPrice = Math.round((double) moduleAnnualPrice / 365.0 * (double) daysRemaining);
+                amountPaise += proratedPrice;
+            } else {
+                // Checkout base plan + modules: Full annual price
+                amountPaise += moduleAnnualPrice;
+            }
+        }
+
+        if (amountPaise <= 0) {
+            throw new BusinessException("Checkout amount must be greater than zero.");
+        }
 
         Map<String, Object> notes = new LinkedHashMap<>();
         notes.put("purpose", "subscription");
         notes.put("client_id", client.getId().toString());
         notes.put("client_name", client.getName() != null ? client.getName() : "");
         notes.put("client_email", client.getEmail() != null ? client.getEmail() : "");
-        
-        // Metadata for activation
-        notes.put("billing_cycle", request.getBillingCycle() != null ? request.getBillingCycle() : "MONTHLY");
-        notes.put("setup_option", request.getSetupOption() != null ? request.getSetupOption() : "DIY");
+        notes.put("modules", String.join(",", modulesToBuy));
+        notes.put("include_base", String.valueOf(hasBase));
+        notes.put("include_setup", String.valueOf(hasSetup));
         notes.put("org_id", request.getOrgId() != null ? request.getOrgId().toString() : "");
-        notes.put("is_upgrade", String.valueOf(isUpgrade));
-        
-        if (request.getModules() != null && !request.getModules().isEmpty()) {
-            StringBuilder sb = new StringBuilder();
-            for (int i = 0; i < request.getModules().size(); i++) {
-                if (i > 0) sb.append(",");
-                sb.append(request.getModules().get(i).name());
-            }
-            notes.put("modules", sb.toString());
-        } else {
-            notes.put("modules", "");
-        }
+        notes.put("is_upgrade", String.valueOf(isActiveClient && !hasBase));
 
         String receipt = "sub_" + client.getId().toString().substring(0, 8) + "_" + System.currentTimeMillis();
-        RazorpayOrderResponse order = razorpayService.createOrder(totalAmountPaise, "INR", receipt, notes);
+        RazorpayOrderResponse order = razorpayService.createOrder(amountPaise, "INR", receipt, notes);
 
         return SubscriptionPaymentResponse.builder()
                 .orderId(order.getOrderId())
                 .amount(order.getAmount())
                 .currency(order.getCurrency())
                 .keyId(order.getKeyId())
-                .planName("Cafe QR 2.0 Subscription")
-                .description("Total Checkout - Rs " + (totalAmountPaise / 100))
+                .planName("Pro Plan Checkout")
+                .description("Cafe QR Subscription Checkout")
                 .build();
-    }
-
-    long calculateTotalAmount(Client client, SubscriptionPaymentRequest request) {
-        boolean isAnnual = "ANNUAL".equalsIgnoreCase(request.getBillingCycle());
-        boolean isAlreadyActive = "ACTIVE".equalsIgnoreCase(client.getSubscriptionStatus()) 
-                && client.getSubscriptionExpiryDate() != null 
-                && client.getSubscriptionExpiryDate().isAfter(LocalDateTime.now());
-
-        long total = 0;
-
-        // 1. Calculate Base Plan & Setup Price ONLY if NOT already active
-        if (!isAlreadyActive) {
-            total += isAnnual ? PRICE_BASE_ANNUAL : PRICE_BASE_MONTHLY;
-            if ("WHITE_GLOVE".equalsIgnoreCase(request.getSetupOption())) {
-                total += PRICE_SETUP_WHITE_GLOVE;
-            }
-        }
-
-        // 2. Add Sachet Modules
-        if (request.getModules() != null && !request.getModules().isEmpty()) {
-            java.util.List<ClientSubscriptionModule> activeModules = clientSubscriptionModuleRepository.findByClientId(client.getId());
-            java.util.Set<ModuleName> activeModuleNames = new java.util.HashSet<>();
-            for (ClientSubscriptionModule m : activeModules) {
-                if ("ACTIVE".equalsIgnoreCase(m.getStatus()) && m.getExpiryDate() != null && m.getExpiryDate().isAfter(LocalDateTime.now())) {
-                    if (m.getOrgId() == null || (request.getOrgId() != null && m.getOrgId().equals(request.getOrgId()))) {
-                        activeModuleNames.add(m.getModuleName());
-                    }
-                }
-            }
-
-            for (ModuleName module : request.getModules()) {
-                if (activeModuleNames.contains(module)) {
-                    // Already active module, do not charge again
-                    continue;
-                }
-
-                long fullModulePrice = getModulePrice(module, isAnnual);
-                if (isAlreadyActive) {
-                    long remainingDays = java.time.temporal.ChronoUnit.DAYS.between(LocalDateTime.now(), client.getSubscriptionExpiryDate());
-                    if (remainingDays > 0) {
-                        double dailyRate = (double) fullModulePrice / 365.0;
-                        long proratedPrice = Math.round(dailyRate * remainingDays);
-                        total += Math.max(proratedPrice, 100); // enforce min ₹1 per module
-                    } else {
-                        total += fullModulePrice;
-                    }
-                } else {
-                    total += fullModulePrice;
-                }
-            }
-        }
-
-        return total;
-    }
-
-    private long getModulePrice(ModuleName module, boolean isAnnual) {
-        switch (module) {
-            case KOT:
-                return isAnnual ? PRICE_KOT_ANNUAL : PRICE_KOT_MONTHLY;
-            case INVENTORY:
-                return isAnnual ? PRICE_INVENTORY_ANNUAL : PRICE_INVENTORY_MONTHLY;
-            case CRM:
-                return isAnnual ? PRICE_CRM_ANNUAL : PRICE_CRM_MONTHLY;
-            case CREDIT_LEDGER:
-                return isAnnual ? PRICE_CREDIT_LEDGER_ANNUAL : PRICE_CREDIT_LEDGER_MONTHLY;
-            case TABLE_QR:
-                return isAnnual ? PRICE_TABLE_QR_ANNUAL : PRICE_TABLE_QR_MONTHLY;
-            case MENU_IMAGES:
-                return isAnnual ? PRICE_MENU_IMAGES_ANNUAL : PRICE_MENU_IMAGES_MONTHLY;
-            case ONLINE_DELIVERY:
-                return isAnnual ? PRICE_ONLINE_DELIVERY_ANNUAL : PRICE_ONLINE_DELIVERY_MONTHLY;
-            default:
-                return 0;
-        }
     }
 
     @Transactional
@@ -201,127 +152,122 @@ public class SubscriptionService {
             throw new BusinessException("Razorpay payment signature verification failed");
         }
 
-        // Fetch Razorpay order to extract metadata securely
-        com.fasterxml.jackson.databind.JsonNode order = razorpayService.fetchOrder(request.getRazorpayOrderId());
-        com.fasterxml.jackson.databind.JsonNode notes = order.path("notes");
+        Client client = findClient(clientId);
         
-        String billingCycle = notes.path("billing_cycle").asText("MONTHLY");
-        String modulesStr = notes.path("modules").asText("");
-        String orgIdStr = notes.path("org_id").asText("");
-        boolean isUpgrade = "true".equalsIgnoreCase(notes.path("is_upgrade").asText("false"));
+        com.fasterxml.jackson.databind.JsonNode notesNode = null;
+        try {
+            com.fasterxml.jackson.databind.JsonNode orderNode = razorpayService.fetchOrder(request.getRazorpayOrderId());
+            if (orderNode != null && orderNode.has("notes")) {
+                notesNode = orderNode.get("notes");
+            }
+        } catch (Exception e) {
+            throw new BusinessException("Failed to fetch Razorpay order metadata: " + e.getMessage());
+        }
 
-        activateModulesAndBasePlan(clientId, billingCycle, modulesStr, orgIdStr, isUpgrade);
+        if (notesNode != null) {
+            return activateFromWebhook(clientId, notesNode);
+        }
 
-        return toStatus(findClient(clientId));
+        // Fallback baseline activation
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime baseDate = client.getSubscriptionExpiryDate() != null
+                && client.getSubscriptionExpiryDate().isAfter(now)
+                ? client.getSubscriptionExpiryDate()
+                : now;
+
+        client.setSubscriptionStatus(ACTIVE);
+        client.setSubscriptionExpiryDate(baseDate.plusYears(1));
+        clientRepository.save(client);
+
+        return toStatus(client);
     }
 
     @Transactional
     public SubscriptionStatusResponse activateFromWebhook(UUID clientId, com.fasterxml.jackson.databind.JsonNode notes) {
-        String billingCycle = notes.path("billing_cycle").asText("MONTHLY");
-        String modulesStr = notes.path("modules").asText("");
-        String orgIdStr = notes.path("org_id").asText("");
-        boolean isUpgrade = "true".equalsIgnoreCase(notes.path("is_upgrade").asText("false"));
-
-        activateModulesAndBasePlan(clientId, billingCycle, modulesStr, orgIdStr, isUpgrade);
-
-        return toStatus(findClient(clientId));
-    }
-
-    private void activateModulesAndBasePlan(UUID clientId, String billingCycle, String modulesStr, String orgIdStr, boolean isUpgrade) {
         Client client = findClient(clientId);
-        
-        if (!isUpgrade) {
-            // 1. Activate/Renew Base Plan (Normal new signup or full renewal)
-            int monthsToAdd = "ANNUAL".equalsIgnoreCase(billingCycle) ? 12 : 1;
-            client.setSubscriptionStatus(ACTIVE);
-            client.setSubscriptionExpiryDate(calculateExpiryDate(client.getSubscriptionExpiryDate(), clientId, null, monthsToAdd));
-            clientRepository.save(client);
-        } else {
-            // Base plan is already active; just verify status is ACTIVE
-            client.setSubscriptionStatus(ACTIVE);
-            clientRepository.save(client);
-        }
-
-        // 2. Activate/Renew selected sachet modules
-        if (modulesStr != null && !modulesStr.isBlank()) {
-            UUID orgId = (orgIdStr == null || orgIdStr.isBlank()) ? null : UUID.fromString(orgIdStr);
-            String[] mods = modulesStr.split(",");
-            for (String mod : mods) {
-                if (mod.trim().isEmpty()) continue;
-                try {
-                    ModuleName moduleName = ModuleName.valueOf(mod.trim());
-                    
-                    // Retrieve existing module subscription to extend or create a new one
-                    ClientSubscriptionModule moduleSub;
-                    if (orgId == null) {
-                        moduleSub = clientSubscriptionModuleRepository
-                                .findByClientIdAndModuleNameAndOrgIdIsNull(clientId, moduleName)
-                                .orElse(null);
-                    } else {
-                        moduleSub = clientSubscriptionModuleRepository
-                                .findByClientIdAndOrgIdAndModuleName(clientId, orgId, moduleName)
-                                .orElse(null);
-                    }
-
-                    LocalDateTime newExpiry;
-                    if (isUpgrade) {
-                        // Co-terminate with the existing client base subscription expiry date
-                        newExpiry = client.getSubscriptionExpiryDate();
-                    } else {
-                        int monthsToAdd = "ANNUAL".equalsIgnoreCase(billingCycle) ? 12 : 1;
-                        LocalDateTime currentExpiry = (moduleSub != null) ? moduleSub.getExpiryDate() : null;
-                        newExpiry = calculateExpiryDate(currentExpiry, clientId, orgId, monthsToAdd);
-                    }
-
-                    if (moduleSub == null) {
-                        moduleSub = ClientSubscriptionModule.builder()
-                                .clientId(clientId)
-                                .orgId(orgId)
-                                .moduleName(moduleName)
-                                .status(ACTIVE)
-                                .autoRenew(true)
-                                .expiryDate(newExpiry)
-                                .build();
-                    } else {
-                        moduleSub.setStatus(ACTIVE);
-                        moduleSub.setExpiryDate(newExpiry);
-                    }
-                    clientSubscriptionModuleRepository.save(moduleSub);
-                } catch (IllegalArgumentException e) {
-                    // Ignore or log invalid module name
-                }
-            }
-        }
-    }
-
-    LocalDateTime calculateExpiryDate(LocalDateTime currentExpiry, UUID clientId, UUID orgId, int monthsToAdd) {
-        ZoneId zone = timezoneResolver.resolveTimezone(clientId, orgId);
+        ZoneId zone = timezoneResolver.resolveTimezone(client.getId(), null);
         ZonedDateTime nowInZone = ZonedDateTime.now(zone);
+
+        boolean hasBase = notes.has("include_base") && Boolean.parseBoolean(notes.get("include_base").asText());
+        boolean isUpgrade = notes.has("is_upgrade") && Boolean.parseBoolean(notes.get("is_upgrade").asText());
         
-        ZonedDateTime baseZonedDateTime;
-        if (currentExpiry != null) {
-            ZonedDateTime existingExpiryInZone = currentExpiry
-                    .atZone(ZoneId.systemDefault())
-                    .withZoneSameInstant(zone);
-            if (existingExpiryInZone.isAfter(nowInZone)) {
-                baseZonedDateTime = existingExpiryInZone;
-            } else {
-                baseZonedDateTime = nowInZone;
-            }
+        LocalDateTime currentExpiry = client.getSubscriptionExpiryDate();
+        LocalDateTime baseDate;
+        if (currentExpiry != null && currentExpiry.isAfter(LocalDateTime.now())) {
+            baseDate = currentExpiry;
         } else {
-            baseZonedDateTime = nowInZone;
+            baseDate = LocalDateTime.now();
         }
-        
-        ZonedDateTime newExpiryInZone = baseZonedDateTime.plusMonths(monthsToAdd);
-        newExpiryInZone = newExpiryInZone
-                .withHour(23)
-                .withMinute(59)
-                .withSecond(59)
-                .withNano(999000000);
-                
-        return newExpiryInZone
-                .withZoneSameInstant(ZoneId.systemDefault())
-                .toLocalDateTime();
+
+        // Align date to end of day in client's timezone: 23:59:59
+        ZonedDateTime baseZonedDateTime = baseDate.atZone(ZoneId.systemDefault()).withZoneSameInstant(zone);
+
+        if (hasBase) {
+            // New base subscription checkout (1 Year)
+            client.setSubscriptionStatus(ACTIVE);
+            ZonedDateTime newExpiryZoned = baseZonedDateTime.plusYears(1)
+                    .withHour(23)
+                    .withMinute(59)
+                    .withSecond(59)
+                    .withNano(999000000);
+            client.setSubscriptionExpiryDate(newExpiryZoned.withZoneSameInstant(ZoneId.systemDefault()).toLocalDateTime());
+            clientRepository.save(client);
+        }
+
+        // Save module activations
+        if (notes.has("modules") && !notes.get("modules").asText().isBlank()) {
+            String modulesStr = notes.get("modules").asText();
+            String[] modules = modulesStr.split(",");
+            UUID orgId = null;
+            if (notes.has("org_id") && !notes.get("org_id").asText().isBlank()) {
+                try {
+                    orgId = UUID.fromString(notes.get("org_id").asText());
+                } catch (Exception e) {}
+            }
+
+            // Expiry date: co-terminate to the client's base plan expiry
+            LocalDateTime moduleExpiry = client.getSubscriptionExpiryDate();
+            if (moduleExpiry == null) {
+                // Fallback: 1 year
+                ZonedDateTime targetZoned = nowInZone.plusYears(1)
+                        .withHour(23)
+                        .withMinute(59)
+                        .withSecond(59)
+                        .withNano(999000000);
+                moduleExpiry = targetZoned.withZoneSameInstant(ZoneId.systemDefault()).toLocalDateTime();
+            }
+
+            for (String mStr : modules) {
+                ModuleName modName;
+                try {
+                    modName = ModuleName.valueOf(mStr.toUpperCase().trim());
+                } catch (Exception e) {
+                    continue;
+                }
+
+                ClientSubscriptionModule existing;
+                if (modName == ModuleName.KOT && orgId != null) {
+                    existing = clientSubscriptionModuleRepository.findByClientIdAndOrgIdAndModuleName(client.getId(), orgId, modName).orElse(null);
+                } else {
+                    existing = clientSubscriptionModuleRepository.findByClientIdAndModuleName(client.getId(), modName).orElse(null);
+                }
+
+                if (existing == null) {
+                    existing = ClientSubscriptionModule.builder()
+                            .clientId(client.getId())
+                            .orgId(modName == ModuleName.KOT ? orgId : null)
+                            .moduleName(modName)
+                            .build();
+                }
+
+                existing.setStatus("ACTIVE");
+                existing.setExpiryDate(moduleExpiry);
+                existing.setAutoRenew(true);
+                clientSubscriptionModuleRepository.save(existing);
+            }
+        }
+
+        return toStatus(client);
     }
 
     private Client findClient(UUID clientId) {
@@ -335,11 +281,11 @@ public class SubscriptionService {
     private SubscriptionStatusResponse toStatus(Client client) {
         ZoneId zone = timezoneResolver.resolveTimezone(client.getId(), null);
         ZonedDateTime nowInZone = ZonedDateTime.now(zone);
-        
+
         String status = normalizeStatus(client.getSubscriptionStatus());
         LocalDateTime expiry = client.getSubscriptionExpiryDate();
         ZonedDateTime expiryInZone = expiry != null ? expiry.atZone(ZoneId.systemDefault()).withZoneSameInstant(zone) : null;
-        
+
         boolean active = (ACTIVE.equals(status) || TRIAL.equals(status)) && expiryInZone != null && !expiryInZone.isBefore(nowInZone);
         int daysLeft = active ? Math.max(0, (int) Math.ceil(Duration.between(nowInZone, expiryInZone).toHours() / 24.0)) : 0;
 
@@ -351,8 +297,8 @@ public class SubscriptionService {
                 ? (TRIAL.equals(status) ? "Free trial active" : "Paid subscription active")
                 : "Subscription expired";
 
-        java.util.List<ClientSubscriptionModule> modules = clientSubscriptionModuleRepository.findByClientId(client.getId());
-        java.util.List<ModuleName> activeModulesList = new java.util.ArrayList<>();
+        List<ClientSubscriptionModule> modules = clientSubscriptionModuleRepository.findByClientId(client.getId());
+        List<ModuleName> activeModulesList = new ArrayList<>();
         for (ClientSubscriptionModule m : modules) {
             if ("ACTIVE".equalsIgnoreCase(m.getStatus())) {
                 if (m.getExpiryDate() == null || m.getExpiryDate().isAfter(LocalDateTime.now())) {
@@ -369,6 +315,19 @@ public class SubscriptionService {
                 .message(message)
                 .activeModules(activeModulesList)
                 .build();
+    }
+
+    private long getModuleAnnualPrice(ModuleName moduleName) {
+        switch (moduleName) {
+            case KOT: return PRICE_KOT_ANNUAL;
+            case INVENTORY: return PRICE_INVENTORY_ANNUAL;
+            case CRM: return PRICE_CRM_ANNUAL;
+            case CREDIT_LEDGER: return PRICE_CREDIT_LEDGER_ANNUAL;
+            case TABLE_QR: return PRICE_TABLE_QR_ANNUAL;
+            case MENU_IMAGES: return PRICE_MENU_IMAGES_ANNUAL;
+            case ONLINE_DELIVERY: return PRICE_ONLINE_DELIVERY_ANNUAL;
+            default: return 0;
+        }
     }
 
     private String normalizeStatus(String status) {

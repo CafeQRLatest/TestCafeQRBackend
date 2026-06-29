@@ -7,7 +7,6 @@ import com.restaurant.pos.common.dto.ApiResponse;
 import com.restaurant.pos.common.exception.BusinessException;
 import com.restaurant.pos.payment.service.RazorpayService;
 import com.restaurant.pos.subscription.dto.SubscriptionActivationRequest;
-import com.restaurant.pos.subscription.dto.SubscriptionPaymentRequest;
 import com.restaurant.pos.subscription.dto.SubscriptionPaymentResponse;
 import com.restaurant.pos.subscription.dto.SubscriptionStatusResponse;
 import com.restaurant.pos.subscription.service.SubscriptionService;
@@ -34,7 +33,7 @@ public class SubscriptionController {
     @PostMapping("/api/v1/subscription/create-payment")
     public ResponseEntity<ApiResponse<SubscriptionPaymentResponse>> createPayment(
             Authentication authentication,
-            @RequestBody SubscriptionPaymentRequest request) {
+            @RequestBody com.restaurant.pos.subscription.dto.SubscriptionPaymentRequest request) {
         return ResponseEntity.ok(ApiResponse.success(subscriptionService.createPayment(currentClientId(authentication), request)));
     }
 

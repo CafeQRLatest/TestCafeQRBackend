@@ -26,6 +26,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.math.BigDecimal;
 import java.util.UUID;
 
 @Slf4j
@@ -67,7 +68,22 @@ public class ExpenseController {
         return ResponseEntity.ok(
                 ApiResponse.success(response)
         );
-    }
+     }
+
+     @GetMapping("/summary/total")
+     @StaffAccess
+     @Operation(
+             summary = "Get total expenses amount",
+             description = "Returns the sum total of all expenses matching the criteria across all pages."
+     )
+     public ResponseEntity<ApiResponse<BigDecimal>> getExpenseTotal(
+             @ParameterObject ExpenseSearchCriteria criteria
+     ) {
+         log.info("Initiating fetch total expenses request | criteria={}", criteria);
+         BigDecimal total = expenseService.getExpenseTotal(criteria);
+         return ResponseEntity.ok(ApiResponse.success(total));
+     }
+
 
     @GetMapping("/{id}")
     @StaffAccess
