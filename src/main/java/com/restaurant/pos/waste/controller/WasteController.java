@@ -14,6 +14,7 @@ import java.time.LocalDateTime;
 import java.util.UUID;
 
 @RestController @RequestMapping("/api/v1/waste") @RequiredArgsConstructor
+@com.restaurant.pos.subscription.annotation.RequireModule(com.restaurant.pos.subscription.domain.ModuleName.INVENTORY)
 public class WasteController {
     private final WasteService wasteService;
 

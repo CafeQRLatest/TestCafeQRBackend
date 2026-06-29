@@ -29,6 +29,7 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/v1/credit")
 @RequiredArgsConstructor
+@com.restaurant.pos.subscription.annotation.RequireModule(com.restaurant.pos.subscription.domain.ModuleName.CREDIT_LEDGER)
 public class CreditController {
 
     private final CreditService creditService;
