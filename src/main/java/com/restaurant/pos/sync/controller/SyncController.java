@@ -35,9 +35,14 @@ public class SyncController {
     @GetMapping("/changes")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
     public ResponseEntity<ApiResponse<SyncChangesResponse>> changes(
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant since
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant since,
+            @RequestParam(required = false) String syncToken
     ) {
-        return ResponseEntity.ok(ApiResponse.success(syncService.changes(since)));
+        Instant resolvedSince = since;
+        if (syncToken != null && !syncToken.isBlank()) {
+            resolvedSince = syncService.decodeSyncToken(syncToken);
+        }
+        return ResponseEntity.ok(ApiResponse.success(syncService.changes(resolvedSince)));
     }
 
     @PostMapping("/push")

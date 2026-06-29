@@ -29,6 +29,7 @@ import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.net.URI;
 import java.time.Instant;
@@ -48,11 +49,14 @@ public class SyncService {
     private final SystemConfigurationService configurationService;
     private final JdbcTemplate jdbcTemplate;
     private final ObjectMapper objectMapper;
+    private final TransactionTemplate transactionTemplate;
 
     @Transactional(readOnly = true)
     public SyncBootstrapResponse bootstrap() {
+        Instant now = Instant.now();
         return SyncBootstrapResponse.builder()
-                .serverTime(Instant.now())
+                .serverTime(now)
+                .syncToken(generateSyncToken(now))
                 .products(productService.getProducts())
                 .categories(productService.getCategories())
                 .uoms(productService.getUoms())
@@ -65,9 +69,11 @@ public class SyncService {
 
     @Transactional(readOnly = true)
     public SyncChangesResponse changes(Instant since) {
+        Instant now = Instant.now();
         return SyncChangesResponse.builder()
                 .since(since)
-                .serverTime(Instant.now())
+                .serverTime(now)
+                .syncToken(generateSyncToken(now))
                 .products(productService.getProductsChangedSince(since))
                 .categories(productService.getCategoriesChangedSince(since))
                 .uoms(productService.getUomsChangedSince(since))
@@ -78,7 +84,23 @@ public class SyncService {
                 .build();
     }
 
-    @Transactional
+    public Instant decodeSyncToken(String token) {
+        if (token == null || token.isBlank()) return null;
+        try {
+            byte[] decodedBytes = java.util.Base64.getDecoder().decode(token);
+            long epochMilli = Long.parseLong(new String(decodedBytes));
+            return Instant.ofEpochMilli(epochMilli);
+        } catch (Exception e) {
+            log.warn("Invalid sync token received: {}", token, e);
+            return null;
+        }
+    }
+
+    private String generateSyncToken(Instant time) {
+        if (time == null) return null;
+        return java.util.Base64.getEncoder().encodeToString(String.valueOf(time.toEpochMilli()).getBytes());
+    }
+
     public SyncPushResponse push(SyncPushRequest request) {
         // Schema Version check
         if (request.getSchemaVersion() != null && request.getSchemaVersion() < 1) {
@@ -127,7 +149,14 @@ public class SyncService {
                     .status("SKIPPED_DEPENDENCY")
                     .message("Skipped because parent operation " + operation.getDependsOnOperationId() + " failed.")
                     .build();
-            storeOperation(operation, result);
+            try {
+                transactionTemplate.execute(status -> {
+                    storeOperation(operation, result);
+                    return null;
+                });
+            } catch (Exception ex) {
+                log.warn("Failed to store skipped dependency operation. operationId={}", operationId, ex);
+            }
             return result;
         }
 
@@ -137,16 +166,23 @@ public class SyncService {
         }
 
         try {
-            Object data = dispatch(operation);
-            SyncOperationResult result = SyncOperationResult.builder()
-                    .operationId(operationId)
-                    .success(true)
-                    .status("SYNCED")
-                    .message("Synced")
-                    .data(data)
-                    .build();
-            storeOperation(operation, result);
-            return result;
+            return transactionTemplate.execute(status -> {
+                try {
+                    Object data = dispatch(operation);
+                    SyncOperationResult result = SyncOperationResult.builder()
+                            .operationId(operationId)
+                            .success(true)
+                            .status("SYNCED")
+                            .message("Synced")
+                            .data(data)
+                            .build();
+                    storeOperation(operation, result);
+                    return result;
+                } catch (Exception ex) {
+                    status.setRollbackOnly();
+                    throw ex;
+                }
+            });
         } catch (Exception ex) {
             log.warn("Offline sync operation failed. operationId={}, method={}, path={}, message={}",
                     operationId, operation.getMethod(), resolvePath(operation), ex.getMessage());
@@ -160,7 +196,15 @@ public class SyncService {
                     .status(status)
                     .message(ex.getMessage())
                     .build();
-            storeOperation(operation, result);
+            
+            try {
+                transactionTemplate.execute(txStatus -> {
+                    storeOperation(operation, result);
+                    return null;
+                });
+            } catch (Exception storeEx) {
+                log.error("Failed to store failed sync operation. operationId={}", operationId, storeEx);
+            }
             return result;
         }
     }

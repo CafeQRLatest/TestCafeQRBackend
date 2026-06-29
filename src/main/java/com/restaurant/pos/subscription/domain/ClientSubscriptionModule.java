@@ -1,41 +1,58 @@
 package com.restaurant.pos.subscription.domain;
 
-import com.restaurant.pos.common.entity.AuditableEntity;
 import jakarta.persistence.*;
-import lombok.*;
-
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
-@Data
 @Entity
+@Table(name = "client_subscription_modules")
+@Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-@EqualsAndHashCode(callSuper = true)
-@Table(name = "client_subscription_modules")
-public class ClientSubscriptionModule extends AuditableEntity {
-
+public class ClientSubscriptionModule {
     @Id
-    @GeneratedValue(strategy = GenerationType.UUID)
+    @GeneratedValue(strategy = GenerationType.AUTO)
     private UUID id;
 
     @Column(name = "client_id", nullable = false)
     private UUID clientId;
 
     @Column(name = "org_id")
-    private UUID orgId; // Nullable for account-level modules
+    private UUID orgId;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "module_name", nullable = false)
     private ModuleName moduleName;
 
-    @Column(nullable = false)
-    private String status; // ACTIVE, EXPIRED, TRIAL, CANCEL_PENDING
+    @Column(name = "status", nullable = false)
+    private String status;
 
+    @Builder.Default
     @Column(name = "auto_renew", nullable = false)
-    private boolean autoRenew;
+    private boolean autoRenew = true;
 
     @Column(name = "expiry_date", nullable = false)
     private LocalDateTime expiryDate;
+
+    @Column(name = "created_at")
+    private LocalDateTime createdAt;
+
+    @Column(name = "updated_at")
+    private LocalDateTime updatedAt;
+
+    @PrePersist
+    protected void onCreate() {
+        createdAt = LocalDateTime.now();
+        updatedAt = LocalDateTime.now();
+    }
+
+    @PreUpdate
+    protected void onUpdate() {
+        updatedAt = LocalDateTime.now();
+    }
 }

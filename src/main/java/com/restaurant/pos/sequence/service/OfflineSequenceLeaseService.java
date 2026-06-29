@@ -72,6 +72,9 @@ public class OfflineSequenceLeaseService {
                     if (number < lease.getNextNumber()) {
                         return;
                     }
+                    if (lease.getExpiresAt() != null && lease.getExpiresAt().isBefore(LocalDateTime.now())) {
+                        lease.setExpiresAt(LocalDateTime.now().plusDays(30));
+                    }
                     lease.setNextNumber(number + 1);
                     if (lease.getNextNumber() > lease.getEndNumber()) {
                         lease.setStatus("CONSUMED");
