@@ -299,10 +299,16 @@ public class SubscriptionService {
 
         List<ClientSubscriptionModule> modules = clientSubscriptionModuleRepository.findByClientId(client.getId());
         List<ModuleName> activeModulesList = new ArrayList<>();
+        List<String> activeModulesDetailed = new ArrayList<>();
         for (ClientSubscriptionModule m : modules) {
             if ("ACTIVE".equalsIgnoreCase(m.getStatus())) {
                 if (m.getExpiryDate() == null || m.getExpiryDate().isAfter(LocalDateTime.now())) {
                     activeModulesList.add(m.getModuleName());
+                    if (m.getModuleName() == ModuleName.KOT && m.getOrgId() != null) {
+                        activeModulesDetailed.add("KOT:" + m.getOrgId());
+                    } else {
+                        activeModulesDetailed.add(m.getModuleName().name());
+                    }
                 }
             }
         }
@@ -314,6 +320,7 @@ public class SubscriptionService {
                 .expiryDate(expiry)
                 .message(message)
                 .activeModules(activeModulesList)
+                .activeModulesDetailed(activeModulesDetailed)
                 .build();
     }
 

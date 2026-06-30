@@ -92,11 +92,13 @@ public class ExpenseCategoryPolicy {
             if (type == null) {
                 throw new IllegalArgumentException("Invalid scope: " + requestedScope);
             }
-            return switch (type) {
-                case ALL -> "ALL";
-                case GLOBAL -> "GLOBAL";
-                case BRANCH -> "BRANCH";
-            };
+            if (type == ScopeType.ALL) {
+                return "ALL";
+            }
+            if (type == ScopeType.GLOBAL) {
+                return "GLOBAL";
+            }
+            return "BRANCH";
         }
         if (branchId != null || currentOrgId != null) {
             return "BRANCH";
