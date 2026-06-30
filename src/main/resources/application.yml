@@ -82,7 +82,6 @@ jwt:
   expiration: 14400000 # 4 hours in ms
   refresh-expiration: 2592000000 # 30 days in ms
 
-<<<<<<< HEAD
 management:
   endpoints:
     web:
@@ -104,8 +103,6 @@ management:
     rabbit:
       enabled: false
 
-=======
->>>>>>> testsrc/main
 springdoc:
   api-docs:
     path: /api-docs
