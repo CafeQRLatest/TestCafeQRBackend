@@ -19,7 +19,6 @@ import com.restaurant.pos.print.domain.PrintJobKind;
 import com.restaurant.pos.print.domain.PrintJobStatus;
 import com.restaurant.pos.print.repository.PrintJobAttemptRepository;
 import com.restaurant.pos.print.repository.PrintJobRepository;
-import com.restaurant.pos.print.controller.PrintSseController;
 import com.restaurant.pos.purchasing.domain.Customer;
 import com.restaurant.pos.purchasing.repository.CustomerRepository;
 import com.restaurant.pos.order.dto.OrderCustomerDto;
@@ -74,18 +73,7 @@ public class PrintJobService {
 
     @Transactional
     public PrintJob enqueueForOrder(Order order, PrintJobKind kind, String reason) {
-        if (order == null || order.getId() == null || kind == null) {
-            throw new BusinessException("Invalid print job request");
-        }
-
-        UUID clientId = order.getClientId() != null ? order.getClientId() : TenantContext.getCurrentTenant();
-        if (clientId == null) {
-            throw new BusinessException("Print job tenant is missing");
-        }
-        String dedupeKey = buildDedupeKey(order, kind, reason);
-
-        return printJobRepository.findByClientIdAndDedupeKey(clientId, dedupeKey)
-                .orElseGet(() -> createJob(order, kind, reason, dedupeKey, clientId));
+        return null;
     }
 
     @Transactional
@@ -261,7 +249,6 @@ public class PrintJobService {
             job.setClientId(clientId);
             job.setOrgId(order.getOrgId());
             PrintJob saved = printJobRepository.save(job);
-            PrintSseController.publish(saved.getClientId(), saved.getId());
             return saved;
         } catch (DataIntegrityViolationException ex) {
             return printJobRepository.findByClientIdAndDedupeKey(clientId, dedupeKey)
@@ -274,23 +261,7 @@ public class PrintJobService {
 
     @Transactional
     public PrintJob enqueueKotEditJob(Order order, List<OrderLine> addedLines, List<OrderLine> removedLines, String reason) {
-        if (order == null || order.getId() == null) {
-            throw new BusinessException("Invalid print job request");
-        }
-
-        UUID clientId = order.getClientId() != null ? order.getClientId() : TenantContext.getCurrentTenant();
-        if (clientId == null) {
-            throw new BusinessException("Print job tenant is missing");
-        }
-        // Append a UUID so multiple edits on the same order generate distinct print jobs
-        String dedupeKey = buildDedupeKey(order, PrintJobKind.KOT, reason) + "_" + UUID.randomUUID().toString();
-        log.info("enqueueKotEditJob: generated dedupeKey {} for order {}", dedupeKey, order.getId());
-
-        return printJobRepository.findByClientIdAndDedupeKey(clientId, dedupeKey)
-                .orElseGet(() -> {
-                    log.info("enqueueKotEditJob: no duplicate found, creating job for order {}", order.getId());
-                    return createKotEditJob(order, addedLines, removedLines, reason, dedupeKey, clientId);
-                });
+        return null;
     }
 
     private PrintJob createKotEditJob(Order order, List<OrderLine> addedLines, List<OrderLine> removedLines, String reason, String dedupeKey, UUID clientId) {
@@ -337,7 +308,6 @@ public class PrintJobService {
             job.setClientId(clientId);
             job.setOrgId(order.getOrgId());
             PrintJob saved = printJobRepository.save(job);
-            PrintSseController.publish(saved.getClientId(), saved.getId());
             log.info("createKotEditJob: successfully created PrintJob {} for order {} with dedupeKey {}", saved.getId(), order.getId(), dedupeKey);
             return saved;
         } catch (DataIntegrityViolationException ex) {
