@@ -18,4 +18,5 @@ public class SubscriptionStatusResponse {
     private LocalDateTime expiryDate;
     private String message;
     private java.util.List<com.restaurant.pos.subscription.domain.ModuleName> activeModules;
+    private java.util.List<String> activeModulesDetailed;
 }

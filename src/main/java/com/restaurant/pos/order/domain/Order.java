@@ -256,6 +256,7 @@ public class Order extends BaseEntity {
     @Column(name = "isactive", length = 1)
     private String isactive = "Y";
 
+    @org.hibernate.annotations.BatchSize(size = 50)
     @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true)
     @Builder.Default
     private List<OrderLine> lines = new ArrayList<>();
