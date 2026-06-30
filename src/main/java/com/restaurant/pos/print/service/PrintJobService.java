@@ -249,7 +249,6 @@ public class PrintJobService {
             job.setClientId(clientId);
             job.setOrgId(order.getOrgId());
             PrintJob saved = printJobRepository.save(job);
-            PrintSseController.publish(saved.getClientId(), saved.getId());
             return saved;
         } catch (DataIntegrityViolationException ex) {
             return printJobRepository.findByClientIdAndDedupeKey(clientId, dedupeKey)
@@ -309,7 +308,6 @@ public class PrintJobService {
             job.setClientId(clientId);
             job.setOrgId(order.getOrgId());
             PrintJob saved = printJobRepository.save(job);
-            PrintSseController.publish(saved.getClientId(), saved.getId());
             log.info("createKotEditJob: successfully created PrintJob {} for order {} with dedupeKey {}", saved.getId(), order.getId(), dedupeKey);
             return saved;
         } catch (DataIntegrityViolationException ex) {
