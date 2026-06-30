@@ -7,9 +7,13 @@ import com.restaurant.pos.common.repository.SystemConfigurationRepository;
 import com.restaurant.pos.common.tenant.TenantContext;
 import com.restaurant.pos.common.tenant.UserContext;
 import com.restaurant.pos.common.util.SecurityUtils;
+import com.restaurant.pos.client.domain.Client;
 import com.restaurant.pos.client.repository.ClientRepository;
 import com.restaurant.pos.client.repository.OrganizationRepository;
 import com.restaurant.pos.purchasing.repository.CurrencyRepository;
+import com.restaurant.pos.subscription.domain.ModuleName;
+import com.restaurant.pos.subscription.domain.ClientSubscriptionModule;
+import com.restaurant.pos.subscription.repository.ClientSubscriptionModuleRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.core.type.TypeReference;
 import lombok.RequiredArgsConstructor;
@@ -33,6 +37,7 @@ public class SystemConfigurationService {
     private final ClientRepository clientRepository;
     private final OrganizationRepository organizationRepository;
     private final CurrencyRepository currencyRepository;
+    private final ClientSubscriptionModuleRepository clientSubscriptionModuleRepository;
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public ConfigurationDto getConfiguration() {
@@ -61,6 +66,8 @@ public class SystemConfigurationService {
         if (orgId != null) {
             return updateBranchConfiguration(orgId, dto);
         }
+
+        validateModuleSubscriptions(clientId, null, dto);
 
         SystemConfiguration config = getOrCreateTenantConfiguration(clientId);
 
@@ -143,6 +150,8 @@ public class SystemConfigurationService {
         if (orgId == null) {
             throw new BusinessException("Branch ID is required for branch-level configuration");
         }
+
+        validateModuleSubscriptions(clientId, orgId, dto);
 
         SystemConfiguration branchConfig = repository.findFirstByClientIdAndOrgId(clientId, orgId)
                 .orElseGet(() -> {
@@ -480,5 +489,69 @@ public class SystemConfigurationService {
         }
         String normalized = value.trim().toUpperCase(java.util.Locale.ROOT);
         return "MANUAL".equals(normalized) ? "MANUAL" : "OLDEST_FIRST";
+    }
+
+    private void validateModuleSubscriptions(UUID clientId, UUID orgId, ConfigurationDto dto) {
+        // 1. Check if client has a TRIAL subscription that is still active
+        Optional<Client> clientOpt = clientRepository.findById(clientId);
+        if (clientOpt.isPresent()) {
+            Client client = clientOpt.get();
+            String status = client.getSubscriptionStatus();
+            if (status != null) {
+                status = status.trim().toUpperCase();
+                if ("TRIAL".equals(status) && client.getSubscriptionExpiryDate() != null && client.getSubscriptionExpiryDate().isAfter(java.time.LocalDateTime.now())) {
+                    return; // Free trial gives access to all features
+                }
+            }
+        }
+
+        // 2. Map configuration features to module enums and check subscriptions
+        if (dto.isSendToKitchenEnabled() && !isModuleActive(clientId, orgId, ModuleName.KOT)) {
+            // For tenant-level (orgId == null), allow if they have ANY active KOT subscription (which can serve as the default template)
+            if (orgId != null || !hasAnyActiveModule(clientId, ModuleName.KOT)) {
+                throw new BusinessException("Subscription required: Kitchen Order Ticket (KOT) is not active. Please visit the billing center.");
+            }
+        }
+        if ((dto.isInventoryEnabled() || dto.isPurchaseEnabled()) && !isModuleActive(clientId, orgId, ModuleName.INVENTORY)) {
+            throw new BusinessException("Subscription required: Inventory & Purchase ERP is not active. Please visit the billing center.");
+        }
+        if (dto.isCreditEnabled() && !isModuleActive(clientId, orgId, ModuleName.CREDIT_LEDGER)) {
+            throw new BusinessException("Subscription required: Credit Ledger (Udhaar) is not active. Please visit the billing center.");
+        }
+        if ((dto.isCustomersEnabled() || dto.isLoyaltyEnabled()) && !isModuleActive(clientId, orgId, ModuleName.CRM)) {
+            throw new BusinessException("Subscription required: Customer CRM & Loyalty is not active. Please visit the billing center.");
+        }
+    }
+
+    private boolean isModuleActive(UUID clientId, UUID orgId, ModuleName moduleName) {
+        List<ClientSubscriptionModule> activeModules = clientSubscriptionModuleRepository.findByClientId(clientId);
+        for (ClientSubscriptionModule m : activeModules) {
+            if (m.getModuleName() == moduleName && "ACTIVE".equalsIgnoreCase(m.getStatus())) {
+                if (m.getExpiryDate() == null || m.getExpiryDate().isAfter(java.time.LocalDateTime.now())) {
+                    if (moduleName == ModuleName.KOT) {
+                        // KOT is branch-scoped, so orgId must match the sachet's orgId
+                        if (orgId != null && orgId.equals(m.getOrgId())) {
+                            return true;
+                        }
+                    } else {
+                        // Other modules are account-level
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    private boolean hasAnyActiveModule(UUID clientId, ModuleName moduleName) {
+        List<ClientSubscriptionModule> activeModules = clientSubscriptionModuleRepository.findByClientId(clientId);
+        for (ClientSubscriptionModule m : activeModules) {
+            if (m.getModuleName() == moduleName && "ACTIVE".equalsIgnoreCase(m.getStatus())) {
+                if (m.getExpiryDate() == null || m.getExpiryDate().isAfter(java.time.LocalDateTime.now())) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 }

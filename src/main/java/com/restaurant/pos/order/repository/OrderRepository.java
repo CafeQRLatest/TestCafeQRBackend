@@ -29,13 +29,11 @@ public interface OrderRepository extends JpaRepository<Order, UUID>, JpaSpecific
     @EntityGraph(attributePaths = "lines")
     List<Order> findByClientIdAndOrderTypeOrderByCreatedAtDesc(UUID clientId, OrderType orderType);
 
-    @EntityGraph(attributePaths = "lines")
     org.springframework.data.domain.Page<Order> findByClientIdAndOrderTypeOrderByCreatedAtDesc(UUID clientId, OrderType orderType, org.springframework.data.domain.Pageable pageable);
 
     @EntityGraph(attributePaths = "lines")
     List<Order> findByClientIdAndOrgIdAndOrderTypeOrderByCreatedAtDesc(UUID clientId, UUID orgId, OrderType orderType);
 
-    @EntityGraph(attributePaths = "lines")
     org.springframework.data.domain.Page<Order> findByClientIdAndOrgIdAndOrderTypeOrderByCreatedAtDesc(UUID clientId, UUID orgId, OrderType orderType, org.springframework.data.domain.Pageable pageable);
 
     @EntityGraph(attributePaths = "lines")
@@ -50,7 +48,6 @@ public interface OrderRepository extends JpaRepository<Order, UUID>, JpaSpecific
             """)
     List<Order> findLiveOrders(@Param("clientId") UUID clientId, @Param("orgId") UUID orgId, @Param("orderType") OrderType orderType, @Param("closedStatuses") Collection<String> closedStatuses);
 
-    @EntityGraph(attributePaths = "lines")
     @Query("""
             SELECT o FROM Order o
             WHERE o.clientId = :clientId
@@ -98,16 +95,12 @@ public interface OrderRepository extends JpaRepository<Order, UUID>, JpaSpecific
     @EntityGraph(attributePaths = "lines")
     Optional<Order> findBySourceOperationIdAndClientId(String sourceOperationId, UUID clientId);
 
-    @EntityGraph(attributePaths = "lines")
     org.springframework.data.domain.Page<Order> findByClientId(UUID clientId, org.springframework.data.domain.Pageable pageable);
 
-    @EntityGraph(attributePaths = "lines")
     org.springframework.data.domain.Page<Order> findByClientIdAndOrgId(UUID clientId, UUID orgId, org.springframework.data.domain.Pageable pageable);
 
-    @EntityGraph(attributePaths = "lines")
     org.springframework.data.domain.Page<Order> findByClientIdAndOrderStatusIn(UUID clientId, List<String> statuses, org.springframework.data.domain.Pageable pageable);
 
-    @EntityGraph(attributePaths = "lines")
     org.springframework.data.domain.Page<Order> findByClientIdAndOrgIdAndOrderStatusIn(UUID clientId, UUID orgId, List<String> statuses, org.springframework.data.domain.Pageable pageable);
 
     @EntityGraph(attributePaths = "lines")
