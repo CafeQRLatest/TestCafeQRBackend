@@ -23,6 +23,7 @@ spring:
       leak-detection-threshold: 2000
 
   jpa:
+    open-in-view: false
     hibernate:
       ddl-auto: none
     show-sql: true
