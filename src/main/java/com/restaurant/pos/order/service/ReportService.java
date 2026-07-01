@@ -202,6 +202,7 @@ public class ReportService {
         List<Order> orders = fetchSaleOrders(from, to, orgId, terminalId);
 
         Map<String, BigDecimal[]> itemMap = new LinkedHashMap<>();
+        Map<String, Integer> itemPrecisionMap = new LinkedHashMap<>();
 
         for (Order o : orders) {
             if (o.getLines() == null) continue;
@@ -215,6 +216,9 @@ public class ReportService {
                 BigDecimal[] vals = itemMap.get(key);
                 vals[0] = vals[0].add(safe(line.getQuantity()));
                 vals[1] = vals[1].add(safe(line.getLineTotal()));
+                if (line.getUomPrecision() != null) {
+                    itemPrecisionMap.put(key, line.getUomPrecision());
+                }
             }
         }
 
@@ -226,6 +230,7 @@ public class ReportService {
                             .categoryName(parts.length > 1 ? parts[1] : "Uncategorized")
                             .quantitySold(e.getValue()[0])
                             .revenue(e.getValue()[1])
+                            .uomPrecision(itemPrecisionMap.get(e.getKey()))
                             .build();
                 })
                 .sorted((a, b) -> b.getRevenue().compareTo(a.getRevenue()))

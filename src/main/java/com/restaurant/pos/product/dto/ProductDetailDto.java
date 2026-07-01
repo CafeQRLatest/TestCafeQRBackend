@@ -94,6 +94,7 @@ public class ProductDetailDto {
         private UUID id;
         private String name;
         private String shortName;
+        private int uomPrecision;
     }
 
     @Data

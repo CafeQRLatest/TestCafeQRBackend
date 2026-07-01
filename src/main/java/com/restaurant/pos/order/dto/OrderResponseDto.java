@@ -182,6 +182,9 @@ public class OrderResponseDto {
         @Schema(description = "Unit of measure (e.g. KG, PCS, BOX)")
         private String unitOfMeasure;
 
+        @Schema(description = "UOM precision/decimals")
+        private Integer uomPrecision;
+
         @Schema(description = "Line notes")
         private String description;
 

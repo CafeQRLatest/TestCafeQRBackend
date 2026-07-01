@@ -920,6 +920,7 @@ public class OrderService {
                         .isPackagedGood(line.getIsPackagedGood())
                         .quantity(line.getQuantity())
                         .unitOfMeasure(line.getUnitOfMeasure())
+                        .uomPrecision(line.getUomPrecision())
                         .unitPrice(line.getUnitPrice())
                         .taxRate(line.getTaxRate())
                         .taxAmount(line.getTaxAmount())

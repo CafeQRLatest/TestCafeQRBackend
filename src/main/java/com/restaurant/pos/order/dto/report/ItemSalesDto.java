@@ -16,4 +16,5 @@ public class ItemSalesDto {
     private String categoryName;
     private BigDecimal quantitySold;
     private BigDecimal revenue;
+    private Integer uomPrecision;
 }

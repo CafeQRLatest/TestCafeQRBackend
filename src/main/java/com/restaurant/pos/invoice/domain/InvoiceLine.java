@@ -55,6 +55,10 @@ public class InvoiceLine {
     @Column(name = "unit_of_measure", length = 20)
     private String unitOfMeasure = "units";
 
+    @Builder.Default
+    @Column(name = "uom_precision")
+    private Integer uomPrecision = 0;
+
     @Column(name = "unit_price", precision = 15, scale = 2, nullable = false)
     private BigDecimal unitPrice;
 
