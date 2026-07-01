@@ -507,10 +507,7 @@ public class SystemConfigurationService {
 
         // 2. Map configuration features to module enums and check subscriptions
         if (dto.isSendToKitchenEnabled() && !isModuleActive(clientId, orgId, ModuleName.KOT)) {
-            // For tenant-level (orgId == null), allow if they have ANY active KOT subscription (which can serve as the default template)
-            if (orgId != null || !hasAnyActiveModule(clientId, ModuleName.KOT)) {
-                throw new BusinessException("Subscription required: Kitchen Order Ticket (KOT) is not active. Please visit the billing center.");
-            }
+            throw new BusinessException("Subscription required: Kitchen Order Ticket (KOT) is not active. Please visit the billing center.");
         }
         if ((dto.isInventoryEnabled() || dto.isPurchaseEnabled()) && !isModuleActive(clientId, orgId, ModuleName.INVENTORY)) {
             throw new BusinessException("Subscription required: Inventory & Purchase ERP is not active. Please visit the billing center.");
@@ -524,26 +521,6 @@ public class SystemConfigurationService {
     }
 
     private boolean isModuleActive(UUID clientId, UUID orgId, ModuleName moduleName) {
-        List<ClientSubscriptionModule> activeModules = clientSubscriptionModuleRepository.findByClientId(clientId);
-        for (ClientSubscriptionModule m : activeModules) {
-            if (m.getModuleName() == moduleName && "ACTIVE".equalsIgnoreCase(m.getStatus())) {
-                if (m.getExpiryDate() == null || m.getExpiryDate().isAfter(java.time.LocalDateTime.now())) {
-                    if (moduleName == ModuleName.KOT) {
-                        // KOT is branch-scoped, so orgId must match the sachet's orgId
-                        if (orgId != null && orgId.equals(m.getOrgId())) {
-                            return true;
-                        }
-                    } else {
-                        // Other modules are account-level
-                        return true;
-                    }
-                }
-            }
-        }
-        return false;
-    }
-
-    private boolean hasAnyActiveModule(UUID clientId, ModuleName moduleName) {
         List<ClientSubscriptionModule> activeModules = clientSubscriptionModuleRepository.findByClientId(clientId);
         for (ClientSubscriptionModule m : activeModules) {
             if (m.getModuleName() == moduleName && "ACTIVE".equalsIgnoreCase(m.getStatus())) {

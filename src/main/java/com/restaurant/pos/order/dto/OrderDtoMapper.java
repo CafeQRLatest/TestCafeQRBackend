@@ -137,6 +137,7 @@ public class OrderDtoMapper {
                 .variantId(line.getVariantId())
                 .productName(line.getProductName())
                 .unitOfMeasure(line.getUnitOfMeasure())
+                .uomPrecision(line.getUomPrecision())
                 .quantity(line.getQuantity())
                 .unitPrice(line.getUnitPrice())
                 .taxRate(line.getTaxRate())
@@ -261,6 +262,7 @@ public class OrderDtoMapper {
                 line.setVariantId(lineReq.getVariantId());
                 line.setProductName(lineReq.getProductName());
                 line.setUnitOfMeasure(lineReq.getUnitOfMeasure());
+                line.setUomPrecision(lineReq.getUomPrecision() != null ? lineReq.getUomPrecision() : 0);
                 line.setQuantity(lineReq.getQuantity());
                 line.setUnitPrice(lineReq.getUnitPrice());
                 line.setTaxRate(lineReq.getTaxRate());
@@ -344,6 +346,7 @@ public class OrderDtoMapper {
                 line.setVariantId(lineReq.getVariantId());
                 line.setProductName(lineReq.getProductName());
                 line.setUnitOfMeasure(lineReq.getUnitOfMeasure());
+                line.setUomPrecision(lineReq.getUomPrecision() != null ? lineReq.getUomPrecision() : 0);
                 line.setQuantity(lineReq.getQuantity());
                 line.setUnitPrice(lineReq.getUnitPrice());
                 line.setTaxRate(lineReq.getTaxRate());
