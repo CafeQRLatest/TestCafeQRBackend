@@ -357,6 +357,27 @@ public class SystemConfigurationService {
                         e);
             }
         }
+
+        Client client = null;
+        if (entity.getClientId() != null) {
+            client = clientRepository.findById(entity.getClientId()).orElse(null);
+        }
+
+        com.restaurant.pos.client.domain.Organization org = null;
+        if (orgId != null) {
+            org = organizationRepository.findById(orgId).orElse(null);
+        }
+
+        String resolvedRestaurantName = org != null ? org.getName() : (client != null ? client.getName() : null);
+        String resolvedPhone = org != null ? org.getPhone() : (client != null ? client.getPhone() : null);
+        String resolvedGstin = (org != null && org.getGstin() != null && !org.getGstin().isBlank()) 
+                ? org.getGstin() 
+                : (client != null ? client.getGstNumber() : null);
+        String resolvedFssai = client != null ? client.getFssaiNumber() : null;
+        String resolvedAddress = org != null ? org.getAddress() : (client != null ? client.getAddress() : null);
+        String resolvedPincode = org != null ? org.getPinCode() : (client != null ? client.getPinCode() : null);
+        String resolvedTimezone = org != null ? org.getTimezone() : (client != null ? client.getTimezone() : null);
+
         return ConfigurationDto.builder()
                 .onlinePaymentEnabled(entity.isOnlinePaymentEnabled())
                 .menuImagesEnabled(entity.isMenuImagesEnabled())
@@ -406,6 +427,13 @@ public class SystemConfigurationService {
                 .printWinListUrl(entity.getPrintWinListUrl())
                 .printWinPostUrl(entity.getPrintWinPostUrl())
                 .logoUrl(resolvedLogoUrl)
+                .restaurantName(resolvedRestaurantName)
+                .phone(resolvedPhone)
+                .gstin(resolvedGstin)
+                .fssaiLicense(resolvedFssai)
+                .shippingAddressLine1(resolvedAddress)
+                .shippingPincode(resolvedPincode)
+                .timezone(resolvedTimezone)
                 .build();
     }
 
