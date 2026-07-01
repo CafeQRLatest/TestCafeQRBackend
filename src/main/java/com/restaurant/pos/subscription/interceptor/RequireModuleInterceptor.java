@@ -53,17 +53,8 @@ public class RequireModuleInterceptor implements HandlerInterceptor {
             for (ClientSubscriptionModule m : activeModules) {
                 if (m.getModuleName() == requiredModule && "ACTIVE".equalsIgnoreCase(m.getStatus())) {
                     if (m.getExpiryDate() == null || m.getExpiryDate().isAfter(LocalDateTime.now())) {
-                        if (requiredModule == ModuleName.KOT) {
-                            // KOT is branch-scoped, so orgId must match the sachet's orgId
-                            if (orgId != null && orgId.equals(m.getOrgId())) {
-                                hasAccess = true;
-                                break;
-                            }
-                        } else {
-                            // Other modules are account-level
-                            hasAccess = true;
-                            break;
-                        }
+                        hasAccess = true;
+                        break;
                     }
                 }
             }

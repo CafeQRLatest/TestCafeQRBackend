@@ -19,27 +19,27 @@ public interface ProductRepository extends JpaRepository<Product, UUID> {
     Optional<Product> findWithCategoryById(UUID id);
 
     @EntityGraph(attributePaths = {"category", "uom", "defaultPricelist"})
-    @Query("SELECT p FROM Product p WHERE p.clientId = :clientId AND (:orgId IS NULL OR p.orgId IS NULL OR p.orgId = :orgId)")
+    @Query("SELECT p FROM Product p WHERE p.clientId = :clientId AND p.orgId = :orgId")
     List<Product> findByClientIdAndOrgIdOrGlobal(UUID clientId, UUID orgId);
 
     @EntityGraph(attributePaths = {"category", "uom", "defaultPricelist"})
-    @Query("SELECT p FROM Product p WHERE p.clientId = :clientId AND (:orgId IS NULL OR p.orgId IS NULL OR p.orgId = :orgId) AND p.isActive = true")
+    @Query("SELECT p FROM Product p WHERE p.clientId = :clientId AND p.orgId = :orgId AND p.isActive = true")
     List<Product> findByClientIdAndOrgIdOrGlobalAndIsActiveTrue(UUID clientId, UUID orgId);
 
     @EntityGraph(attributePaths = {"category", "uom"})
-    @Query("SELECT p FROM Product p WHERE p.clientId = :clientId AND (:orgId IS NULL OR p.orgId IS NULL OR p.orgId = :orgId) AND p.updatedAt >= :updatedAfter")
+    @Query("SELECT p FROM Product p WHERE p.clientId = :clientId AND p.orgId = :orgId AND p.updatedAt >= :updatedAfter")
     List<Product> findChangedByClientIdAndOrgIdOrGlobal(UUID clientId, UUID orgId, LocalDateTime updatedAfter);
 
     @EntityGraph(attributePaths = {"category", "uom"})
     List<Product> findByIdIn(List<UUID> ids);
 
-    @Query("SELECT COUNT(p) > 0 FROM Product p WHERE p.productCode = :code AND p.clientId = :clientId AND (:orgId IS NULL OR p.orgId IS NULL OR p.orgId = :orgId) AND p.isActive = true")
+    @Query("SELECT COUNT(p) > 0 FROM Product p WHERE p.productCode = :code AND p.clientId = :clientId AND p.orgId = :orgId AND p.isActive = true")
     boolean existsByProductCodeAndClientIdAndOrgIdOrGlobal(String code, UUID clientId, UUID orgId);
 
-    @Query("SELECT COUNT(p) > 0 FROM Product p WHERE LOWER(p.name) = LOWER(:name) AND p.clientId = :clientId AND (:orgId IS NULL OR p.orgId IS NULL OR p.orgId = :orgId) AND p.isActive = true AND (:id IS NULL OR p.id != :id)")
+    @Query("SELECT COUNT(p) > 0 FROM Product p WHERE LOWER(p.name) = LOWER(:name) AND p.clientId = :clientId AND p.orgId = :orgId AND p.isActive = true AND (:id IS NULL OR p.id != :id)")
     boolean existsByNameAndClientIdAndOrgIdOrGlobalAndIdNot(String name, UUID clientId, UUID orgId, UUID id);
 
-    @Query("SELECT COUNT(p) > 0 FROM Product p WHERE LOWER(p.productCode) = LOWER(:code) AND p.clientId = :clientId AND (:orgId IS NULL OR p.orgId IS NULL OR p.orgId = :orgId) AND p.isActive = true AND (:id IS NULL OR p.id != :id)")
+    @Query("SELECT COUNT(p) > 0 FROM Product p WHERE LOWER(p.productCode) = LOWER(:code) AND p.clientId = :clientId AND p.orgId = :orgId AND p.isActive = true AND (:id IS NULL OR p.id != :id)")
     boolean existsByProductCodeAndClientIdAndOrgIdOrGlobalAndIdNot(String code, UUID clientId, UUID orgId, UUID id);
 
     boolean existsByVariantMappings_VariantGroup_IdAndIsActiveTrue(UUID variantGroupId);

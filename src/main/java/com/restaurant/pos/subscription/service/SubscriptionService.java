@@ -245,17 +245,12 @@ public class SubscriptionService {
                     continue;
                 }
 
-                ClientSubscriptionModule existing;
-                if (modName == ModuleName.KOT && orgId != null) {
-                    existing = clientSubscriptionModuleRepository.findByClientIdAndOrgIdAndModuleName(client.getId(), orgId, modName).orElse(null);
-                } else {
-                    existing = clientSubscriptionModuleRepository.findByClientIdAndModuleName(client.getId(), modName).orElse(null);
-                }
+                ClientSubscriptionModule existing = clientSubscriptionModuleRepository.findByClientIdAndModuleName(client.getId(), modName).orElse(null);
 
                 if (existing == null) {
                     existing = ClientSubscriptionModule.builder()
                             .clientId(client.getId())
-                            .orgId(modName == ModuleName.KOT ? orgId : null)
+                            .orgId(null)
                             .moduleName(modName)
                             .build();
                 }
@@ -304,11 +299,7 @@ public class SubscriptionService {
             if ("ACTIVE".equalsIgnoreCase(m.getStatus())) {
                 if (m.getExpiryDate() == null || m.getExpiryDate().isAfter(LocalDateTime.now())) {
                     activeModulesList.add(m.getModuleName());
-                    if (m.getModuleName() == ModuleName.KOT && m.getOrgId() != null) {
-                        activeModulesDetailed.add("KOT:" + m.getOrgId());
-                    } else {
-                        activeModulesDetailed.add(m.getModuleName().name());
-                    }
+                    activeModulesDetailed.add(m.getModuleName().name());
                 }
             }
         }

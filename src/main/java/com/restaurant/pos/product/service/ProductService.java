@@ -98,14 +98,14 @@ public class ProductService {
     // --- UOM Methods ---
 
     @Transactional(readOnly = true)
-    @Cacheable(value = "products_uoms_v2", key = "T(com.restaurant.pos.common.tenant.TenantContext).getCurrentTenant() + ':' + T(com.restaurant.pos.common.tenant.TenantContext).getCurrentOrg()")
+    // @Cacheable(value = "products_uoms_v2", key = "T(com.restaurant.pos.common.tenant.TenantContext).getCurrentTenant() + ':' + T(com.restaurant.pos.common.tenant.TenantContext).getCurrentOrg()")
     public List<Uom> getUoms() {
         return uomRepository.findByClientIdAndOrgIdOrGlobal(TenantContext.getCurrentTenant(),
                 TenantContext.getCurrentOrg());
     }
 
     @Transactional
-    @CacheEvict(value = "products_uoms_v2", key = "T(com.restaurant.pos.common.tenant.TenantContext).getCurrentTenant() + ':' + T(com.restaurant.pos.common.tenant.TenantContext).getCurrentOrg()")
+    // @CacheEvict(value = "products_uoms_v2", key = "T(com.restaurant.pos.common.tenant.TenantContext).getCurrentTenant() + ':' + T(com.restaurant.pos.common.tenant.TenantContext).getCurrentOrg()")
     public Uom createUom(Uom uom) {
         UUID clientId = TenantContext.getCurrentTenant();
         UUID orgId = TenantContext.getCurrentOrg();
@@ -120,7 +120,7 @@ public class ProductService {
     }
 
     @Transactional
-    @CacheEvict(value = "products_uoms_v2", key = "T(com.restaurant.pos.common.tenant.TenantContext).getCurrentTenant() + ':' + T(com.restaurant.pos.common.tenant.TenantContext).getCurrentOrg()")
+    // @CacheEvict(value = "products_uoms_v2", key = "T(com.restaurant.pos.common.tenant.TenantContext).getCurrentTenant() + ':' + T(com.restaurant.pos.common.tenant.TenantContext).getCurrentOrg()")
     public Uom updateUom(UUID id, Uom uom) {
         Uom existing = uomRepository.findById(java.util.Objects.requireNonNull(id))
                 .orElseThrow(() -> new ResourceNotFoundException("UOM not found"));
@@ -136,7 +136,7 @@ public class ProductService {
     }
 
     @Transactional
-    @CacheEvict(value = "products_uoms_v2", key = "T(com.restaurant.pos.common.tenant.TenantContext).getCurrentTenant() + ':' + T(com.restaurant.pos.common.tenant.TenantContext).getCurrentOrg()")
+    // @CacheEvict(value = "products_uoms_v2", key = "T(com.restaurant.pos.common.tenant.TenantContext).getCurrentTenant() + ':' + T(com.restaurant.pos.common.tenant.TenantContext).getCurrentOrg()")
     public void deleteUom(UUID id) {
         Uom uom = uomRepository.findById(java.util.Objects.requireNonNull(id))
                 .orElseThrow(() -> new ResourceNotFoundException("UOM not found"));
@@ -399,6 +399,7 @@ public class ProductService {
                     .categoryName(product.getCategory() != null ? product.getCategory().getName() : null)
                     .uomId(product.getUom() != null ? product.getUom().getId() : null)
                     .uomName(product.getUom() != null ? product.getUom().getName() : null)
+                    .uomPrecision(product.getUom() != null ? product.getUom().getUomPrecision() : 0)
                     .productCode(product.getProductCode())
                     .taxRate(product.getTaxRate())
                     .taxCode(product.getTaxCode())
@@ -435,6 +436,7 @@ public class ProductService {
                         .id(product.getUom().getId())
                         .name(product.getUom().getName())
                         .shortName(product.getUom().getShortName())
+                        .uomPrecision(product.getUom().getUomPrecision())
                         .build();
 
         List<ProductDetailDto.VariantMappingDto> mappings = product.getVariantMappings() == null

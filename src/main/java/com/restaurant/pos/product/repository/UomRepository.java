@@ -11,15 +11,15 @@ import java.util.UUID;
 
 @Repository
 public interface UomRepository extends JpaRepository<Uom, UUID> {
-    @Query("SELECT u FROM Uom u WHERE u.clientId = :clientId AND (:orgId IS NULL OR u.orgId IS NULL OR u.orgId = :orgId)")
+    @Query("SELECT u FROM Uom u WHERE u.clientId = :clientId AND u.orgId = :orgId")
     List<Uom> findByClientIdAndOrgIdOrGlobal(UUID clientId, UUID orgId);
 
-    @Query("SELECT u FROM Uom u WHERE u.clientId = :clientId AND (:orgId IS NULL OR u.orgId IS NULL OR u.orgId = :orgId) AND u.isActive = true")
+    @Query("SELECT u FROM Uom u WHERE u.clientId = :clientId AND u.orgId = :orgId AND u.isActive = true")
     List<Uom> findByClientIdAndOrgIdOrGlobalAndIsActiveTrue(UUID clientId, UUID orgId);
 
-    @Query("SELECT u FROM Uom u WHERE u.clientId = :clientId AND (:orgId IS NULL OR u.orgId IS NULL OR u.orgId = :orgId) AND u.updatedAt >= :updatedAfter")
+    @Query("SELECT u FROM Uom u WHERE u.clientId = :clientId AND u.orgId = :orgId AND u.updatedAt >= :updatedAfter")
     List<Uom> findChangedByClientIdAndOrgIdOrGlobal(UUID clientId, UUID orgId, LocalDateTime updatedAfter);
 
-    @Query("SELECT u FROM Uom u WHERE u.name = :name AND u.clientId = :clientId AND (:orgId IS NULL OR u.orgId IS NULL OR u.orgId = :orgId)")
+    @Query("SELECT u FROM Uom u WHERE u.name = :name AND u.clientId = :clientId AND u.orgId = :orgId")
     java.util.Optional<Uom> findByNameAndClientIdAndOrgIdOrGlobal(String name, UUID clientId, UUID orgId);
 }

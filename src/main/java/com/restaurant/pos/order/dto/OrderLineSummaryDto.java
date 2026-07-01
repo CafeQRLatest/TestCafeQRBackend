@@ -22,6 +22,7 @@ public class OrderLineSummaryDto {
     private Boolean isPackagedGood;
     private BigDecimal quantity;
     private String unitOfMeasure;
+    private Integer uomPrecision;
     private BigDecimal unitPrice;
     private BigDecimal taxRate;
     private BigDecimal taxAmount;
