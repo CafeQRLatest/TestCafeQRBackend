@@ -84,6 +84,17 @@ public class ConfigurationDto {
 
     private String logoUrl;
 
+    // Business Identity (resolved from Client + Organization)
+    private String restaurantName;
+    private String phone;
+    private String gstin;
+    private String fssaiLicense;
+    private String shippingAddressLine1;
+    private String shippingCity;
+    private String shippingAddressState;
+    private String shippingPincode;
+    private String timezone;
+
     // Branch override metadata (not persisted — set by service layer)
     @Builder.Default
     private boolean branchOverride = false;
