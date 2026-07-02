@@ -294,7 +294,7 @@ public class OrderController {
     }
 
     @PostMapping("/{id}/settle")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER') or hasAuthority('ORDER_SETTLE')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF') or hasAuthority('ORDER_SETTLE')")
     @Operation(summary = "Settle order", description = "Marks the order as PAID and records a payment. Replays identically if a duplicate Idempotency-Key is provided.")
     @ApiResponses(value = {
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Successfully settled the order and recorded payment"),
