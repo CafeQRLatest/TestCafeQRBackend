@@ -73,7 +73,10 @@ public class PrintJobService {
 
     @Transactional
     public PrintJob enqueueForOrder(Order order, PrintJobKind kind, String reason) {
-        return null;
+        UUID clientId = order.getClientId() != null ? order.getClientId() : TenantContext.getCurrentTenant();
+        String dedupeKey = buildDedupeKey(order, kind, reason);
+        log.info("enqueueForOrder: orderId={}, kind={}, reason={}, dedupeKey={}", order.getId(), kind, reason, dedupeKey);
+        return createJob(order, kind, reason, dedupeKey, clientId);
     }
 
     @Transactional
@@ -261,7 +264,10 @@ public class PrintJobService {
 
     @Transactional
     public PrintJob enqueueKotEditJob(Order order, List<OrderLine> addedLines, List<OrderLine> removedLines, String reason) {
-        return null;
+        UUID clientId = order.getClientId() != null ? order.getClientId() : TenantContext.getCurrentTenant();
+        String dedupeKey = buildDedupeKey(order, PrintJobKind.KOT, reason);
+        log.info("enqueueKotEditJob: orderId={}, addedLines={}, removedLines={}, dedupeKey={}", order.getId(), (addedLines != null ? addedLines.size() : 0), (removedLines != null ? removedLines.size() : 0), dedupeKey);
+        return createKotEditJob(order, addedLines, removedLines, reason, dedupeKey, clientId);
     }
 
     private PrintJob createKotEditJob(Order order, List<OrderLine> addedLines, List<OrderLine> removedLines, String reason, String dedupeKey, UUID clientId) {
