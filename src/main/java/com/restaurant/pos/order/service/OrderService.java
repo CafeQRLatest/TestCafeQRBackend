@@ -2024,14 +2024,30 @@ public class OrderService {
 
                 if (totalLineGross.compareTo(BigDecimal.ZERO) > 0) {
                     BigDecimal updatedTotalTax = BigDecimal.ZERO;
+                    List<OrderLine> activeLines = new ArrayList<>();
                     for (OrderLine line : order.getLines()) {
-                        if (!line.isActive()) continue;
+                        if (line.isActive()) {
+                            activeLines.add(line);
+                        }
+                    }
+
+                    BigDecimal allocatedDiscountSum = BigDecimal.ZERO;
+                    for (int i = 0; i < activeLines.size(); i++) {
+                        OrderLine line = activeLines.get(i);
                         BigDecimal gross = line.getGrossLineAmount() != null ? line.getGrossLineAmount()
                                 : (line.getLineTotal() != null ? line.getLineTotal() : BigDecimal.ZERO);
-                        // Proportional share of the order discount for this line (inc-tax)
-                        BigDecimal lineDiscShare = additionalDiscount
-                                .multiply(gross)
-                                .divide(totalLineGross, 4, RoundingMode.HALF_UP);
+                        
+                        BigDecimal lineDiscShare;
+                        if (i == activeLines.size() - 1) {
+                            // Last active line absorbs the remainder
+                            lineDiscShare = additionalDiscount.subtract(allocatedDiscountSum);
+                        } else {
+                            lineDiscShare = additionalDiscount
+                                    .multiply(gross)
+                                    .divide(totalLineGross, 2, RoundingMode.HALF_UP);
+                            allocatedDiscountSum = allocatedDiscountSum.add(lineDiscShare);
+                        }
+
                         // Accumulate allocatedOrderDiscount on the line
                         BigDecimal prevAlloc = line.getAllocatedOrderDiscount() != null
                                 ? line.getAllocatedOrderDiscount() : BigDecimal.ZERO;
