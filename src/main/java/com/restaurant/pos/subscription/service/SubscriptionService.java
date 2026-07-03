@@ -1,7 +1,9 @@
 package com.restaurant.pos.subscription.service;
 
 import com.restaurant.pos.client.domain.Client;
+import com.restaurant.pos.client.domain.Organization;
 import com.restaurant.pos.client.repository.ClientRepository;
+import com.restaurant.pos.client.repository.OrganizationRepository;
 import com.restaurant.pos.common.context.TimezoneResolver;
 import com.restaurant.pos.common.exception.BusinessException;
 import com.restaurant.pos.common.exception.ResourceNotFoundException;
@@ -38,16 +40,18 @@ public class SubscriptionService {
     private static final String EXPIRED = "EXPIRED";
 
     private final ClientRepository clientRepository;
+    private final OrganizationRepository organizationRepository;
     private final RazorpayService razorpayService;
     private final TimezoneResolver timezoneResolver;
     private final ClientSubscriptionModuleRepository clientSubscriptionModuleRepository;
+    private final com.restaurant.pos.subscription.repository.SubscriptionPaymentRepository subscriptionPaymentRepository;
 
     // Annual Prices in Paise (1 INR = 100 paise)
     private static final long PRICE_BASE_ANNUAL = 99900;          // ₹999/yr
     private static final long PRICE_KOT_ANNUAL = 50000;           // ₹500/yr
     private static final long PRICE_INVENTORY_ANNUAL = 199200;    // ₹1992/yr
-    private static final long PRICE_CRM_ANNUAL = 99000;           // ₹990/yr
-    private static final long PRICE_CREDIT_LEDGER_ANNUAL = 49200;  // ₹492/yr
+    private static final long PRICE_CRM_ANNUAL = 99900;           // ₹999/yr
+    private static final long PRICE_CREDIT_LEDGER_ANNUAL = 49900;  // ₹499/yr
     private static final long PRICE_TABLE_QR_ANNUAL = 0;          // Free
     private static final long PRICE_MENU_IMAGES_ANNUAL = 0;        // Free
     private static final long PRICE_ONLINE_DELIVERY_ANNUAL = 0;   // Free
@@ -56,9 +60,13 @@ public class SubscriptionService {
     private static final long PRICE_SETUP_FEE = 149900;           // ₹1499 setup fee
 
     @Transactional(readOnly = true)
-    public SubscriptionStatusResponse getStatus(UUID clientId) {
+    public SubscriptionStatusResponse getStatus(UUID clientId, UUID orgId) {
         Client client = findClient(clientId);
-        return toStatus(client);
+        Organization org = null;
+        if (orgId != null) {
+            org = organizationRepository.findById(orgId).orElse(null);
+        }
+        return toStatus(client, org);
     }
 
     @Transactional
@@ -81,14 +89,30 @@ public class SubscriptionService {
             amountPaise += PRICE_SETUP_FEE;
         }
 
-        // 3. Module calculations (checking if active client upgrading mid-cycle)
-        boolean isActiveClient = (ACTIVE.equalsIgnoreCase(client.getSubscriptionStatus()) || TRIAL.equalsIgnoreCase(client.getSubscriptionStatus()))
-                && client.getSubscriptionExpiryDate() != null
-                && client.getSubscriptionExpiryDate().isAfter(LocalDateTime.now());
+        // 3. Module calculations (checking if active branch upgrading mid-cycle)
+        UUID orgId = request.getOrgId();
+        Organization org = null;
+        if (orgId != null) {
+            org = organizationRepository.findById(orgId).orElse(null);
+        }
+
+        boolean isActiveBranch = false;
+        LocalDateTime orgExpiry = null;
+        if (org != null) {
+            isActiveBranch = (ACTIVE.equalsIgnoreCase(org.getSubscriptionStatus()) || TRIAL.equalsIgnoreCase(org.getSubscriptionStatus()))
+                    && org.getSubscriptionExpiryDate() != null
+                    && org.getSubscriptionExpiryDate().isAfter(LocalDateTime.now());
+            orgExpiry = org.getSubscriptionExpiryDate();
+        } else {
+            isActiveBranch = (ACTIVE.equalsIgnoreCase(client.getSubscriptionStatus()) || TRIAL.equalsIgnoreCase(client.getSubscriptionStatus()))
+                    && client.getSubscriptionExpiryDate() != null
+                    && client.getSubscriptionExpiryDate().isAfter(LocalDateTime.now());
+            orgExpiry = client.getSubscriptionExpiryDate();
+        }
 
         long daysRemaining = 0;
-        if (isActiveClient) {
-            ZonedDateTime expiryInZone = client.getSubscriptionExpiryDate().atZone(ZoneId.systemDefault()).withZoneSameInstant(zone);
+        if (isActiveBranch && orgExpiry != null) {
+            ZonedDateTime expiryInZone = orgExpiry.atZone(ZoneId.systemDefault()).withZoneSameInstant(zone);
             daysRemaining = Math.max(0, Duration.between(nowInZone, expiryInZone).toDays());
         }
 
@@ -103,7 +127,7 @@ public class SubscriptionService {
             }
             long moduleAnnualPrice = getModuleAnnualPrice(modName);
 
-            if (isActiveClient && !hasBase) {
+            if (isActiveBranch && !hasBase) {
                 // Mid-cycle upgrade: Prorated price
                 long proratedPrice = Math.round((double) moduleAnnualPrice / 365.0 * (double) daysRemaining);
                 amountPaise += proratedPrice;
@@ -126,7 +150,7 @@ public class SubscriptionService {
         notes.put("include_base", String.valueOf(hasBase));
         notes.put("include_setup", String.valueOf(hasSetup));
         notes.put("org_id", request.getOrgId() != null ? request.getOrgId().toString() : "");
-        notes.put("is_upgrade", String.valueOf(isActiveClient && !hasBase));
+        notes.put("is_upgrade", String.valueOf(isActiveBranch && !hasBase));
 
         String receipt = "sub_" + client.getId().toString().substring(0, 8) + "_" + System.currentTimeMillis();
         RazorpayOrderResponse order = razorpayService.createOrder(amountPaise, "INR", receipt, notes);
@@ -152,11 +176,17 @@ public class SubscriptionService {
             throw new BusinessException("Razorpay payment signature verification failed");
         }
 
+        // Check if payment already processed
+        if (subscriptionPaymentRepository.findByPaymentId(request.getRazorpayPaymentId()).isPresent()) {
+            throw new BusinessException("Payment has already been processed.");
+        }
+
         Client client = findClient(clientId);
         
         com.fasterxml.jackson.databind.JsonNode notesNode = null;
+        com.fasterxml.jackson.databind.JsonNode orderNode = null;
         try {
-            com.fasterxml.jackson.databind.JsonNode orderNode = razorpayService.fetchOrder(request.getRazorpayOrderId());
+            orderNode = razorpayService.fetchOrder(request.getRazorpayOrderId());
             if (orderNode != null && orderNode.has("notes")) {
                 notesNode = orderNode.get("notes");
             }
@@ -164,8 +194,15 @@ public class SubscriptionService {
             throw new BusinessException("Failed to fetch Razorpay order metadata: " + e.getMessage());
         }
 
+        long amount = 0;
+        String currency = "INR";
+        if (orderNode != null) {
+            amount = orderNode.path("amount").asLong(0);
+            currency = orderNode.path("currency").asText("INR");
+        }
+
         if (notesNode != null) {
-            return activateFromWebhook(clientId, notesNode);
+            return activateFromWebhook(clientId, notesNode, request.getRazorpayPaymentId(), request.getRazorpayOrderId(), amount, currency);
         }
 
         // Fallback baseline activation
@@ -179,19 +216,64 @@ public class SubscriptionService {
         client.setSubscriptionExpiryDate(baseDate.plusYears(1));
         clientRepository.save(client);
 
-        return toStatus(client);
+        // Log the payment
+        com.restaurant.pos.subscription.domain.SubscriptionPayment paymentLog = 
+            com.restaurant.pos.subscription.domain.SubscriptionPayment.builder()
+                .clientId(clientId)
+                .paymentId(request.getRazorpayPaymentId())
+                .orderId(request.getRazorpayOrderId())
+                .amount(amount)
+                .currency(currency)
+                .build();
+        subscriptionPaymentRepository.save(paymentLog);
+
+        return toStatus(client, null);
     }
 
     @Transactional
-    public SubscriptionStatusResponse activateFromWebhook(UUID clientId, com.fasterxml.jackson.databind.JsonNode notes) {
+    public SubscriptionStatusResponse activateFromWebhook(UUID clientId, com.fasterxml.jackson.databind.JsonNode notes, String paymentId, String orderId, long amount, String currency) {
         Client client = findClient(clientId);
+        
+        // Prevent replay attacks/double activations
+        if (paymentId != null && subscriptionPaymentRepository.findByPaymentId(paymentId).isPresent()) {
+            UUID orgId = null;
+            if (notes.has("org_id") && !notes.get("org_id").asText().isBlank()) {
+                try {
+                    orgId = UUID.fromString(notes.get("org_id").asText());
+                } catch (Exception e) {}
+            }
+            Organization org = null;
+            if (orgId != null) {
+                org = organizationRepository.findById(orgId).orElse(null);
+            }
+            return toStatus(client, org);
+        }
+
         ZoneId zone = timezoneResolver.resolveTimezone(client.getId(), null);
         ZonedDateTime nowInZone = ZonedDateTime.now(zone);
 
         boolean hasBase = notes.has("include_base") && Boolean.parseBoolean(notes.get("include_base").asText());
         boolean isUpgrade = notes.has("is_upgrade") && Boolean.parseBoolean(notes.get("is_upgrade").asText());
         
-        LocalDateTime currentExpiry = client.getSubscriptionExpiryDate();
+        UUID orgId = null;
+        if (notes.has("org_id") && !notes.get("org_id").asText().isBlank()) {
+            try {
+                orgId = UUID.fromString(notes.get("org_id").asText());
+            } catch (Exception e) {}
+        }
+
+        Organization org = null;
+        if (orgId != null) {
+            org = organizationRepository.findById(orgId).orElse(null);
+        }
+
+        LocalDateTime currentExpiry = null;
+        if (org != null) {
+            currentExpiry = org.getSubscriptionExpiryDate();
+        } else {
+            currentExpiry = client.getSubscriptionExpiryDate();
+        }
+
         LocalDateTime baseDate;
         if (currentExpiry != null && currentExpiry.isAfter(LocalDateTime.now())) {
             baseDate = currentExpiry;
@@ -201,32 +283,37 @@ public class SubscriptionService {
 
         // Align date to end of day in client's timezone: 23:59:59
         ZonedDateTime baseZonedDateTime = baseDate.atZone(ZoneId.systemDefault()).withZoneSameInstant(zone);
+        LocalDateTime newExpiry = null;
 
         if (hasBase) {
             // New base subscription checkout (1 Year)
-            client.setSubscriptionStatus(ACTIVE);
             ZonedDateTime newExpiryZoned = baseZonedDateTime.plusYears(1)
                     .withHour(23)
                     .withMinute(59)
                     .withSecond(59)
                     .withNano(999000000);
-            client.setSubscriptionExpiryDate(newExpiryZoned.withZoneSameInstant(ZoneId.systemDefault()).toLocalDateTime());
-            clientRepository.save(client);
+            newExpiry = newExpiryZoned.withZoneSameInstant(ZoneId.systemDefault()).toLocalDateTime();
+            
+            if (org != null) {
+                org.setSubscriptionStatus(ACTIVE);
+                org.setSubscriptionExpiryDate(newExpiry);
+                organizationRepository.save(org);
+            } else {
+                client.setSubscriptionStatus(ACTIVE);
+                client.setSubscriptionExpiryDate(newExpiry);
+                clientRepository.save(client);
+            }
+        } else {
+            newExpiry = currentExpiry;
         }
 
         // Save module activations
         if (notes.has("modules") && !notes.get("modules").asText().isBlank()) {
             String modulesStr = notes.get("modules").asText();
             String[] modules = modulesStr.split(",");
-            UUID orgId = null;
-            if (notes.has("org_id") && !notes.get("org_id").asText().isBlank()) {
-                try {
-                    orgId = UUID.fromString(notes.get("org_id").asText());
-                } catch (Exception e) {}
-            }
 
-            // Expiry date: co-terminate to the client's base plan expiry
-            LocalDateTime moduleExpiry = client.getSubscriptionExpiryDate();
+            // Expiry date: co-terminate to the client/branch base plan expiry
+            LocalDateTime moduleExpiry = newExpiry;
             if (moduleExpiry == null) {
                 // Fallback: 1 year
                 ZonedDateTime targetZoned = nowInZone.plusYears(1)
@@ -245,12 +332,25 @@ public class SubscriptionService {
                     continue;
                 }
 
-                ClientSubscriptionModule existing = clientSubscriptionModuleRepository.findByClientIdAndModuleName(client.getId(), modName).orElse(null);
+                // Scoping rules: CRM & CREDIT_LEDGER are client-scoped, others (KOT, INVENTORY) are branch-scoped
+                UUID moduleOrgId = null;
+                if (modName == ModuleName.KOT || modName == ModuleName.INVENTORY) {
+                    moduleOrgId = orgId;
+                }
+
+                ClientSubscriptionModule existing = null;
+                if (moduleOrgId != null) {
+                    existing = clientSubscriptionModuleRepository.findByClientIdAndOrgIdAndModuleName(client.getId(), moduleOrgId, modName).orElse(null);
+                } else {
+                    existing = clientSubscriptionModuleRepository.findByClientIdAndModuleName(client.getId(), modName)
+                            .filter(m -> m.getOrgId() == null)
+                            .orElse(null);
+                }
 
                 if (existing == null) {
                     existing = ClientSubscriptionModule.builder()
                             .clientId(client.getId())
-                            .orgId(null)
+                            .orgId(moduleOrgId)
                             .moduleName(modName)
                             .build();
                 }
@@ -262,7 +362,21 @@ public class SubscriptionService {
             }
         }
 
-        return toStatus(client);
+        // Log payment transaction to database
+        if (paymentId != null && orderId != null) {
+            com.restaurant.pos.subscription.domain.SubscriptionPayment paymentLog = 
+                com.restaurant.pos.subscription.domain.SubscriptionPayment.builder()
+                    .clientId(clientId)
+                    .orgId(orgId)
+                    .paymentId(paymentId)
+                    .orderId(orderId)
+                    .amount(amount)
+                    .currency(currency != null ? currency : "INR")
+                    .build();
+            subscriptionPaymentRepository.save(paymentLog);
+        }
+
+        return toStatus(client, org);
     }
 
     private Client findClient(UUID clientId) {
@@ -273,12 +387,20 @@ public class SubscriptionService {
                 .orElseThrow(() -> new ResourceNotFoundException("Client not found with id: " + clientId));
     }
 
-    private SubscriptionStatusResponse toStatus(Client client) {
+    private SubscriptionStatusResponse toStatus(Client client, Organization org) {
         ZoneId zone = timezoneResolver.resolveTimezone(client.getId(), null);
         ZonedDateTime nowInZone = ZonedDateTime.now(zone);
 
-        String status = normalizeStatus(client.getSubscriptionStatus());
-        LocalDateTime expiry = client.getSubscriptionExpiryDate();
+        String status;
+        LocalDateTime expiry;
+        if (org != null) {
+            status = normalizeStatus(org.getSubscriptionStatus());
+            expiry = org.getSubscriptionExpiryDate();
+        } else {
+            status = normalizeStatus(client.getSubscriptionStatus());
+            expiry = client.getSubscriptionExpiryDate();
+        }
+        
         ZonedDateTime expiryInZone = expiry != null ? expiry.atZone(ZoneId.systemDefault()).withZoneSameInstant(zone) : null;
 
         boolean active = (ACTIVE.equals(status) || TRIAL.equals(status)) && expiryInZone != null && !expiryInZone.isBefore(nowInZone);
@@ -298,8 +420,11 @@ public class SubscriptionService {
         for (ClientSubscriptionModule m : modules) {
             if ("ACTIVE".equalsIgnoreCase(m.getStatus())) {
                 if (m.getExpiryDate() == null || m.getExpiryDate().isAfter(LocalDateTime.now())) {
-                    activeModulesList.add(m.getModuleName());
-                    activeModulesDetailed.add(m.getModuleName().name());
+                    // Check if module matches scope
+                    if (m.getOrgId() == null || (org != null && m.getOrgId().equals(org.getId()))) {
+                        activeModulesList.add(m.getModuleName());
+                        activeModulesDetailed.add(m.getModuleName().name());
+                    }
                 }
             }
         }

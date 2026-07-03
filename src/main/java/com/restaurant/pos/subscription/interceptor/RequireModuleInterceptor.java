@@ -53,8 +53,11 @@ public class RequireModuleInterceptor implements HandlerInterceptor {
             for (ClientSubscriptionModule m : activeModules) {
                 if (m.getModuleName() == requiredModule && "ACTIVE".equalsIgnoreCase(m.getStatus())) {
                     if (m.getExpiryDate() == null || m.getExpiryDate().isAfter(LocalDateTime.now())) {
-                        hasAccess = true;
-                        break;
+                        // If module is client-scoped (orgId is null) OR matches current branch orgId
+                        if (m.getOrgId() == null || m.getOrgId().equals(orgId)) {
+                            hasAccess = true;
+                            break;
+                        }
                     }
                 }
             }
@@ -62,7 +65,7 @@ public class RequireModuleInterceptor implements HandlerInterceptor {
             if (!hasAccess) {
                 response.setStatus(HttpServletResponse.SC_FORBIDDEN);
                 response.setContentType("application/json");
-                response.getWriter().write("{\"success\":false,\"message\":\"Payment Required: Premium module " + requiredModule + " is not active.\"}");
+                response.getWriter().write("{\"success\":false,\"message\":\"Payment Required: Premium module " + requiredModule + " is not active for this branch.\"}");
                 return false;
             }
         }

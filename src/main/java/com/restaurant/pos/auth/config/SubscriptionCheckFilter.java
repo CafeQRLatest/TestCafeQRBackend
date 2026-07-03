@@ -3,7 +3,9 @@ package com.restaurant.pos.auth.config;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.restaurant.pos.auth.domain.User;
 import com.restaurant.pos.client.domain.Client;
+import com.restaurant.pos.client.domain.Organization;
 import com.restaurant.pos.client.repository.ClientRepository;
+import com.restaurant.pos.client.repository.OrganizationRepository;
 import com.restaurant.pos.common.dto.ApiResponse;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -25,6 +27,7 @@ import java.util.UUID;
 public class SubscriptionCheckFilter extends OncePerRequestFilter {
 
     private final ClientRepository clientRepository;
+    private final OrganizationRepository organizationRepository;
     private final ObjectMapper objectMapper;
 
     @Override
@@ -48,7 +51,14 @@ public class SubscriptionCheckFilter extends OncePerRequestFilter {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         if (authentication != null && authentication.isAuthenticated() && authentication.getPrincipal() instanceof User user) {
             UUID clientId = user.getClientId();
-            if (clientId != null) {
+            UUID orgId = user.getOrgId();
+            if (orgId != null) {
+                Organization organization = organizationRepository.findById(orgId).orElse(null);
+                if (organization == null || !organization.isSubscriptionActive()) {
+                    sendErrorResponse(request, response, "Subscription for this branch has expired. Access is restricted. Please renew your subscription to continue.", HttpServletResponse.SC_FORBIDDEN);
+                    return;
+                }
+            } else if (clientId != null) {
                 Client client = clientRepository.findById(clientId).orElse(null);
                 if (client == null || !client.isSubscriptionActive()) {
                     sendErrorResponse(request, response, "Subscription has expired. Access is restricted. Please renew your subscription to continue.", HttpServletResponse.SC_FORBIDDEN);
