@@ -1,14 +1,14 @@
 -- V1.122 Migrate Subscription to Branches and create payment tracking table
 ALTER TABLE organizations 
 ADD COLUMN IF NOT EXISTS subscription_status VARCHAR(50) DEFAULT 'TRIAL',
-ADD COLUMN IF NOT EXISTS subscription_expiry_date TIMESTAMP DEFAULT (CURRENT_TIMESTAMP + INTERVAL '14 days');
+ADD COLUMN IF NOT EXISTS subscription_expiry_date TIMESTAMP DEFAULT (CURRENT_TIMESTAMP + INTERVAL '14' DAY);
 
 -- Copy existing client subscription status & expiry to organization branches
-UPDATE organizations o
+UPDATE organizations
 SET subscription_status = COALESCE(c.subscription_status, 'TRIAL'),
-    subscription_expiry_date = COALESCE(c.subscription_expiry_date, CURRENT_TIMESTAMP + INTERVAL '14 days')
+    subscription_expiry_date = COALESCE(c.subscription_expiry_date, CURRENT_TIMESTAMP + INTERVAL '14' DAY)
 FROM clients c
-WHERE o.client_id = c.id;
+WHERE organizations.client_id = c.id;
 
 -- Create subscription_payments table to prevent replay/double activation attacks
 CREATE TABLE IF NOT EXISTS subscription_payments (

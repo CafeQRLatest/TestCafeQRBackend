@@ -186,6 +186,16 @@ public class AuthService {
         String jwtToken = jwtService.generateToken(extraClaims, user);
         String refreshToken = refreshTokenService.createRefreshToken(user, ipAddress, userAgent).getToken();
 
+        String subStatus = client.getSubscriptionStatus();
+        LocalDateTime subExpiry = client.getSubscriptionExpiryDate();
+        if (user.getOrgId() != null) {
+            var orgOpt = organizationRepository.findById(user.getOrgId());
+            if (orgOpt.isPresent()) {
+                subStatus = orgOpt.get().getSubscriptionStatus();
+                subExpiry = orgOpt.get().getSubscriptionExpiryDate();
+            }
+        }
+
         return AuthResponse.builder()
                 .accessToken(jwtToken)
                 .refreshToken(refreshToken)
@@ -202,8 +212,8 @@ public class AuthService {
                 .userId(user.getId())
                 .currency(client.getCurrency())
                 .country(client.getCountry())
-                .subscriptionStatus(client.getSubscriptionStatus())
-                .subscriptionExpiryDate(client.getSubscriptionExpiryDate())
+                .subscriptionStatus(subStatus)
+                .subscriptionExpiryDate(subExpiry)
                 .canCancelOrder(user.getRoleEntity() != null ? user.getRoleEntity().getCanCancelOrder() : true)
                 .canDeleteOrderItem(user.getRoleEntity() != null ? user.getRoleEntity().getCanDeleteOrderItem() : true)
                 .canDecrementOrderItem(user.getRoleEntity() != null ? user.getRoleEntity().getCanDecrementOrderItem() : true)
