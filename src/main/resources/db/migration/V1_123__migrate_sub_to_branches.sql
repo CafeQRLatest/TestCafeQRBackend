@@ -22,3 +22,31 @@ CREATE TABLE IF NOT EXISTS subscription_payments (
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_sub_payment_client FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE
 );
+
+-- Backfill active branch-scoped modules (KOT, INVENTORY) for existing branches
+INSERT INTO client_subscription_modules (id, client_id, org_id, module_name, status, auto_renew, expiry_date)
+SELECT 
+    gen_random_uuid(),
+    o.client_id,
+    o.id,
+    m.module_name,
+    'ACTIVE',
+    true,
+    COALESCE(o.subscription_expiry_date, CURRENT_TIMESTAMP + INTERVAL '14' DAY)
+FROM organizations o
+CROSS JOIN (VALUES ('KOT'), ('INVENTORY')) AS m(module_name)
+ON CONFLICT (client_id, org_id, module_name) DO NOTHING;
+
+-- Backfill active client-scoped modules (CRM, CREDIT_LEDGER) for existing clients
+INSERT INTO client_subscription_modules (id, client_id, org_id, module_name, status, auto_renew, expiry_date)
+SELECT 
+    gen_random_uuid(),
+    c.id,
+    NULL,
+    m.module_name,
+    'ACTIVE',
+    true,
+    COALESCE(c.subscription_expiry_date, CURRENT_TIMESTAMP + INTERVAL '14' DAY)
+FROM clients c
+CROSS JOIN (VALUES ('CRM'), ('CREDIT_LEDGER')) AS m(module_name)
+ON CONFLICT (client_id, module_name) WHERE org_id IS NULL DO NOTHING;
