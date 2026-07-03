@@ -50,3 +50,15 @@ SELECT
 FROM clients c
 CROSS JOIN (VALUES ('CRM'), ('CREDIT_LEDGER')) AS m(module_name)
 ON CONFLICT (client_id, module_name) WHERE org_id IS NULL DO NOTHING;
+
+-- Align existing branch-scoped module expiry dates with their branch's base subscription expiry date
+UPDATE client_subscription_modules
+SET expiry_date = o.subscription_expiry_date
+FROM organizations o
+WHERE client_subscription_modules.org_id = o.id;
+
+-- Align existing client-scoped module expiry dates with their client's base subscription expiry date
+UPDATE client_subscription_modules
+SET expiry_date = c.subscription_expiry_date
+FROM clients c
+WHERE client_subscription_modules.org_id IS NULL AND client_subscription_modules.client_id = c.id;
