@@ -27,7 +27,9 @@ public class SubscriptionController {
 
     @GetMapping("/api/v1/subscription/status")
     public ResponseEntity<ApiResponse<SubscriptionStatusResponse>> status(Authentication authentication) {
-        return ResponseEntity.ok(ApiResponse.success(subscriptionService.getStatus(currentClientId(authentication))));
+        UUID clientId = currentClientId(authentication);
+        UUID orgId = com.restaurant.pos.common.tenant.TenantContext.getCurrentOrg();
+        return ResponseEntity.ok(ApiResponse.success(subscriptionService.getStatus(clientId, orgId)));
     }
 
     @PostMapping("/api/v1/subscription/create-payment")
@@ -76,9 +78,14 @@ public class SubscriptionController {
 
         JsonNode root = objectMapper.readTree(rawBody);
         if ("payment.captured".equals(root.path("event").asText())) {
-            JsonNode notes = root.path("payload").path("payment").path("entity").path("notes");
+            JsonNode paymentEntity = root.path("payload").path("payment").path("entity");
+            JsonNode notes = paymentEntity.path("notes");
             if ("subscription".equals(notes.path("purpose").asText()) && notes.hasNonNull("client_id")) {
-                subscriptionService.activateFromWebhook(UUID.fromString(notes.path("client_id").asText()), notes);
+                String paymentId = paymentEntity.path("id").asText();
+                String orderId = paymentEntity.path("order_id").asText();
+                long amount = paymentEntity.path("amount").asLong(0);
+                String currency = paymentEntity.path("currency").asText("INR");
+                subscriptionService.activateFromWebhook(UUID.fromString(notes.path("client_id").asText()), notes, paymentId, orderId, amount, currency);
             }
         }
 
