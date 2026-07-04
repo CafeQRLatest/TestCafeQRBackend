@@ -60,7 +60,11 @@ public class SubscriptionCheckFilter extends OncePerRequestFilter {
                 }
             } else if (clientId != null) {
                 Client client = clientRepository.findById(clientId).orElse(null);
-                if (client == null || !client.isSubscriptionActive()) {
+                boolean clientActive = client != null && client.isSubscriptionActive();
+                boolean anyBranchActive = organizationRepository.findAllByClientId(clientId).stream()
+                        .anyMatch(Organization::isSubscriptionActive);
+                
+                if (!clientActive && !anyBranchActive) {
                     sendErrorResponse(request, response, "Subscription has expired. Access is restricted. Please renew your subscription to continue.", HttpServletResponse.SC_FORBIDDEN);
                     return;
                 }
