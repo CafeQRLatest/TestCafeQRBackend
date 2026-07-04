@@ -189,9 +189,21 @@ public class AuthService {
     }
 
     private AuthResponse buildAuthResponse(User user, Client client, String ipAddress, String userAgent) {
+        // Self-heal: auto-assign user to the client's default branch if not already set
+        UUID resolvedOrgId = user.getOrgId();
+        if (resolvedOrgId == null) {
+            var orgs = organizationRepository.findAllByClientId(user.getClientId());
+            if (!orgs.isEmpty()) {
+                resolvedOrgId = orgs.get(0).getId();
+                user.setOrgId(resolvedOrgId);
+                user = repository.save(user);
+                log.info("Auto-assigned user {} to default branch {}", user.getId(), resolvedOrgId);
+            }
+        }
+
         Map<String, Object> extraClaims = new HashMap<>();
         extraClaims.put("clientId", user.getClientId());
-        extraClaims.put("orgId", user.getOrgId());
+        extraClaims.put("orgId", resolvedOrgId);
         extraClaims.put("terminalId", user.getTerminalId());
         extraClaims.put("userId", user.getId());
         extraClaims.put("role", user.getRoleEntity().getName());
@@ -201,8 +213,8 @@ public class AuthService {
 
         String subStatus = client.getSubscriptionStatus();
         LocalDateTime subExpiry = client.getSubscriptionExpiryDate();
-        if (user.getOrgId() != null) {
-            var orgOpt = organizationRepository.findById(user.getOrgId());
+        if (resolvedOrgId != null) {
+            var orgOpt = organizationRepository.findById(resolvedOrgId);
             if (orgOpt.isPresent()) {
                 subStatus = orgOpt.get().getSubscriptionStatus();
                 subExpiry = orgOpt.get().getSubscriptionExpiryDate();

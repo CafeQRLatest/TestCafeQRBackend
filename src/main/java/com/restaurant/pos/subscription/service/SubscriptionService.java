@@ -75,9 +75,19 @@ public class SubscriptionService {
         ZoneId zone = timezoneResolver.resolveTimezone(client.getId(), null);
         ZonedDateTime nowInZone = ZonedDateTime.now(zone);
 
+        UUID orgId = request.getOrgId();
+        Organization org = null;
+        if (orgId != null) {
+            org = organizationRepository.findById(orgId).orElse(null);
+        }
+
+        // Enforce compulsory base plan and onboarding setup fee if status is UNPAID
+        String currentStatus = org != null ? org.getSubscriptionStatus() : client.getSubscriptionStatus();
+        boolean isUnpaid = "UNPAID".equalsIgnoreCase(currentStatus);
+
         long amountPaise = 0;
-        boolean hasBase = request.isIncludeBasePlan();
-        boolean hasSetup = request.isIncludeSetupService();
+        boolean hasBase = request.isIncludeBasePlan() || isUnpaid;
+        boolean hasSetup = request.isIncludeSetupService() || isUnpaid;
 
         // 1. Base Plan Calculation
         if (hasBase) {
@@ -90,12 +100,6 @@ public class SubscriptionService {
         }
 
         // 3. Module calculations (checking if active branch upgrading mid-cycle)
-        UUID orgId = request.getOrgId();
-        Organization org = null;
-        if (orgId != null) {
-            org = organizationRepository.findById(orgId).orElse(null);
-        }
-
         boolean isActiveBranch = false;
         LocalDateTime orgExpiry = null;
         if (org != null) {
@@ -178,7 +182,13 @@ public class SubscriptionService {
 
         // Check if payment already processed
         if (subscriptionPaymentRepository.findByPaymentId(request.getRazorpayPaymentId()).isPresent()) {
-            throw new BusinessException("Payment has already been processed.");
+            Client client = findClient(clientId);
+            UUID orgId = com.restaurant.pos.common.tenant.TenantContext.getCurrentOrg();
+            Organization org = null;
+            if (orgId != null) {
+                org = organizationRepository.findById(orgId).orElse(null);
+            }
+            return toStatus(client, org);
         }
 
         Client client = findClient(clientId);
