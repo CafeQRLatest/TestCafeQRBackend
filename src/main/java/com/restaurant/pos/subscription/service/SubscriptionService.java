@@ -72,10 +72,10 @@ public class SubscriptionService {
     @Transactional
     public SubscriptionPaymentResponse createPayment(UUID clientId, SubscriptionPaymentRequest request) {
         Client client = findClient(clientId);
-        ZoneId zone = timezoneResolver.resolveTimezone(client.getId(), null);
+        UUID orgId = request.getOrgId();
+        ZoneId zone = timezoneResolver.resolveTimezone(client.getId(), orgId);
         ZonedDateTime nowInZone = ZonedDateTime.now(zone);
 
-        UUID orgId = request.getOrgId();
         Organization org = null;
         if (orgId != null) {
             org = organizationRepository.findById(orgId).orElse(null);
@@ -117,7 +117,7 @@ public class SubscriptionService {
         long daysRemaining = 0;
         if (isActiveBranch && orgExpiry != null) {
             ZonedDateTime expiryInZone = orgExpiry.atZone(ZoneId.systemDefault()).withZoneSameInstant(zone);
-            daysRemaining = Math.max(0, Duration.between(nowInZone, expiryInZone).toDays());
+            daysRemaining = Math.max(0, (long) Math.ceil(Duration.between(nowInZone, expiryInZone).toHours() / 24.0));
         }
 
         List<String> modulesToBuy = request.getSelectedModules() != null ? request.getSelectedModules() : new ArrayList<>();
@@ -134,6 +134,7 @@ public class SubscriptionService {
             if (isActiveBranch && !hasBase) {
                 // Mid-cycle upgrade: Prorated price
                 long proratedPrice = Math.round((double) moduleAnnualPrice / 365.0 * (double) daysRemaining);
+                proratedPrice = Math.min(proratedPrice, moduleAnnualPrice);
                 amountPaise += proratedPrice;
             } else {
                 // Checkout base plan + modules: Full annual price
@@ -259,12 +260,6 @@ public class SubscriptionService {
             return toStatus(client, org);
         }
 
-        ZoneId zone = timezoneResolver.resolveTimezone(client.getId(), null);
-        ZonedDateTime nowInZone = ZonedDateTime.now(zone);
-
-        boolean hasBase = notes.has("include_base") && Boolean.parseBoolean(notes.get("include_base").asText());
-        boolean isUpgrade = notes.has("is_upgrade") && Boolean.parseBoolean(notes.get("is_upgrade").asText());
-        
         UUID orgId = null;
         if (notes.has("org_id") && !notes.get("org_id").asText().isBlank()) {
             try {
@@ -276,6 +271,12 @@ public class SubscriptionService {
         if (orgId != null) {
             org = organizationRepository.findById(orgId).orElse(null);
         }
+
+        ZoneId zone = timezoneResolver.resolveTimezone(client.getId(), orgId);
+        ZonedDateTime nowInZone = ZonedDateTime.now(zone);
+
+        boolean hasBase = notes.has("include_base") && Boolean.parseBoolean(notes.get("include_base").asText());
+        boolean isUpgrade = notes.has("is_upgrade") && Boolean.parseBoolean(notes.get("is_upgrade").asText());
 
         LocalDateTime currentExpiry = null;
         if (org != null) {
@@ -398,7 +399,7 @@ public class SubscriptionService {
     }
 
     private SubscriptionStatusResponse toStatus(Client client, Organization org) {
-        ZoneId zone = timezoneResolver.resolveTimezone(client.getId(), null);
+        ZoneId zone = timezoneResolver.resolveTimezone(client.getId(), org != null ? org.getId() : null);
         ZonedDateTime nowInZone = ZonedDateTime.now(zone);
 
         String status;
