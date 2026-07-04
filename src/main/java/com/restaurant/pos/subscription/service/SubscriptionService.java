@@ -48,8 +48,8 @@ public class SubscriptionService {
 
     // Annual Prices in Paise (1 INR = 100 paise)
     private static final long PRICE_BASE_ANNUAL = 99900;          // ₹999/yr
-    private static final long PRICE_KOT_ANNUAL = 50000;           // ₹500/yr
-    private static final long PRICE_INVENTORY_ANNUAL = 199200;    // ₹1992/yr
+    private static final long PRICE_KOT_ANNUAL = 49900;           // ₹499/yr
+    private static final long PRICE_INVENTORY_ANNUAL = 199900;    // ₹1999/yr
     private static final long PRICE_CRM_ANNUAL = 99900;           // ₹999/yr
     private static final long PRICE_CREDIT_LEDGER_ANNUAL = 49900;  // ₹499/yr
     private static final long PRICE_TABLE_QR_ANNUAL = 0;          // Free
