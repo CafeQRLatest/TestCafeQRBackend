@@ -47,17 +47,17 @@ public class SubscriptionService {
     private final com.restaurant.pos.subscription.repository.SubscriptionPaymentRepository subscriptionPaymentRepository;
 
     // Annual Prices in Paise (1 INR = 100 paise)
-    private static final long PRICE_BASE_ANNUAL = 100L;          // ₹999/yr
-    private static final long PRICE_KOT_ANNUAL = 100L;           // ₹499/yr
-    private static final long PRICE_INVENTORY_ANNUAL = 100L;    // ₹1999/yr
-    private static final long PRICE_CRM_ANNUAL = 100L;           // ₹999/yr
-    private static final long PRICE_CREDIT_LEDGER_ANNUAL = 100L;  // ₹499/yr
+    private static final long PRICE_BASE_ANNUAL = 99900;          // ₹999/yr
+    private static final long PRICE_KOT_ANNUAL = 49900;           // ₹499/yr
+    private static final long PRICE_INVENTORY_ANNUAL = 199900;    // ₹1999/yr
+    private static final long PRICE_CRM_ANNUAL = 99900;           // ₹999/yr
+    private static final long PRICE_CREDIT_LEDGER_ANNUAL = 49900;  // ₹499/yr
     private static final long PRICE_TABLE_QR_ANNUAL = 0;          // Free
     private static final long PRICE_MENU_IMAGES_ANNUAL = 0;        // Free
     private static final long PRICE_ONLINE_DELIVERY_ANNUAL = 0;   // Free
 
     // One-Time Setup Fee
-    private static final long PRICE_SETUP_FEE = 100L;           // ₹1499 setup fee
+    private static final long PRICE_SETUP_FEE = 149900;           // ₹1499 setup fee
 
     @Transactional(readOnly = true)
     public SubscriptionStatusResponse getStatus(UUID clientId, UUID orgId) {
