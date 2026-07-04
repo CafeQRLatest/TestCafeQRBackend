@@ -63,8 +63,8 @@ public class AuthService {
                 .email(request.getEmail())
                 .country(request.getCountry())
                 .posType(request.getPosType())
-                .subscriptionStatus("TRIAL")
-                .subscriptionExpiryDate(LocalDateTime.now().plusDays(7))
+                .subscriptionStatus("UNPAID")
+                .subscriptionExpiryDate(LocalDateTime.now())
                 .isactive("Y")
                 .build();
         client.setCreatedBy("SYSTEM");
@@ -73,7 +73,20 @@ public class AuthService {
         log.info("Created client with ID: {}", clientId);
         TenantContext.setCurrentTenant(clientId);
 
-        // 2. Provision Default Organization - REMOVED as per user request
+        // 2. Provision Default Organization
+        com.restaurant.pos.client.domain.Organization defaultOrg = com.restaurant.pos.client.domain.Organization.builder()
+                .name("Main Outlet")
+                .client(client)
+                .clientId(clientId)
+                .branchCode("HQ")
+                .timezone("Asia/Kolkata") // Standard default timezone
+                .subscriptionStatus("UNPAID")
+                .subscriptionExpiryDate(LocalDateTime.now())
+                .isactive("Y")
+                .build();
+        defaultOrg.setCreatedBy("SYSTEM");
+        defaultOrg = organizationRepository.save(defaultOrg);
+        log.info("Created default organization with ID: {}", defaultOrg.getId());
         
         // 3. Seed Roles & Permissions for the Tenant
         seedTenantRoles(clientId, "SYSTEM");
@@ -93,7 +106,7 @@ public class AuthService {
                 .build();
         user.setCreatedBy("SYSTEM");
         user.setClientId(clientId);
-        user.setOrgId(null); // No default organization
+        user.setOrgId(defaultOrg.getId()); // Set default organization branch link
         user = repository.save(user);
         log.info("Created super admin user with ID: {}", user.getId());
 
