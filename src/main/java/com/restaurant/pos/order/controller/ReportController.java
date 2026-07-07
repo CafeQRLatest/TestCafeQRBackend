@@ -9,7 +9,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
-import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -19,8 +18,6 @@ import java.util.UUID;
 @RequestMapping("/api/v1/reports")
 @RequiredArgsConstructor
 public class ReportController {
-
-    private static final Duration MAX_REPORT_RANGE = Duration.ofDays(31);
 
     private final ReportService reportService;
 
@@ -153,9 +150,6 @@ public class ReportController {
         }
         if (from.isAfter(to)) {
             throw new IllegalArgumentException("Report from date must be before to date");
-        }
-        if (Duration.between(from, to).compareTo(MAX_REPORT_RANGE) > 0) {
-            throw new IllegalArgumentException("Report date range cannot exceed 31 days");
         }
     }
 }

@@ -15,10 +15,6 @@ services:
     depends_on:
       - db
       - redis
-<<<<<<< Updated upstream
-=======
-      - rabbitmq
->>>>>>> Stashed changes
 
   # Database Service
   db:
@@ -38,15 +34,5 @@ services:
     ports:
       - "6379:6379"
 
-<<<<<<< Updated upstream
-=======
-  # RabbitMQ Service
-  rabbitmq:
-    image: rabbitmq:3-management-alpine
-    ports:
-      - "5672:5672"
-      - "15672:15672"
-
->>>>>>> Stashed changes
 volumes:
   postgres_data:

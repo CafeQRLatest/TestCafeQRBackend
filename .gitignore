@@ -30,6 +30,7 @@ Thumbs.db
 
 # Environment
 .env
+.env.frontend
 .env.local
 application-local.yml
 

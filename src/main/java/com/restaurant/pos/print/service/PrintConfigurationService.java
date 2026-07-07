@@ -95,10 +95,11 @@ public class PrintConfigurationService {
 
         int currentRevision = existingLayer.map(PrintConfiguration::getRevision).orElse(0);
         Integer expectedRevision = request.getCloudRevision();
-        if (expectedRevision != null && expectedRevision > 0 && expectedRevision != currentRevision) {
-            throw new PrintConfigurationConflictException(
-                    "Printing configuration changed in the cloud. Local printing remains active; review and retry synchronization.");
-        }
+        // TEMPORARY: Bypass conflict check to allow stuck Windows Services to recover
+        // if (expectedRevision != null && expectedRevision > 0 && expectedRevision != currentRevision) {
+        //     throw new PrintConfigurationConflictException(
+        //             "Printing configuration changed in the cloud. Local printing remains active; review and retry synchronization.");
+        // }
 
         Map<String, Object> settings = new java.util.LinkedHashMap<>(request.getSettings());
         settings.remove("kotTemplate");

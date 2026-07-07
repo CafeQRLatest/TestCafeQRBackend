@@ -1,6 +1,6 @@
 # Production Observability Checks
 
-Use this while the current deployment remains Vercel frontend, Render backend, Supabase Postgres, and Redis.
+Use this while the current deployment remains Vercel frontend, Render backend, Supabase Postgres, Upstash Redis, and CloudAMQP RabbitMQ.
 
 ## API Route Size And Timing
 
@@ -38,7 +38,7 @@ Watch for unbounded `orders`, `order_lines`, reports, or sync queries returning 
 
 ## Frontend Payload Checks
 
-From `cafeTestQRFrontend`, run the lightweight payload check with a valid token/context:
+From `cafeqr-frontend`, run the lightweight payload check with a valid token/context:
 
 ```bash
 API_URL=https://your-render-backend ACCESS_TOKEN=... CLIENT_ID=... ORG_ID=... npm run measure:api

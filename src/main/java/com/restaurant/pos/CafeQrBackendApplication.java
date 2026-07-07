@@ -10,7 +10,9 @@ import org.springframework.retry.annotation.EnableRetry;
 @EnableAsync
 @EnableRetry(order = 99)
 @EnableScheduling
-@SpringBootApplication(scanBasePackages = "com.restaurant.pos")
+@SpringBootApplication(scanBasePackages = "com.restaurant.pos", exclude = {
+    org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration.class
+})
 public class CafeQrBackendApplication {
 
     public static void main(String[] args) {

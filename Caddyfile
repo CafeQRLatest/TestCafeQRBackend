@@ -1,0 +1,31 @@
+{$CADDY_SITE_ADDRESS} {
+	encode gzip
+
+	handle /api/ai/* {
+		reverse_proxy frontend:3000
+	}
+
+	handle /api/push/* {
+		reverse_proxy frontend:3000
+	}
+
+	handle /api/* {
+		reverse_proxy backend:8080
+	}
+
+	handle /actuator/health {
+		reverse_proxy backend:8080
+	}
+
+	handle /actuator/* {
+		respond "Forbidden" 403
+	}
+
+	handle {
+		reverse_proxy frontend:3000
+	}
+}
+
+{$CADDY_REDIRECT_SITE_ADDRESS} {
+	redir {$CADDY_CANONICAL_ORIGIN}{uri} permanent
+}

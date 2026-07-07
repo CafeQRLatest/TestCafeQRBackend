@@ -1,2 +1,1 @@
-ERROR: Invalid argument/option - ';'.
-Type "TASKKILL /?" for usage.
+fatal: path '$path' does not exist in 'main'
