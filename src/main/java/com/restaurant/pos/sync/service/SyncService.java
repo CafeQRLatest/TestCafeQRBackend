@@ -363,11 +363,13 @@ public class SyncService {
         }
         if ("POST".equals(method) && path.startsWith("/api/v1/orders/") && path.endsWith("/settle")) {
             UUID orderId = extractUuid(path, 3);
+            ensureTerminalContext(orderId);
             OrderSettleRequest settleRequest = convert(operation.getPayload(), OrderSettleRequest.class);
             return orderService.settleOrder(orderId, settleRequest);
         }
         if ("POST".equals(method) && path.startsWith("/api/v1/orders/") && path.endsWith("/bill")) {
             UUID orderId = extractUuid(path, 3);
+            ensureTerminalContext(orderId);
             @SuppressWarnings("unchecked")
             List<String> skipPrintKinds = operation.getPayload() != null
                     ? objectMapper.convertValue(
@@ -378,6 +380,7 @@ public class SyncService {
         }
         if ("POST".equals(method) && path.startsWith("/api/v1/orders/") && path.endsWith("/cancel")) {
             UUID orderId = extractUuid(path, 3);
+            ensureTerminalContext(orderId);
             OrderCancelRequest cancelRequest = operation.getPayload() != null
                     ? convert(operation.getPayload(), OrderCancelRequest.class)
                     : null;
@@ -385,6 +388,7 @@ public class SyncService {
         }
         if ("POST".equals(method) && path.startsWith("/api/v1/orders/") && path.endsWith("/complete-credit")) {
             UUID orderId = extractUuid(path, 3);
+            ensureTerminalContext(orderId);
             OrderCreditCompletionRequest creditRequest = operation.getPayload() != null
                     ? convert(operation.getPayload(), OrderCreditCompletionRequest.class)
                     : null;
@@ -522,6 +526,28 @@ public class SyncService {
     private String stringParam(SyncOperationRequest operation, String key) {
         Object value = operation.getParams() == null ? null : operation.getParams().get(key);
         return value == null ? null : String.valueOf(value);
+    }
+
+    /**
+     * Ensures TenantContext has a terminal ID set before dispatching command operations
+     * (settle, bill, cancel, etc.) that require it for offline document sequence leasing.
+     * The terminal ID is resolved from the order entity stored in the database.
+     */
+    private void ensureTerminalContext(UUID orderId) {
+        if (TenantContext.getCurrentTerminal() != null) {
+            return; // Already set (e.g. from X-Terminal-ID header)
+        }
+        try {
+            Order order = orderService.getOrder(orderId);
+            UUID terminalId = order.getTerminalId() != null ? order.getTerminalId()
+                    : order.getSourceTerminalId();
+            if (terminalId != null) {
+                TenantContext.setCurrentTerminal(terminalId);
+                log.debug("[Offline Sync] Set terminal context from order {} → {}", orderId, terminalId);
+            }
+        } catch (Exception ex) {
+            log.warn("[Offline Sync] Could not resolve terminal from order {}: {}", orderId, ex.getMessage());
+        }
     }
 
     private SyncOperationResult findStoredResult(String operationId) {

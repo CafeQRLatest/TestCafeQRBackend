@@ -73,6 +73,13 @@ public class PrintJobService {
 
     @Transactional
     public PrintJob enqueueForOrder(Order order, PrintJobKind kind, String reason) {
+        if (kind == PrintJobKind.KOT) {
+            ConfigurationDto config = systemConfigurationService.getEffectiveConfigurationForBranch(order.getOrgId());
+            if (config == null || !config.isSendToKitchenEnabled()) {
+                log.info("enqueueForOrder: skipping KOT print job because KOT module/feature is disabled or expired for branch={}", order.getOrgId());
+                return null;
+            }
+        }
         UUID clientId = order.getClientId() != null ? order.getClientId() : TenantContext.getCurrentTenant();
         String dedupeKey = buildDedupeKey(order, kind, reason);
         log.info("enqueueForOrder: orderId={}, kind={}, reason={}, dedupeKey={}", order.getId(), kind, reason, dedupeKey);
@@ -264,6 +271,11 @@ public class PrintJobService {
 
     @Transactional
     public PrintJob enqueueKotEditJob(Order order, List<OrderLine> addedLines, List<OrderLine> removedLines, String reason) {
+        ConfigurationDto config = systemConfigurationService.getEffectiveConfigurationForBranch(order.getOrgId());
+        if (config == null || !config.isSendToKitchenEnabled()) {
+            log.info("enqueueKotEditJob: skipping KOT edit print job because KOT module/feature is disabled or expired for branch={}", order.getOrgId());
+            return null;
+        }
         UUID clientId = order.getClientId() != null ? order.getClientId() : TenantContext.getCurrentTenant();
         String dedupeKey = buildDedupeKey(order, PrintJobKind.KOT, reason);
         log.info("enqueueKotEditJob: orderId={}, addedLines={}, removedLines={}, dedupeKey={}", order.getId(), (addedLines != null ? addedLines.size() : 0), (removedLines != null ? removedLines.size() : 0), dedupeKey);
@@ -518,6 +530,10 @@ public class PrintJobService {
                     if (config.getPrintLogoRows() != null) {
                         details.put("print_logo_rows", config.getPrintLogoRows());
                         details.put("printLogoRows", config.getPrintLogoRows());
+                    }
+                    if (config.getTaxLabelGlobal() != null) {
+                        details.put("taxLabelGlobal", config.getTaxLabelGlobal());
+                        details.put("tax_label_global", config.getTaxLabelGlobal());
                     }
                 }
             } catch (Exception configEx) {
