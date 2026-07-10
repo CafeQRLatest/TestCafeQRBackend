@@ -1,0 +1,48 @@
+# ──────────────────────────────────────────────────────────────
+# CafeQR 2.0 — Test/Staging Docker Compose (Hostinger VPS)
+# ──────────────────────────────────────────────────────────────
+# Deploy this container inside `/home/cafeqr/test-app` on the VPS.
+# It connects to the production Caddy proxy via the `app_frontend_net`
+# network and connects to Neon DB and Upstash Redis for database/cache.
+# ──────────────────────────────────────────────────────────────
+
+services:
+  test-backend:
+    image: ${BACKEND_IMAGE:-ghcr.io/cafeqrllp/cafeqr-backend:latest}
+    container_name: cafeqr-test-backend
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # Tight memory limits for staging on 4GB RAM VPS
+      # -Xmx512m (max heap limit), -Xms128m (starting heap size), G1 Garbage Collector
+      - JAVA_TOOL_OPTIONS=-Xmx512m -Xms128m -XX:+UseG1GC -XX:MaxGCPauseMillis=200
+      
+      # Database and Redis details are read dynamically from your staging .env
+      - SPRING_DATASOURCE_URL=${SPRING_DATASOURCE_URL}
+      - SPRING_DATASOURCE_USERNAME=${SPRING_DATASOURCE_USERNAME}
+      - SPRING_DATASOURCE_PASSWORD=${SPRING_DATASOURCE_PASSWORD}
+      - SPRING_DATA_REDIS_HOST=${SPRING_DATA_REDIS_HOST}
+      - SPRING_DATA_REDIS_PORT=${SPRING_DATA_REDIS_PORT}
+      - SPRING_DATA_REDIS_PASSWORD=${SPRING_DATA_REDIS_PASSWORD}
+      - SPRING_DATA_REDIS_SSL=${SPRING_DATA_REDIS_SSL:-true}
+      
+      # Keep database pool sizes small to conserve resources in staging
+      - SPRING_DATASOURCE_HIKARI_MAX_POOL_SIZE=10
+      - SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE=2
+    networks:
+      - app_frontend_net
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/actuator/health >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 15
+      start_period: 240s
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+
+networks:
+  # Join the existing network created by the production app stack
+  app_frontend_net:
+    external: true
