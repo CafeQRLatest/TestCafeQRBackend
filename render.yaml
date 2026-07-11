@@ -9,6 +9,8 @@ services:
     envVars:
       - key: SPRING_PROFILES_ACTIVE
         value: prod
+      - key: JAVA_TOOL_OPTIONS
+        value: -Xmx350m -Xms128m -XX:+UseSerialGC -XX:MaxGCPauseMillis=200
 
       # Supabase Postgres. Use Session Pooler on port 5432, or Direct with IPv4 support.
       # Avoid Transaction Pooler for this Hibernate/JDBC app because prepared statements are unsupported there.
