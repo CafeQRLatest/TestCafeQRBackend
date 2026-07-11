@@ -362,13 +362,13 @@ public class SyncService {
             return orderService.createOrder(order);
         }
         if ("POST".equals(method) && path.startsWith("/api/v1/orders/") && path.endsWith("/settle")) {
-            UUID orderId = extractUuid(path, 3);
+            UUID orderId = resolveRealOrderId(extractUuid(path, 3));
             ensureTerminalContext(orderId);
             OrderSettleRequest settleRequest = convert(operation.getPayload(), OrderSettleRequest.class);
             return orderService.settleOrder(orderId, settleRequest);
         }
         if ("POST".equals(method) && path.startsWith("/api/v1/orders/") && path.endsWith("/bill")) {
-            UUID orderId = extractUuid(path, 3);
+            UUID orderId = resolveRealOrderId(extractUuid(path, 3));
             ensureTerminalContext(orderId);
             @SuppressWarnings("unchecked")
             List<String> skipPrintKinds = operation.getPayload() != null
@@ -379,7 +379,7 @@ public class SyncService {
             return orderService.billOrder(orderId, skipPrintKinds);
         }
         if ("POST".equals(method) && path.startsWith("/api/v1/orders/") && path.endsWith("/cancel")) {
-            UUID orderId = extractUuid(path, 3);
+            UUID orderId = resolveRealOrderId(extractUuid(path, 3));
             ensureTerminalContext(orderId);
             OrderCancelRequest cancelRequest = operation.getPayload() != null
                     ? convert(operation.getPayload(), OrderCancelRequest.class)
@@ -387,7 +387,7 @@ public class SyncService {
             return orderService.cancelOrder(orderId, cancelRequest);
         }
         if ("POST".equals(method) && path.startsWith("/api/v1/orders/") && path.endsWith("/complete-credit")) {
-            UUID orderId = extractUuid(path, 3);
+            UUID orderId = resolveRealOrderId(extractUuid(path, 3));
             ensureTerminalContext(orderId);
             OrderCreditCompletionRequest creditRequest = operation.getPayload() != null
                     ? convert(operation.getPayload(), OrderCreditCompletionRequest.class)
@@ -395,15 +395,15 @@ public class SyncService {
             return orderService.completeCreditOrder(orderId, creditRequest);
         }
         if ("POST".equals(method) && path.startsWith("/api/v1/orders/") && path.endsWith("/move-table")) {
-            UUID orderId = extractUuid(path, 3);
+            UUID orderId = resolveRealOrderId(extractUuid(path, 3));
             OrderMoveTableRequest moveRequest = convert(operation.getPayload(), OrderMoveTableRequest.class);
             return orderService.moveTable(orderId, moveRequest);
         }
         if ("PUT".equals(method) && path.startsWith("/api/v1/orders/")) {
-            return orderService.updateOrder(extractUuid(path, 3), convert(operation.getPayload(), Order.class));
+            return orderService.updateOrder(resolveRealOrderId(extractUuid(path, 3)), convert(operation.getPayload(), Order.class));
         }
         if ("PATCH".equals(method) && path.startsWith("/api/v1/orders/") && path.endsWith("/status")) {
-            UUID orderId = extractUuid(path, 3);
+            UUID orderId = resolveRealOrderId(extractUuid(path, 3));
             String statusStr = stringParam(operation, "status");
             String paymentStatusStr = stringParam(operation, "paymentStatus");
             String description = stringParam(operation, "description");
@@ -600,6 +600,18 @@ public class SyncService {
             );
         } catch (Exception ex) {
             log.warn("Unable to record sync operation. operationId={}", result.getOperationId(), ex);
+        }
+    }
+
+    private UUID resolveRealOrderId(UUID clientOrderId) {
+        if (clientOrderId == null) return null;
+        try {
+            orderService.getOrder(clientOrderId);
+            return clientOrderId;
+        } catch (Exception e) {
+            return orderService.findBySourceOperationId(clientOrderId.toString())
+                    .map(Order::getId)
+                    .orElse(clientOrderId);
         }
     }
 }
