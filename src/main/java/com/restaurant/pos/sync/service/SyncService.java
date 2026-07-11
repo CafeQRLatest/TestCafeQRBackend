@@ -282,7 +282,7 @@ public class SyncService {
         }
 
         SyncOperationResult existing = findStoredResult(operationId);
-        if (existing != null) {
+        if (existing != null && existing.isSuccess()) {
             return existing;
         }
 
@@ -578,7 +578,11 @@ public class SyncService {
                         payload_json, response_json, processed_at, updated_at
                     )
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS jsonb), CAST(? AS jsonb), CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                    ON CONFLICT (client_id, operation_id) DO NOTHING
+                    ON CONFLICT (client_id, operation_id) DO UPDATE SET
+                        status = EXCLUDED.status,
+                        error_message = EXCLUDED.error_message,
+                        response_json = EXCLUDED.response_json,
+                        updated_at = CURRENT_TIMESTAMP
                     """,
                     TenantContext.getCurrentTenant(),
                     TenantContext.getCurrentOrg(),
