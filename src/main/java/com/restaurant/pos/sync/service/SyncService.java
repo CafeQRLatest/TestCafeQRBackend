@@ -364,12 +364,26 @@ public class SyncService {
         if ("POST".equals(method) && path.startsWith("/api/v1/orders/") && path.endsWith("/settle")) {
             UUID orderId = resolveRealOrderId(extractUuid(path, 3));
             ensureTerminalContext(orderId);
+            try {
+                Order order = orderService.getOrder(orderId);
+                if ("COMPLETED".equalsIgnoreCase(order.getOrderStatus()) || "PAID".equalsIgnoreCase(order.getPaymentStatus())) {
+                    log.info("[Sync Service] Order {} is already settled/completed. Treating settle as successful no-op.", orderId);
+                    return order;
+                }
+            } catch (Exception ignored) {}
             OrderSettleRequest settleRequest = convert(operation.getPayload(), OrderSettleRequest.class);
             return orderService.settleOrder(orderId, settleRequest);
         }
         if ("POST".equals(method) && path.startsWith("/api/v1/orders/") && path.endsWith("/bill")) {
             UUID orderId = resolveRealOrderId(extractUuid(path, 3));
             ensureTerminalContext(orderId);
+            try {
+                Order order = orderService.getOrder(orderId);
+                if ("BILLED".equalsIgnoreCase(order.getOrderStatus()) || "COMPLETED".equalsIgnoreCase(order.getOrderStatus()) || "PAID".equalsIgnoreCase(order.getPaymentStatus())) {
+                    log.info("[Sync Service] Order {} is already billed/completed. Treating bill as successful no-op.", orderId);
+                    return order;
+                }
+            } catch (Exception ignored) {}
             @SuppressWarnings("unchecked")
             List<String> skipPrintKinds = operation.getPayload() != null
                     ? objectMapper.convertValue(
@@ -381,6 +395,13 @@ public class SyncService {
         if ("POST".equals(method) && path.startsWith("/api/v1/orders/") && path.endsWith("/cancel")) {
             UUID orderId = resolveRealOrderId(extractUuid(path, 3));
             ensureTerminalContext(orderId);
+            try {
+                Order order = orderService.getOrder(orderId);
+                if ("CANCELLED".equalsIgnoreCase(order.getOrderStatus()) || "VOID".equalsIgnoreCase(order.getOrderStatus())) {
+                    log.info("[Sync Service] Order {} is already cancelled. Treating cancel as successful no-op.", orderId);
+                    return order;
+                }
+            } catch (Exception ignored) {}
             OrderCancelRequest cancelRequest = operation.getPayload() != null
                     ? convert(operation.getPayload(), OrderCancelRequest.class)
                     : null;
