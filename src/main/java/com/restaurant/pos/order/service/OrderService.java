@@ -668,7 +668,70 @@ public class OrderService {
     }
 
     private List<Order> hydrateOrderLines(List<Order> orders) {
-        orders.forEach(this::hydrateOrderLines);
+        if (orders == null || orders.isEmpty()) {
+            return orders;
+        }
+
+        boolean needsHydration = false;
+        for (Order order : orders) {
+            if (order.getLines() != null) {
+                for (com.restaurant.pos.order.domain.OrderLine line : order.getLines()) {
+                    if (line.getProductId() != null
+                            && (line.getProductName() == null || line.getProductName().isBlank()
+                                    || line.getCategoryName() == null || line.getCategoryName().isBlank()
+                                    || line.getIsPackagedGood() == null)) {
+                        needsHydration = true;
+                        break;
+                    }
+                }
+            }
+            if (needsHydration) break;
+        }
+
+        if (!needsHydration) {
+            return orders;
+        }
+
+        List<UUID> productIds = orders.stream()
+                .filter(order -> order.getLines() != null)
+                .flatMap(order -> order.getLines().stream())
+                .map(com.restaurant.pos.order.domain.OrderLine::getProductId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+
+        if (productIds.isEmpty()) {
+            return orders;
+        }
+
+        Map<UUID, Product> productsById = productRepository.findByIdIn(productIds).stream()
+                .collect(Collectors.toMap(Product::getId, product -> product));
+
+        for (Order order : orders) {
+            if (order.getLines() == null) continue;
+            for (com.restaurant.pos.order.domain.OrderLine line : order.getLines()) {
+                Product product = productsById.get(line.getProductId());
+                if (product == null) continue;
+
+                if (order.getOrderType() == OrderType.PURCHASE) {
+                    if (product.getRecipeLines() != null && !product.getRecipeLines().isEmpty()) {
+                        throw new BusinessException(
+                                "Product '" + product.getName() + "' has ingredients and cannot be purchased directly.");
+                    }
+                }
+
+                if (line.getProductName() == null || line.getProductName().isBlank()) {
+                    line.setProductName(product.getName());
+                }
+                if (line.getCategoryName() == null || line.getCategoryName().isBlank()) {
+                    line.setCategoryName(product.getCategory() != null ? product.getCategory().getName() : null);
+                }
+                if (line.getIsPackagedGood() == null) {
+                    line.setIsPackagedGood(product.isPackagedGood());
+                }
+            }
+        }
+
         return orders;
     }
 
@@ -1154,8 +1217,7 @@ public class OrderService {
         return orders;
     }
 
-    private OrderSummaryDto toOrderSummary(Order order) {
-        Order hydrated = hydrateOrderCustomers(hydrateOrderLines(order));
+    private OrderSummaryDto toOrderSummary(Order hydrated) {
         List<OrderCustomerDto> customers = hydrated.getCustomers() == null ? List.of() : hydrated.getCustomers();
         OrderCustomerDto primaryCustomer = customers.stream()
                 .filter(OrderCustomerDto::isPrimary)
@@ -1504,8 +1566,9 @@ public class OrderService {
     public List<OrderSummaryDto> getLiveSalesOrders() {
         UUID tenantId = TenantContext.getCurrentTenant();
         UUID orgId = branchContext.getReadOrgId(null);
-        return orderRepository.findLiveOrders(tenantId, orgId, OrderType.SALE, CLOSED_SALE_STATUSES)
-                .stream()
+        List<Order> orders = orderRepository.findLiveOrders(tenantId, orgId, OrderType.SALE, CLOSED_SALE_STATUSES);
+        hydrateOrders(orders);
+        return orders.stream()
                 .map(this::toOrderSummary)
                 .toList();
     }
@@ -1546,6 +1609,7 @@ public class OrderService {
                     salesHistorySpec(orgId, terminalId, null, null, normalizedSearch, true, Set.of(), Set.of(), status),
                     pageable);
             if (exactDocumentMatches.hasContent()) {
+                hydrateOrders(exactDocumentMatches.getContent());
                 return exactDocumentMatches.map(this::toOrderSummary);
             }
         }
@@ -1558,10 +1622,12 @@ public class OrderService {
                 ? Set.of()
                 : findCustomerSearchOrderIds(tenantId, orgId, normalizedSearch);
 
-        return orderRepository.findAll(
+        Page<Order> pageResult = orderRepository.findAll(
                 salesHistorySpec(orgId, terminalId, effectiveFrom, effectiveTo, normalizedSearch, false, customerIds,
                         customerOrderIds, status),
-                pageable).map(this::toOrderSummary);
+                pageable);
+        hydrateOrders(pageResult.getContent());
+        return pageResult.map(this::toOrderSummary);
     }
 
 
@@ -1583,13 +1649,15 @@ public class OrderService {
         LocalDateTime updatedAfter = LocalDateTime.ofInstant(safeSince, ZoneOffset.UTC);
         UUID tenantId = TenantContext.getCurrentTenant();
         UUID orgId = branchContext.getReadOrgId(null);
-        return orderRepository.findChangedOrders(
+        org.springframework.data.domain.Slice<Order> changedSlice = orderRepository.findChangedOrders(
                 tenantId,
                 orgId,
                 OrderType.SALE,
                 updatedAfter,
-                PageRequest.of(0, MAX_SYNC_ORDER_CHANGES))
-                .stream()
+                PageRequest.of(0, MAX_SYNC_ORDER_CHANGES));
+        List<Order> changed = changedSlice.getContent();
+        hydrateOrders(changed);
+        return changed.stream()
                 .map(this::toOrderSummary)
                 .toList();
     }
