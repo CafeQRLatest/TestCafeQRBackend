@@ -432,6 +432,11 @@ public class PrintJobService {
         out.put("discount_amount", line.getDiscountAmount());
         out.put("isPackagedGood", line.getIsPackagedGood());
         out.put("is_packaged_good", line.getIsPackagedGood());
+        // Per-item kitchen notes — shown below item name on KOT
+        out.put("description", line.getDescription());
+        out.put("notes", line.getDescription());
+        out.put("line_notes", line.getDescription());
+        out.put("itemNotes", line.getDescription());
         return out;
     }
 

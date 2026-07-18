@@ -248,6 +248,7 @@ public class OrderDtoMapper {
                 .manualDiscountPercent(line.getManualDiscountPercent())
                 .allocatedOrderDiscount(line.getAllocatedOrderDiscount())
                 .isPackagedGood(line.getIsPackagedGood())
+                .description(line.getDescription())
                 .build();
     }
 
@@ -375,6 +376,7 @@ public class OrderDtoMapper {
                 line.setTaxAmount(lineReq.getTaxAmount());
                 line.setDiscountAmount(lineReq.getDiscountAmount());
                 line.setLineTotal(lineReq.getLineTotal());
+                line.setDescription(lineReq.getDescription());
                 applyTaxLineFields(line, lineReq);
                 order.addLine(line);
             }
@@ -459,6 +461,7 @@ public class OrderDtoMapper {
                 line.setTaxAmount(lineReq.getTaxAmount());
                 line.setDiscountAmount(lineReq.getDiscountAmount());
                 line.setLineTotal(lineReq.getLineTotal());
+                line.setDescription(lineReq.getDescription());
                 applyTaxLineFields(line, lineReq);
                 existing.addLine(line);
             }
@@ -525,6 +528,7 @@ public class OrderDtoMapper {
                 line.setTaxAmount(lineReq.getTaxAmount());
                 line.setDiscountAmount(lineReq.getDiscountAmount());
                 line.setLineTotal(lineReq.getLineTotal());
+                line.setDescription(lineReq.getDescription());
                 applyTaxLineFields(line, lineReq);
                 order.addLine(line);
             }
