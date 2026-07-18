@@ -139,6 +139,15 @@ public class OrderService {
     private final OrderCalculationService orderCalculationService;
     private final org.springframework.context.ApplicationContext applicationContext;
 
+    /**
+     * Per-thread user display name cache. Each request thread gets its own map so that
+     * concurrent requests never interfere with each other's cache warm/clear lifecycle.
+     * Populated in bulk by {@link #warmUserNameCache} and cleared in a finally block
+     * after the batch mapping completes.
+     */
+    private final ThreadLocal<Map<String, String>> userNameCache =
+            ThreadLocal.withInitial(java.util.HashMap::new);
+
     private void recalculateOrderTotals(Order order) {
         if (order == null) return;
         
@@ -1568,9 +1577,14 @@ public class OrderService {
         UUID orgId = branchContext.getReadOrgId(null);
         List<Order> orders = orderRepository.findLiveOrders(tenantId, orgId, OrderType.SALE, CLOSED_SALE_STATUSES);
         hydrateOrders(orders);
-        return orders.stream()
-                .map(this::toOrderSummary)
-                .toList();
+        warmUserNameCache(orders);
+        try {
+            return orders.stream()
+                    .map(this::toOrderSummary)
+                    .toList();
+        } finally {
+            userNameCache.get().clear();
+        }
     }
 
     @Transactional(readOnly = true)
@@ -1610,7 +1624,12 @@ public class OrderService {
                     pageable);
             if (exactDocumentMatches.hasContent()) {
                 hydrateOrders(exactDocumentMatches.getContent());
-                return exactDocumentMatches.map(this::toOrderSummary);
+                warmUserNameCache(exactDocumentMatches.getContent());
+                try {
+                    return exactDocumentMatches.map(this::toOrderSummary);
+                } finally {
+                    userNameCache.get().clear();
+                }
             }
         }
 
@@ -1627,7 +1646,12 @@ public class OrderService {
                         customerOrderIds, status),
                 pageable);
         hydrateOrders(pageResult.getContent());
-        return pageResult.map(this::toOrderSummary);
+        warmUserNameCache(pageResult.getContent());
+        try {
+            return pageResult.map(this::toOrderSummary);
+        } finally {
+            userNameCache.get().clear();
+        }
     }
 
 
@@ -1657,9 +1681,14 @@ public class OrderService {
                 PageRequest.of(0, MAX_SYNC_ORDER_CHANGES));
         List<Order> changed = changedSlice.getContent();
         hydrateOrders(changed);
-        return changed.stream()
-                .map(this::toOrderSummary)
-                .toList();
+        warmUserNameCache(changed);
+        try {
+            return changed.stream()
+                    .map(this::toOrderSummary)
+                    .toList();
+        } finally {
+            userNameCache.get().clear();
+        }
     }
 
     @Transactional(readOnly = true)
@@ -3583,14 +3612,48 @@ public class OrderService {
         if (uidStr == null || uidStr.isBlank() || "SYSTEM".equalsIgnoreCase(uidStr)) {
             return "SYSTEM";
         }
+        Map<String, String> cache = userNameCache.get();
+        if (cache.containsKey(uidStr)) {
+            return cache.get(uidStr);
+        }
         try {
             UUID userId = UUID.fromString(uidStr);
-            return userRepository.findById(userId)
+            String name = userRepository.findById(userId)
                     .map(u -> u.getFirstName()
                             + (u.getLastName() != null && !u.getLastName().isBlank() ? " " + u.getLastName() : ""))
                     .orElse(uidStr);
+            cache.put(uidStr, name);
+            return name;
         } catch (Exception e) {
             return uidStr;
+        }
+    }
+
+    /**
+     * Pre-loads user display names for a list of orders in ONE query, caching them in
+     * {@link #userNameCache} so that {@link #resolveUserDisplayName} does not hit the DB
+     * per order.
+     * <p>
+     * Always clear the cache after the batch via {@code userNameCache.clear()}.
+     */
+    private void warmUserNameCache(List<Order> orders) {
+        Map<String, String> cache = userNameCache.get();
+        Set<String> uidStrings = new java.util.HashSet<>();
+        for (Order o : orders) {
+            if (o.getCreatedBy() != null && !o.getCreatedBy().isBlank()) uidStrings.add(o.getCreatedBy());
+            if (o.getUpdatedBy() != null && !o.getUpdatedBy().isBlank()) uidStrings.add(o.getUpdatedBy());
+        }
+        List<UUID> uuids = new ArrayList<>();
+        for (String uid : uidStrings) {
+            if ("SYSTEM".equalsIgnoreCase(uid) || cache.containsKey(uid)) continue;
+            try { uuids.add(UUID.fromString(uid)); } catch (Exception ignored) { cache.put(uid, uid); }
+        }
+        if (!uuids.isEmpty()) {
+            userRepository.findAllById(uuids).forEach(u -> {
+                String name = u.getFirstName()
+                        + (u.getLastName() != null && !u.getLastName().isBlank() ? " " + u.getLastName() : "");
+                cache.put(u.getId().toString(), name);
+            });
         }
     }
 }
