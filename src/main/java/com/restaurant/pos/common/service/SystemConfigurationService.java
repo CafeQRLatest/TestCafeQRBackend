@@ -227,7 +227,7 @@ public class SystemConfigurationService {
                 .discountEnabled(true)
                 .purchaseEnabled(true)
                 .defaultBillingUiMode("standard")
-                .offlineSyncEnabled(true)
+                .offlineSyncEnabled(false)
                 .offlineSyncInterval(60)
                 .offlineLeaseBlockSize(100)
                 .offlineFailOpenPayments(false)
