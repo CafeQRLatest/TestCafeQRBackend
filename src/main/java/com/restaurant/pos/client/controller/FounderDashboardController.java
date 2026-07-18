@@ -261,11 +261,15 @@ public class FounderDashboardController {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiResponse.error("Client not found"));
         }
         
+        long count = paymentRepository.count() + 1;
+        String invoiceNo = String.format("CQ-INV-%05d", count);
+        String orderNo = String.format("CQ-ORD-%05d", count);
+        
         SubscriptionPayment payment = SubscriptionPayment.builder()
                 .clientId(clientId)
                 .amount(req.getAmountPaise())
-                .paymentId(req.getPaymentId())
-                .orderId(req.getOrderId())
+                .paymentId(invoiceNo)
+                .orderId(orderNo)
                 .currency("INR")
                 .createdAt(LocalDateTime.now())
                 .build();

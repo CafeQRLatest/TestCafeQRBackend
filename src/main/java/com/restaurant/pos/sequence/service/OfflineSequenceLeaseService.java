@@ -13,6 +13,8 @@ import com.restaurant.pos.sequence.domain.OfflineSequenceLease;
 import com.restaurant.pos.sequence.repository.DocumentSequenceRepository;
 import com.restaurant.pos.sequence.repository.OfflineSequenceLeaseRepository;
 import lombok.RequiredArgsConstructor;
+import com.restaurant.pos.common.service.SystemConfigurationService;
+import com.restaurant.pos.common.dto.ConfigurationDto;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -33,9 +35,11 @@ public class OfflineSequenceLeaseService {
     private final OrderRepository orderRepository;
     private final InvoiceRepository invoiceRepository;
     private final PaymentRepository paymentRepository;
+    private final SystemConfigurationService configurationService;
 
     @Transactional
     public List<OfflineSequenceLease> reserveDefaults(UUID requestedTerminalId, Integer requestedBlockSize) {
+        validateOfflineSyncEnabled();
         UUID terminalId = resolveTerminalId(requestedTerminalId);
         int blockSize = normalizeBlockSize(requestedBlockSize);
         return List.of(
@@ -47,6 +51,7 @@ public class OfflineSequenceLeaseService {
 
     @Transactional(readOnly = true)
     public List<OfflineSequenceLease> active(UUID requestedTerminalId) {
+        validateOfflineSyncEnabled();
         UUID clientId = TenantContext.getCurrentTenant();
         UUID orgId = getEffectiveOrgId();
         UUID terminalId = resolveTerminalId(requestedTerminalId);
@@ -271,5 +276,12 @@ public class OfflineSequenceLeaseService {
         seq.setClientId(clientId);
         seq.setOrgId(orgId);
         return sequenceRepository.saveAndFlush(seq);
+    }
+
+    private void validateOfflineSyncEnabled() {
+        ConfigurationDto config = configurationService.getConfiguration();
+        if (config == null || !config.isOfflineSyncEnabled()) {
+            throw new BusinessException("Offline Sync is disabled for this organization.");
+        }
     }
 }

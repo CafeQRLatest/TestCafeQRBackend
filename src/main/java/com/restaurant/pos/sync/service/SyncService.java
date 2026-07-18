@@ -3,6 +3,7 @@ package com.restaurant.pos.sync.service;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.restaurant.pos.common.dto.ConfigurationDto;
+import com.restaurant.pos.common.exception.BusinessException;
 import com.restaurant.pos.common.service.SystemConfigurationService;
 import com.restaurant.pos.common.tenant.TenantContext;
 import com.restaurant.pos.order.domain.Order;
@@ -57,6 +58,7 @@ public class SyncService {
 
     @Transactional(readOnly = true)
     public SyncBootstrapResponse bootstrap() {
+        validateOfflineSyncEnabled();
         Instant now = Instant.now();
         return SyncBootstrapResponse.builder()
                 .serverTime(now)
@@ -73,6 +75,7 @@ public class SyncService {
 
     @Transactional(readOnly = true)
     public SyncChangesResponse changes(Instant since) {
+        validateOfflineSyncEnabled();
         Instant now = Instant.now();
         return SyncChangesResponse.builder()
                 .since(since)
@@ -211,6 +214,7 @@ public class SyncService {
     }
 
     public SyncPushResponse push(SyncPushRequest request) {
+        validateOfflineSyncEnabled();
         // Schema Version check
         if (request.getSchemaVersion() != null && request.getSchemaVersion() < 1) {
             throw new IllegalArgumentException("Unsupported offline sync schema version: " + request.getSchemaVersion());
@@ -633,6 +637,13 @@ public class SyncService {
             return orderService.findBySourceOperationId(clientOrderId.toString())
                     .map(Order::getId)
                     .orElse(clientOrderId);
+        }
+    }
+
+    private void validateOfflineSyncEnabled() {
+        ConfigurationDto config = configurationService.getConfiguration();
+        if (config == null || !config.isOfflineSyncEnabled()) {
+            throw new BusinessException("Offline Sync is disabled for this organization.");
         }
     }
 }
