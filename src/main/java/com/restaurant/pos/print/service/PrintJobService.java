@@ -234,7 +234,7 @@ public class PrintJobService {
     private PrintJob createJob(Order order, PrintJobKind kind, String reason, String dedupeKey, UUID clientId) {
         try {
             Map<String, Object> payloadMap = new LinkedHashMap<>();
-            payloadMap.put("order", orderSnapshot(order));
+            payloadMap.put("order", orderSnapshot(order, kind));
             payloadMap.put("jobKind", kind.name().toLowerCase());
             payloadMap.put("reason", reason == null ? "auto" : reason);
             payloadMap.put("restaurant", buildRestaurantDetails(clientId, order.getOrgId()));
@@ -284,17 +284,17 @@ public class PrintJobService {
 
     private PrintJob createKotEditJob(Order order, List<OrderLine> addedLines, List<OrderLine> removedLines, String reason, String dedupeKey, UUID clientId) {
         try {
-            Map<String, Object> orderSnap = orderSnapshot(order);
+            Map<String, Object> orderSnap = orderSnapshot(order, PrintJobKind.KOT);
             List<Map<String, Object>> addedSnaps = addedLines == null
                     ? List.of()
-                    : addedLines.stream().map(this::lineSnapshot).toList();
+                    : addedLines.stream().map(line -> this.lineSnapshot(line, PrintJobKind.KOT)).toList();
             orderSnap.put("lines", addedSnaps);
             orderSnap.put("orderLines", addedSnaps);
             orderSnap.put("order_items", addedSnaps);
 
             List<Map<String, Object>> removedSnaps = removedLines == null
                     ? List.of()
-                    : removedLines.stream().map(this::lineSnapshot).toList();
+                    : removedLines.stream().map(line -> this.lineSnapshot(line, PrintJobKind.KOT)).toList();
             orderSnap.put("removed_items", removedSnaps);
             orderSnap.put("removedItems", removedSnaps);
             orderSnap.put("is_edited", true);
@@ -351,7 +351,7 @@ public class PrintJobService {
         job.setNextAttemptAt(null);
     }
 
-    private Map<String, Object> orderSnapshot(Order order) {
+    private Map<String, Object> orderSnapshot(Order order, PrintJobKind kind) {
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("id", order.getId());
         out.put("orgId", order.getOrgId());
@@ -399,14 +399,14 @@ public class PrintJobService {
 
         List<Map<String, Object>> lines = order.getLines() == null
                 ? List.of()
-                : order.getLines().stream().map(this::lineSnapshot).toList();
+                : order.getLines().stream().map(line -> this.lineSnapshot(line, kind)).toList();
         out.put("lines", lines);
         out.put("orderLines", lines);
         out.put("order_items", lines);
         return out;
     }
 
-    private Map<String, Object> lineSnapshot(OrderLine line) {
+    private Map<String, Object> lineSnapshot(OrderLine line, PrintJobKind kind) {
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("id", line.getId());
         out.put("productId", line.getProductId());
@@ -432,11 +432,13 @@ public class PrintJobService {
         out.put("discount_amount", line.getDiscountAmount());
         out.put("isPackagedGood", line.getIsPackagedGood());
         out.put("is_packaged_good", line.getIsPackagedGood());
-        // Per-item kitchen notes — shown below item name on KOT
-        out.put("description", line.getDescription());
-        out.put("notes", line.getDescription());
-        out.put("line_notes", line.getDescription());
-        out.put("itemNotes", line.getDescription());
+        // Per-item kitchen notes — shown below item name on KOT only if kind is KOT and note is not empty
+        if (kind == PrintJobKind.KOT && line.getDescription() != null && !line.getDescription().trim().isEmpty()) {
+            out.put("description", line.getDescription());
+            out.put("notes", line.getDescription());
+            out.put("line_notes", line.getDescription());
+            out.put("itemNotes", line.getDescription());
+        }
         return out;
     }
 
