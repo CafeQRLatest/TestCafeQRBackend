@@ -106,7 +106,6 @@ public class PurchasingController {
 
     @GetMapping("/currencies")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
-    @RequireModule(ModuleName.INVENTORY)
     public ResponseEntity<ApiResponse<List<Currency>>> getCurrencies() {
         return ResponseEntity.ok(ApiResponse.success(purchasingService.getCurrencies()));
     }
@@ -139,14 +138,12 @@ public class PurchasingController {
 
     @GetMapping("/pricelists")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
-    @RequireModule(ModuleName.INVENTORY)
     public ResponseEntity<ApiResponse<List<Pricelist>>> getPricelists() {
         return ResponseEntity.ok(ApiResponse.success(purchasingService.getPricelists()));
     }
 
     @GetMapping("/pricelists/type/{type}")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
-    @RequireModule(ModuleName.INVENTORY)
     public ResponseEntity<ApiResponse<List<Pricelist>>> getPricelistsByType(@PathVariable String type) {
         return ResponseEntity.ok(ApiResponse.success(purchasingService.getPricelistsByType(type.toUpperCase())));
     }
@@ -179,7 +176,6 @@ public class PurchasingController {
 
     @GetMapping("/payment-types")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
-    @RequireModule(ModuleName.INVENTORY)
     public ResponseEntity<ApiResponse<List<com.restaurant.pos.purchasing.domain.PaymentType>>> getPaymentTypes(
             @RequestParam(required = false) String applicableFor,
             @RequestParam(required = false) UUID orgId) {
