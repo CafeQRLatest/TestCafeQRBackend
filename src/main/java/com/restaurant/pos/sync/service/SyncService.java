@@ -363,7 +363,7 @@ public class SyncService {
             if (order.getSourceOfflineId() == null) order.setSourceOfflineId(operation.getOfflineId());
             if (order.getSourceLocalRef() == null) order.setSourceLocalRef(operation.getClientRequestId());
             if (order.getSyncOrigin() == null || order.getSyncOrigin().isBlank()) order.setSyncOrigin("OFFLINE_QUEUE");
-            return orderService.createOrder(order);
+            return orderService.createOrderIdempotently(order).order();
         }
         if ("POST".equals(method) && path.startsWith("/api/v1/orders/") && path.endsWith("/settle")) {
             UUID orderId = resolveRealOrderId(extractUuid(path, 3));
@@ -424,7 +424,14 @@ public class SyncService {
             OrderMoveTableRequest moveRequest = convert(operation.getPayload(), OrderMoveTableRequest.class);
             return orderService.moveTable(orderId, moveRequest);
         }
-        if ("PUT".equals(method) && path.startsWith("/api/v1/orders/")) {
+        if (("PUT".equals(method) || "PATCH".equals(method)) 
+                && path.startsWith("/api/v1/orders/") 
+                && !path.endsWith("/status") 
+                && !path.endsWith("/settle") 
+                && !path.endsWith("/bill") 
+                && !path.endsWith("/cancel") 
+                && !path.endsWith("/complete-credit") 
+                && !path.endsWith("/move-table")) {
             return orderService.updateOrder(resolveRealOrderId(extractUuid(path, 3)), convert(operation.getPayload(), Order.class));
         }
         if ("PATCH".equals(method) && path.startsWith("/api/v1/orders/") && path.endsWith("/status")) {
