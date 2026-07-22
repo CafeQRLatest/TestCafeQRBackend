@@ -593,6 +593,21 @@ public class OrderService {
             return;
         }
 
+        // When an offline-completed dine-in order is synced from the queue, the table
+        // may already be OCCUPIED (the KOT that was placed before going offline was synced
+        // first and set the table status). The settlement is a self-contained final order
+        // created offline — it must not be rejected just because the table is now occupied.
+        // Skip the table-available guard for any terminal offline order so it syncs cleanly.
+        String status = order.getOrderStatus() == null ? "" : order.getOrderStatus().toUpperCase();
+        String syncOrigin = order.getSyncOrigin() == null ? "" : order.getSyncOrigin().toUpperCase();
+        boolean isOfflineOrigin = syncOrigin.contains("OFFLINE");
+        boolean isFinalStatus = "COMPLETED".equals(status) || "BILLED".equals(status) || "PAID".equals(status);
+        if (isOfflineOrigin && isFinalStatus) {
+            log.debug("[Order Create] Skipping table-available check for offline final order (syncOrigin={}, orderStatus={})",
+                    order.getSyncOrigin(), order.getOrderStatus());
+            return;
+        }
+
         RestaurantTable table = getTenantTable(order.getTableId());
         if (order.getOrgId() != null && table.getOrgId() != null && !order.getOrgId().equals(table.getOrgId())) {
             throw new BusinessException("Selected table belongs to another branch.");
