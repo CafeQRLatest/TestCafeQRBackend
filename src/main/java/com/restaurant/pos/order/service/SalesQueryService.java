@@ -37,7 +37,7 @@ public class SalesQueryService {
 
     @Transactional(readOnly = true, timeout = 10)
     public SalesDashboardResponse getDashboard(SalesDashboardQuery query) {
-        validateQueryRange(query.getFrom(), query.getTo());
+        validateQueryRange(query.getFrom(), query.getTo(), query.getQ());
 
         UUID orgId;
         if (SecurityUtils.isSuperAdmin()) {
@@ -105,7 +105,10 @@ public class SalesQueryService {
                 .build();
     }
 
-    private void validateQueryRange(Instant from, Instant to) {
+    private void validateQueryRange(Instant from, Instant to, String search) {
+        if (search != null && !search.isBlank()) {
+            return;
+        }
         if (from == null || to == null) {
             throw new IllegalArgumentException("Query date parameters cannot be null");
         }
@@ -148,23 +151,35 @@ public class SalesQueryService {
             where.append("AND o.isactive = 'Y' AND o.order_status <> 'VOID' AND o.order_no NOT LIKE '%\\_VOID\\_%' ESCAPE '\\' ");
         }
 
-        // Date range filters
-        where.append("AND o.order_date >= :fromDate ");
-        params.addValue("fromDate", java.sql.Timestamp.from(criteria.from()));
+        // Date range filters (optional when searching by text query)
+        if (criteria.from() != null) {
+            where.append("AND o.order_date >= :fromDate ");
+            params.addValue("fromDate", java.sql.Timestamp.from(criteria.from()));
+        }
 
-        where.append("AND o.order_date <= :toDate ");
-        params.addValue("toDate", java.sql.Timestamp.from(criteria.to()));
+        if (criteria.to() != null) {
+            where.append("AND o.order_date <= :toDate ");
+            params.addValue("toDate", java.sql.Timestamp.from(criteria.to()));
+        }
 
         // Search text matching
         if (criteria.search() != null && !criteria.search().isEmpty()) {
-            String searchPattern = "%" + criteria.search().toLowerCase().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%";
-            String searchExact = criteria.search().toLowerCase();
+            String rawSearch = criteria.search().trim();
+            String cleanSearch = rawSearch.replaceAll("^[#\\s]+", "").trim();
+            String searchToUse = cleanSearch.isEmpty() ? rawSearch : cleanSearch;
+
+            String searchPattern = "%" + searchToUse.toLowerCase().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%";
+            String searchExact = searchToUse.toLowerCase();
 
             params.addValue("searchExact", searchExact);
             params.addValue("searchPattern", searchPattern);
 
             where.append("AND (");
             where.append("  LOWER(o.order_no) = :searchExact ");
+            where.append("  OR CAST(o.daily_bill_no AS VARCHAR) = :searchExact ");
+            where.append("  OR CAST(o.daily_bill_no AS VARCHAR) LIKE :searchPattern ESCAPE '\\' ");
+            where.append("  OR LOWER(COALESCE(o.customer_name, '')) LIKE :searchPattern ESCAPE '\\' ");
+            where.append("  OR LOWER(COALESCE(o.customer_phone, '')) LIKE :searchPattern ESCAPE '\\' ");
             where.append("  OR EXISTS (SELECT 1 FROM invoices i WHERE i.order_id = o.id AND LOWER(i.invoice_no) = :searchExact) ");
             where.append("  OR EXISTS (SELECT 1 FROM payments p WHERE p.order_id = o.id AND LOWER(p.reference_no) = :searchExact) ");
             where.append("  OR LOWER(o.order_no) LIKE :searchPattern ESCAPE '\\' ");
