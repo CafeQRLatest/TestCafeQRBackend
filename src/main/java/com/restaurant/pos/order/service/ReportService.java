@@ -220,8 +220,8 @@ public class ReportService {
 
         for (Order order : saleOrders) {
             Invoice invoice = selectDisplayInvoice(invoicesByOrderMap.get(order.getId()));
-            Payment payment = latestPayment(paymentsByOrderMap.get(order.getId()));
-            SalesInvoiceReportDto row = buildSalesInvoiceRow(order, invoice, payment, true, customerMap);
+            List<Payment> payments = paymentsByOrderMap.get(order.getId());
+            SalesInvoiceReportDto row = buildSalesInvoiceRow(order, invoice, payments, true, customerMap);
             if (matchesSalesInvoiceFilter(row, filterType)) {
                 rows.add(row);
             }
@@ -238,8 +238,8 @@ public class ReportService {
                 continue;
             }
 
-            Payment payment = orderId != null ? latestPayment(paymentsByOrderMap.get(orderId)) : null;
-            SalesInvoiceReportDto row = buildSalesInvoiceRow(linkedOrder, invoice, payment, false, customerMap);
+            List<Payment> payments = orderId != null ? paymentsByOrderMap.get(orderId) : null;
+            SalesInvoiceReportDto row = buildSalesInvoiceRow(linkedOrder, invoice, payments, false, customerMap);
             if (matchesSalesInvoiceFilter(row, filterType)) {
                 rows.add(row);
             }
@@ -529,7 +529,7 @@ public class ReportService {
                 List<Payment> payments = paymentsByOrderMap.getOrDefault(inv.getOrderId(), List.of());
                 if (!payments.isEmpty()) {
                     Payment latest = payments.get(payments.size() - 1);
-                    paymentMethod = latest.getPaymentMethod();
+                    paymentMethod = resolveCombinedPaymentMethod(payments, orderMap.get(inv.getOrderId()));
                     paymentNo = latest.getReferenceNo();
                 }
                 Order linkedOrder = orderMap.get(inv.getOrderId());
@@ -701,11 +701,28 @@ public class ReportService {
 
     // ─── Private Helpers ────────────────────────────────────────────────────
 
-    private SalesInvoiceReportDto buildSalesInvoiceRow(Order order, Invoice invoice, Payment payment, boolean preferOrderDate) {
-        return buildSalesInvoiceRow(order, invoice, payment, preferOrderDate, null);
+    private String resolveCombinedPaymentMethod(List<Payment> payments, Order order) {
+        if (payments == null || payments.isEmpty()) {
+            return order != null ? order.getPaymentMethod() : null;
+        }
+        Set<String> methods = new LinkedHashSet<>();
+        for (Payment p : payments) {
+            if (p != null && "Y".equalsIgnoreCase(p.getIsactive()) && !"VOID".equalsIgnoreCase(p.getDocStatus())) {
+                String m = p.getPaymentMethod();
+                if (m != null && !m.isBlank()) {
+                    methods.add(m.trim());
+                }
+            }
+        }
+        if (methods.isEmpty()) {
+            return order != null ? order.getPaymentMethod() : null;
+        }
+        return String.join(", ", methods);
     }
 
-    private SalesInvoiceReportDto buildSalesInvoiceRow(Order order, Invoice invoice, Payment payment, boolean preferOrderDate, Map<UUID, List<OrderCustomerDto>> customerMap) {
+    private SalesInvoiceReportDto buildSalesInvoiceRow(Order order, Invoice invoice, List<Payment> payments, boolean preferOrderDate, Map<UUID, List<OrderCustomerDto>> customerMap) {
+        Payment payment = latestPayment(payments);
+        String paymentMethod = resolveCombinedPaymentMethod(payments, order);
         ZoneId zoneId = ZoneOffset.UTC;
         LocalDateTime orderDate = order != null && order.getOrderDate() != null
                 ? LocalDateTime.ofInstant(order.getOrderDate(), zoneId)
@@ -770,7 +787,7 @@ public class ReportService {
                 .customerName(customerDisplay(customers))
                 .customerPhone(customerPhoneDisplay(customers))
                 .customers(customers)
-                .paymentMethod(payment != null ? payment.getPaymentMethod() : null)
+                .paymentMethod(paymentMethod)
                 .totalAmount(order != null ? safe(order.getTotalAmount()) : (invoice != null ? safe(invoice.getTotalAmount()) : BigDecimal.ZERO))
                 .totalTaxAmount(order != null ? safe(order.getTotalTaxAmount()) : BigDecimal.ZERO)
                 .totalDiscountAmount(order != null ? safe(order.getTotalDiscountAmount()) : BigDecimal.ZERO)
