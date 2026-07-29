@@ -10,7 +10,7 @@ spring:
   application:
     name: cafe-qr-backend
 
- datasource:
+  datasource:
     url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/cafeqr_db}
     username: ${SPRING_DATASOURCE_USERNAME:postgres}
     password: ${SPRING_DATASOURCE_PASSWORD:postgres}
@@ -50,8 +50,8 @@ spring:
   mail:
     host: ${SMTP_HOST:smtp.gmail.com}
     port: 587
-    username: uksayoojjayarajan@gmail.com
-    password: ynvtzfkcvlhvpmmb
+    username: ${SMTP_USERNAME:uksayoojjayarajan@gmail.com}
+    password: ${SMTP_PASSWORD:}
     default-encoding: UTF-8
     properties:
       mail:
