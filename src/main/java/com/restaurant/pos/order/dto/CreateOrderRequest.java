@@ -16,6 +16,7 @@ import java.util.UUID;
 
 @Data
 @Schema(description = "DTO for creating a new order")
+@com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
 public class CreateOrderRequest {
 
     @NotNull(message = "Order type must not be null")
@@ -139,6 +140,7 @@ public class CreateOrderRequest {
 
     @Data
     @Schema(description = "Split payment item for MIXED payment orders")
+    @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
     public static class PaymentSplitRequest {
         @Schema(description = "Payment method for this split (CASH, ONLINE, UPI, CARD, BANK, CHEQUE)", example = "CASH")
         private String paymentMethod;
@@ -150,6 +152,7 @@ public class CreateOrderRequest {
 
     @Data
     @Schema(description = "DTO for creating an order line/item")
+    @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
     public static class CreateOrderLineRequest {
         @Schema(description = "Optional client-generated line UUID for stable request→result mapping")
         private UUID clientLineId;

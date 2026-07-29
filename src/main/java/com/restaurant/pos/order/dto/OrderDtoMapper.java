@@ -202,7 +202,7 @@ public class OrderDtoMapper {
                 .invoiceNo(order.getInvoiceNo())
                 .dailyBillNo(order.getDailyBillNo())
                 .paymentNo(order.getPaymentNo())
-                .paymentMethod(order.getPaymentMethod())
+                .paymentMethod(resolveCombinedPaymentMethod(order))
                 .cashAmount(cashAmount)
                 .onlineAmount(onlineAmount)
                 .grossAmount(order.getGrossAmount())
@@ -255,6 +255,30 @@ public class OrderDtoMapper {
     // ─────────────────────────────────────────────────────────────
     // Helper methods
     // ─────────────────────────────────────────────────────────────
+
+    private String resolveCombinedPaymentMethod(Order order) {
+        if (order == null || order.getId() == null) return null;
+        try {
+            java.util.Map<java.util.UUID, java.util.List<com.restaurant.pos.order.domain.Payment>> pCache = paymentsByOrderId.get();
+            java.util.List<com.restaurant.pos.order.domain.Payment> payments = pCache.containsKey(order.getId())
+                    ? pCache.get(order.getId())
+                    : paymentRepository.findByOrderId(order.getId());
+            if (payments != null && !payments.isEmpty()) {
+                java.util.Set<String> methods = new java.util.LinkedHashSet<>();
+                for (com.restaurant.pos.order.domain.Payment p : payments) {
+                    if (p != null && "Y".equalsIgnoreCase(p.getIsactive()) && !"VOID".equalsIgnoreCase(p.getDocStatus())) {
+                        if (p.getPaymentMethod() != null && !p.getPaymentMethod().isBlank()) {
+                            methods.add(p.getPaymentMethod().trim());
+                        }
+                    }
+                }
+                if (!methods.isEmpty()) {
+                    return String.join(", ", methods);
+                }
+            }
+        } catch (Exception ignored) {}
+        return order.getPaymentMethod();
+    }
 
     private TaxType parseTaxType(String s) {
         if (s == null)

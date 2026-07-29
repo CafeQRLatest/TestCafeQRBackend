@@ -1277,12 +1277,33 @@ public class OrderService {
                 .invoiceNo(hydrated.getInvoiceNo())
                 .dailyBillNo(hydrated.getDailyBillNo())
                 .paymentNo(hydrated.getPaymentNo())
-                .paymentMethod(firstNonBlank(hydrated.getPaymentMethod(), hydrated.getReference()))
+                .paymentMethod(resolveCombinedOrderPaymentMethod(hydrated))
                 .description(hydrated.getDescription())
                 .lines(toOrderLineSummaries(hydrated.getLines()))
                 .warehouseId(hydrated.getWarehouseId())
                 .vendorId(hydrated.getVendorId())
                 .build();
+    }
+
+    private String resolveCombinedOrderPaymentMethod(Order hydrated) {
+        if (hydrated == null || hydrated.getId() == null) return null;
+        try {
+            List<Payment> payments = paymentRepository.findByOrderId(hydrated.getId());
+            if (payments != null && !payments.isEmpty()) {
+                Set<String> methods = new LinkedHashSet<>();
+                for (Payment p : payments) {
+                    if (p != null && "Y".equalsIgnoreCase(p.getIsactive()) && !"VOID".equalsIgnoreCase(p.getDocStatus())) {
+                        if (p.getPaymentMethod() != null && !p.getPaymentMethod().isBlank()) {
+                            methods.add(p.getPaymentMethod().trim());
+                        }
+                    }
+                }
+                if (!methods.isEmpty()) {
+                    return String.join(", ", methods);
+                }
+            }
+        } catch (Exception ignored) {}
+        return firstNonBlank(hydrated.getPaymentMethod(), hydrated.getReference());
     }
 
     private List<OrderLineSummaryDto> toOrderLineSummaries(List<OrderLine> lines) {
@@ -1833,6 +1854,11 @@ public class OrderService {
                     processInventoryForOrder(saved);
                 }
             } else {
+                // SALE: deduct stock when the order reaches COMPLETED+PAID state
+                if ("COMPLETED".equalsIgnoreCase(saved.getOrderStatus())
+                        && "PAID".equalsIgnoreCase(saved.getPaymentStatus())) {
+                    deductStockForSale(saved);
+                }
                 // Sales
                 if ("COMPLETED".equalsIgnoreCase(saved.getOrderStatus())
                         && "PAID".equalsIgnoreCase(saved.getPaymentStatus())) {
@@ -2392,6 +2418,11 @@ public class OrderService {
                 processInventoryForOrder(saved);
             }
         } else {
+            // SALE: deduct stock when COMPLETED+PAID
+            if ("COMPLETED".equalsIgnoreCase(saved.getOrderStatus())
+                    && "PAID".equalsIgnoreCase(saved.getPaymentStatus())) {
+                deductStockForSale(saved);
+            }
             // Sales
             if ("PAID".equalsIgnoreCase(saved.getPaymentStatus())) {
                 String salePaymentMethod = saved.getReference() != null ? saved.getReference() : "CASH";
@@ -2439,9 +2470,13 @@ public class OrderService {
         }
         handleTableStatus(saved);
 
-        // Inventory Hook: If PURCHASE order is COMPLETED, update stock
+        // Inventory Hook: PURCHASE=add stock, SALE=deduct stock
         if (saved.getOrderType() == OrderType.PURCHASE && "COMPLETED".equalsIgnoreCase(saved.getOrderStatus())) {
             processInventoryForOrder(saved);
+        } else if (saved.getOrderType() == OrderType.SALE
+                && "COMPLETED".equalsIgnoreCase(saved.getOrderStatus())
+                && "PAID".equalsIgnoreCase(saved.getPaymentStatus())) {
+            deductStockForSale(saved);
         }
 
         Order hydrated = hydrateOrder(saved);
@@ -2538,6 +2573,10 @@ public class OrderService {
 
         if (result.getOrderType() == OrderType.PURCHASE && "COMPLETED".equalsIgnoreCase(result.getOrderStatus())) {
             processInventoryForOrder(result);
+        } else if (result.getOrderType() == OrderType.SALE
+                && "COMPLETED".equalsIgnoreCase(result.getOrderStatus())
+                && "PAID".equalsIgnoreCase(result.getPaymentStatus())) {
+            deductStockForSale(result);
         }
         Order hydrated = hydrateOrder(result);
         enqueueCloudPrintJobs(hydrated);
@@ -2744,6 +2783,10 @@ public class OrderService {
 
         if (saved.getOrderType() == OrderType.PURCHASE && "COMPLETED".equalsIgnoreCase(saved.getOrderStatus())) {
             processInventoryForOrder(saved);
+        } else if (saved.getOrderType() == OrderType.SALE
+                && "COMPLETED".equalsIgnoreCase(saved.getOrderStatus())
+                && "PAID".equalsIgnoreCase(saved.getPaymentStatus())) {
+            deductStockForSale(saved);
         }
 
         Order hydrated = hydrateOrder(saved);
@@ -3513,6 +3556,115 @@ public class OrderService {
                         order.getId(),
                         line.getUnitPrice() != null ? line.getUnitPrice() : java.math.BigDecimal.ZERO,
                         order.getOrgId());
+            }
+        }
+    }
+
+    /**
+     * Deducts ingredient (or product) stock when a SALE order is completed/settled.
+     *
+     * <p>Logic:
+     * <ol>
+     *   <li>Resolve the warehouse: use {@code order.warehouseId} when set; otherwise fall back to
+     *       the org's default warehouse. If neither is available, log a warning and skip.
+     *   <li>For each order line that references a product, look up the product's recipe lines.
+     *       <ul>
+     *         <li>If recipe lines exist: deduct each ingredient by
+     *             {@code quantity_sold × ingredient_qty_per_unit} using transaction type {@code SALE_DEDUCTION}.
+     *         <li>If no recipe: deduct the product itself directly (for raw/tracked items).
+     *       </ul>
+     * </ol>
+     *
+     * <p>All stock updates go through {@link com.restaurant.pos.inventory.service.InventoryService#updateStock},
+     * which writes both a {@code StockLedger} entry and updates {@code StockSnapshot}.
+     */
+    private void deductStockForSale(Order order) {
+        if (order.getLines() == null || order.getLines().isEmpty()) {
+            return;
+        }
+
+        UUID clientId = order.getClientId() != null ? order.getClientId() : TenantContext.getCurrentTenant();
+        UUID orgId = order.getOrgId();
+
+        // Resolve warehouse: use order's explicit warehouseId, else fall back to org default
+        UUID warehouseId = order.getWarehouseId();
+        if (warehouseId == null) {
+            java.util.Optional<com.restaurant.pos.inventory.domain.Warehouse> defaultWh =
+                    inventoryService.findDefaultWarehouse(clientId, orgId);
+            if (defaultWh.isEmpty()) {
+                log.info("deductStockForSale: skipping order {} — no warehouseId set and no default warehouse configured for org {}",
+                        order.getId(), orgId);
+                return;
+            }
+            warehouseId = defaultWh.get().getId();
+        }
+
+        final UUID resolvedWarehouseId = warehouseId;
+
+        for (com.restaurant.pos.order.domain.OrderLine line : order.getLines()) {
+            if (line.getProductId() == null) {
+                continue;
+            }
+            BigDecimal qtySold = line.getQuantity() != null ? line.getQuantity() : BigDecimal.ONE;
+            if (qtySold.compareTo(BigDecimal.ZERO) <= 0) {
+                continue;
+            }
+
+            // Fetch product to check recipe lines
+            Product product = productRepository.findById(line.getProductId()).orElse(null);
+
+            boolean hasRecipe = product != null
+                    && product.getRecipeLines() != null
+                    && product.getRecipeLines().stream()
+                            .anyMatch(com.restaurant.pos.product.domain.ProductRecipe::isActive);
+
+            if (hasRecipe) {
+                // Deduct each ingredient proportionally
+                for (com.restaurant.pos.product.domain.ProductRecipe recipe : product.getRecipeLines()) {
+                    if (!recipe.isActive()) {
+                        continue;
+                    }
+                    if (recipe.getIngredient() == null || recipe.getQuantity() == null
+                            || recipe.getQuantity().compareTo(BigDecimal.ZERO) <= 0) {
+                        continue;
+                    }
+                    BigDecimal ingredientDeduction = qtySold.multiply(recipe.getQuantity()).negate();
+                    try {
+                        inventoryService.updateStock(
+                                resolvedWarehouseId,
+                                recipe.getIngredient().getId(),
+                                null, // ingredients do not have variants
+                                ingredientDeduction,
+                                "SALE_DEDUCTION",
+                                order.getId(),
+                                BigDecimal.ZERO,
+                                orgId);
+                        log.debug("deductStockForSale: deducted {} of ingredient {} for order {}",
+                                ingredientDeduction.abs(), recipe.getIngredient().getId(), order.getId());
+                    } catch (Exception e) {
+                        log.error("deductStockForSale: failed to deduct ingredient {} for order {} — {}",
+                                recipe.getIngredient().getId(), order.getId(), e.getMessage(), e);
+                    }
+                }
+            } else {
+                // No recipe — deduct product stock directly (for tracked raw/ingredient products)
+                BigDecimal deduction = qtySold.negate();
+                try {
+                    inventoryService.updateStock(
+                            resolvedWarehouseId,
+                            line.getProductId(),
+                            line.getVariantId(),
+                            deduction,
+                            "SALE_DEDUCTION",
+                            order.getId(),
+                            BigDecimal.ZERO,
+                            orgId);
+                    log.debug("deductStockForSale: deducted {} of product {} for order {}",
+                            qtySold, line.getProductId(), order.getId());
+                } catch (Exception e) {
+                    log.error("deductStockForSale: failed to deduct product {} for order {} — {}",
+                            line.getProductId(), order.getId(), e.getMessage(), e);
+                }
             }
         }
     }

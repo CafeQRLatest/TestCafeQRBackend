@@ -17,6 +17,7 @@ import lombok.ToString;
 @Setter
 @ToString(callSuper = true)
 @DiscriminatorValue("PURCHASE")
+@com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
 public class PurchaseOrder extends Order {
 
     public PurchaseOrder() {

@@ -46,4 +46,9 @@ public class Warehouse extends AuditableEntity {
     @JsonProperty("isActive")
     @Column(name = "isactive", length = 1)
     private String isactive = "Y";
+
+    @Builder.Default
+    @JsonProperty("isDefault")
+    @Column(name = "is_default")
+    private boolean isDefault = false;
 }

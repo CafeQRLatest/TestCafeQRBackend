@@ -11,6 +11,7 @@ import java.util.UUID;
 
 @Data
 @Schema(description = "DTO for updating an existing order")
+@com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
 public class UpdateOrderRequest {
 
     @Schema(description = "Dining table UUID")

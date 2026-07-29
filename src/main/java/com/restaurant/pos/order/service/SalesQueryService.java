@@ -123,10 +123,12 @@ public class SalesQueryService {
     private String buildWhereClause(SalesQueryCriteria criteria, MapSqlParameterSource params) {
         StringBuilder where = new StringBuilder("WHERE o.client_id = :clientId AND o.order_type = 'SALE' ");
         params.addValue("clientId", criteria.clientId());
-        params.addValue("orgId", criteria.orgId());
-
-        if (criteria.orgId() != null) {
+        boolean hasSearchText = criteria.search() != null && !criteria.search().isBlank();
+        if (criteria.orgId() != null && !hasSearchText) {
+            params.addValue("orgId", criteria.orgId());
             where.append("AND o.org_id = :orgId ");
+        } else {
+            params.addValue("orgId", null, java.sql.Types.OTHER);
         }
 
         if (criteria.terminalId() != null) {
@@ -136,13 +138,13 @@ public class SalesQueryService {
 
         // Status filter mapping
         String status = criteria.status();
-        if (status != null && !status.isBlank()) {
+        if (status != null && !status.isBlank() && !(hasSearchText && "COMPLETED_CANCELLED".equalsIgnoreCase(status))) {
             if ("VOID".equalsIgnoreCase(status)) {
                 where.append("AND (o.isactive = 'N' OR o.order_status = 'VOID') AND o.order_no NOT LIKE '%\\_VOID\\_%' ESCAPE '\\' ");
             } else if ("PAID".equalsIgnoreCase(status)) {
                 where.append("AND o.payment_status = 'PAID' AND o.isactive = 'Y' AND o.order_status <> 'VOID' AND o.order_no NOT LIKE '%\\_VOID\\_%' ESCAPE '\\' ");
             } else if ("COMPLETED_CANCELLED".equalsIgnoreCase(status)) {
-                where.append("AND o.order_status IN ('COMPLETED', 'CANCELLED') AND o.isactive = 'Y' AND o.order_status <> 'VOID' AND o.order_no NOT LIKE '%\\_VOID\\_%' ESCAPE '\\' ");
+                where.append("AND o.order_status IN ('COMPLETED', 'CANCELLED', 'BILLED') AND o.isactive = 'Y' AND o.order_status <> 'VOID' AND o.order_no NOT LIKE '%\\_VOID\\_%' ESCAPE '\\' ");
             } else {
                 where.append("AND o.order_status = :status AND o.isactive = 'Y' AND o.order_status <> 'VOID' AND o.order_no NOT LIKE '%\\_VOID\\_%' ESCAPE '\\' ");
                 params.addValue("status", status);
@@ -152,18 +154,18 @@ public class SalesQueryService {
         }
 
         // Date range filters (optional when searching by text query)
-        if (criteria.from() != null) {
+        if (criteria.from() != null && !hasSearchText) {
             where.append("AND o.order_date >= :fromDate ");
             params.addValue("fromDate", java.sql.Timestamp.from(criteria.from()));
         }
 
-        if (criteria.to() != null) {
+        if (criteria.to() != null && !hasSearchText) {
             where.append("AND o.order_date <= :toDate ");
             params.addValue("toDate", java.sql.Timestamp.from(criteria.to()));
         }
 
         // Search text matching
-        if (criteria.search() != null && !criteria.search().isEmpty()) {
+        if (hasSearchText) {
             String rawSearch = criteria.search().trim();
             String cleanSearch = rawSearch.replaceAll("^[#\\s]+", "").trim();
             String searchToUse = cleanSearch.isEmpty() ? rawSearch : cleanSearch;
@@ -175,17 +177,17 @@ public class SalesQueryService {
             params.addValue("searchPattern", searchPattern);
 
             where.append("AND (");
-            where.append("  LOWER(o.order_no) = :searchExact ");
-            where.append("  OR CAST(o.daily_bill_no AS VARCHAR) = :searchExact ");
-            where.append("  OR CAST(o.daily_bill_no AS VARCHAR) LIKE :searchPattern ESCAPE '\\' ");
+            where.append("  LOWER(TRIM(o.order_no)) = :searchExact ");
+            where.append("  OR LOWER(TRIM(o.order_no)) LIKE :searchPattern ESCAPE '\\' ");
+            where.append("  OR LOWER(CAST(o.id AS VARCHAR)) = :searchExact ");
             where.append("  OR LOWER(COALESCE(o.customer_name, '')) LIKE :searchPattern ESCAPE '\\' ");
             where.append("  OR LOWER(COALESCE(o.customer_phone, '')) LIKE :searchPattern ESCAPE '\\' ");
-            where.append("  OR EXISTS (SELECT 1 FROM invoices i WHERE i.order_id = o.id AND LOWER(i.invoice_no) = :searchExact) ");
-            where.append("  OR EXISTS (SELECT 1 FROM payments p WHERE p.order_id = o.id AND LOWER(p.reference_no) = :searchExact) ");
-            where.append("  OR LOWER(o.order_no) LIKE :searchPattern ESCAPE '\\' ");
-            where.append("  OR EXISTS (SELECT 1 FROM invoices i WHERE i.order_id = o.id AND LOWER(i.invoice_no) LIKE :searchPattern ESCAPE '\\') ");
-            where.append("  OR EXISTS (SELECT 1 FROM payments p WHERE p.order_id = o.id AND LOWER(p.reference_no) LIKE :searchPattern ESCAPE '\\') ");
-            where.append("  OR LOWER(o.table_number) LIKE :searchPattern ESCAPE '\\' ");
+            where.append("  OR LOWER(COALESCE(o.description, '')) LIKE :searchPattern ESCAPE '\\' ");
+            where.append("  OR LOWER(COALESCE(o.reference, '')) LIKE :searchPattern ESCAPE '\\' ");
+            where.append("  OR EXISTS (SELECT 1 FROM invoices i WHERE i.order_id = o.id AND (LOWER(TRIM(i.invoice_no)) = :searchExact OR LOWER(TRIM(i.invoice_no)) LIKE :searchPattern ESCAPE '\\' OR CAST(i.daily_bill_no AS VARCHAR) = :searchExact OR CAST(i.daily_bill_no AS VARCHAR) LIKE :searchPattern ESCAPE '\\')) ");
+            where.append("  OR EXISTS (SELECT 1 FROM payments p WHERE p.order_id = o.id AND (LOWER(TRIM(p.reference_no)) = :searchExact OR LOWER(TRIM(p.reference_no)) LIKE :searchPattern ESCAPE '\\')) ");
+            where.append("  OR EXISTS (SELECT 1 FROM order_lines ol WHERE ol.order_id = o.id AND ol.isactive = 'Y' AND (LOWER(ol.product_name) LIKE :searchPattern ESCAPE '\\' OR LOWER(COALESCE(ol.category_name, '')) LIKE :searchPattern ESCAPE '\\')) ");
+            where.append("  OR LOWER(COALESCE(o.table_number, '')) LIKE :searchPattern ESCAPE '\\' ");
             where.append("  OR EXISTS (");
             where.append("    SELECT 1 FROM customers c ");
             where.append("    WHERE c.id = o.customer_id ");
@@ -194,8 +196,6 @@ public class SalesQueryService {
             where.append("      AND c.isactive = 'Y' ");
             where.append("      AND (LOWER(c.name) LIKE :searchPattern ESCAPE '\\' OR LOWER(COALESCE(c.phone, '')) LIKE :searchPattern ESCAPE '\\')");
             where.append("  ) ");
-            // Correlated EXISTS avoids producing a flattened customer/order_links row set
-            // and allows PostgreSQL to stop after finding the first matching order link.
             where.append("  OR EXISTS (");
             where.append("    SELECT 1 FROM customers c ");
             where.append("    WHERE c.client_id = :clientId ");

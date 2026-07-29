@@ -30,6 +30,20 @@ public class InventoryService {
     private final BranchContextService branchContext;
     private final ProductRepository productRepository;
 
+    /**
+     * Resolves the default warehouse for an org.
+     * Returns empty if no default warehouse is configured — callers should skip stock operations.
+     */
+    public java.util.Optional<Warehouse> findDefaultWarehouse(UUID clientId, UUID orgId) {
+        if (orgId != null) {
+            java.util.List<Warehouse> defaults = warehouseRepository.findDefaultWarehousesForOrg(clientId, orgId);
+            if (!defaults.isEmpty()) {
+                return java.util.Optional.of(defaults.get(0));
+            }
+        }
+        return warehouseRepository.findFirstByClientIdAndIsDefaultTrue(clientId);
+    }
+
     // --- Warehouse Management ---
 
     public List<Warehouse> getWarehouses(UUID orgId) {
@@ -57,8 +71,15 @@ public class InventoryService {
 
     @Transactional
     public Warehouse saveWarehouse(Warehouse warehouse) {
-        warehouse.setClientId(TenantContext.getCurrentTenant());
-        warehouse.setOrgId(branchContext.requireWriteOrgId(warehouse.getOrgId()));
+        UUID clientId = TenantContext.getCurrentTenant();
+        UUID orgId = branchContext.requireWriteOrgId(warehouse.getOrgId());
+        warehouse.setClientId(clientId);
+        warehouse.setOrgId(orgId);
+
+        if (warehouse.isDefault()) {
+            warehouseRepository.unsetOtherDefaultsForOrg(clientId, orgId, warehouse.getId());
+        }
+
         return warehouseRepository.save(warehouse);
     }
 

@@ -35,6 +35,7 @@ import java.util.UUID;
     visible = true,
     defaultImpl = Order.class
 )
+@com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
 @com.fasterxml.jackson.annotation.JsonSubTypes({
     @com.fasterxml.jackson.annotation.JsonSubTypes.Type(value = Order.class, name = "SALE"),
     @com.fasterxml.jackson.annotation.JsonSubTypes.Type(value = com.restaurant.pos.purchasing.domain.PurchaseOrder.class, name = "PURCHASE")
