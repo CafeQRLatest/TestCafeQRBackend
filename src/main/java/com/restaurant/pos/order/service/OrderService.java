@@ -2234,7 +2234,7 @@ public class OrderService {
         Order newOrder;
         OrderType preservedType = oldOrder.getOrderType();
         if (preservedType == OrderType.PURCHASE) {
-            newOrder = new com.restaurant.pos.purchasing.domain.PurchaseOrder();
+            newOrder = new com.restaurant.pos.purchase.domain.PurchaseOrder();
         } else {
             newOrder = new Order();
         }

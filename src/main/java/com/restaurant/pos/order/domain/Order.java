@@ -38,7 +38,7 @@ import java.util.UUID;
 @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
 @com.fasterxml.jackson.annotation.JsonSubTypes({
     @com.fasterxml.jackson.annotation.JsonSubTypes.Type(value = Order.class, name = "SALE"),
-    @com.fasterxml.jackson.annotation.JsonSubTypes.Type(value = com.restaurant.pos.purchasing.domain.PurchaseOrder.class, name = "PURCHASE")
+    @com.fasterxml.jackson.annotation.JsonSubTypes.Type(value = com.restaurant.pos.purchase.domain.PurchaseOrder.class, name = "PURCHASE")
 })
 public class Order extends BaseEntity {
 

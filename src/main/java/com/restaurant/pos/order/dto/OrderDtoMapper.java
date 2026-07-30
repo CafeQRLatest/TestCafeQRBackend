@@ -6,7 +6,7 @@ import com.restaurant.pos.order.domain.Order;
 import com.restaurant.pos.order.domain.OrderLine;
 import com.restaurant.pos.order.domain.OrderType;
 import com.restaurant.pos.order.domain.TaxType;
-import com.restaurant.pos.purchasing.domain.PurchaseOrder;
+import com.restaurant.pos.purchase.domain.PurchaseOrder;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
