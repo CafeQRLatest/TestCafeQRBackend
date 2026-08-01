@@ -4,6 +4,8 @@ import com.restaurant.pos.inventory.domain.StockTransfer;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
@@ -20,6 +22,9 @@ public interface StockTransferRepository extends JpaRepository<StockTransfer, UU
     List<StockTransfer> findByClientIdAndOrgIdOrderByTransferDateDesc(UUID clientId, UUID orgId);
 
     Page<StockTransfer> findByClientIdAndOrgIdOrderByTransferDateDesc(UUID clientId, UUID orgId, Pageable pageable);
+
+    @Query("SELECT t FROM StockTransfer t WHERE t.clientId = :clientId AND (t.orgId = :orgId OR t.destWarehouseId IN (SELECT w.id FROM Warehouse w WHERE w.orgId = :orgId)) ORDER BY t.transferDate DESC")
+    Page<StockTransfer> findByClientIdAndOrgIdOrDestOrgId(@Param("clientId") UUID clientId, @Param("orgId") UUID orgId, Pageable pageable);
     
     Optional<StockTransfer> findByIdAndClientId(UUID id, UUID clientId);
     

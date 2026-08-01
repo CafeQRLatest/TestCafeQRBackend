@@ -1,0 +1,1 @@
+ALTER TABLE stock_transfers ADD COLUMN IF NOT EXISTS was_in_transit BOOLEAN DEFAULT FALSE;

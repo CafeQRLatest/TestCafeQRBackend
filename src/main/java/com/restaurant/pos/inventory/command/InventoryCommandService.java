@@ -14,6 +14,10 @@ import com.restaurant.pos.inventory.repository.StockAdjustmentRepository;
 import com.restaurant.pos.inventory.repository.StockLedgerRepository;
 import com.restaurant.pos.inventory.repository.StockSnapshotRepository;
 import com.restaurant.pos.inventory.repository.StockTransferRepository;
+import com.restaurant.pos.sequence.domain.DocumentType;
+import com.restaurant.pos.sequence.service.DocumentSequenceService;
+import com.restaurant.pos.warehouse.domain.Warehouse;
+import com.restaurant.pos.warehouse.repository.WarehouseRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -33,6 +37,8 @@ public class InventoryCommandService {
     private final StockTransferRepository stockTransferRepository;
     private final AccountingPostingService accountingPostingService;
     private final BranchContextService branchContext;
+    private final DocumentSequenceService documentSequenceService;
+    private final WarehouseRepository warehouseRepository;
 
     public void updateStock(UUID warehouseId, UUID productId, UUID variantId, BigDecimal quantityChange,
                             String transactionType, UUID referenceId, BigDecimal unitCost) {
@@ -84,43 +90,147 @@ public class InventoryCommandService {
         adjustment.setClientId(clientId);
         adjustment.setOrgId(orgId);
 
-        if (adjustment.getAdjustmentNumber() == null) {
-            adjustment.setAdjustmentNumber("ADJ-" + System.currentTimeMillis());
+        if (adjustment.getId() == null || adjustment.getAdjustmentNumber() == null 
+                || adjustment.getAdjustmentNumber().matches("^ADJ-\\d+$")
+                || "Auto Generated".equalsIgnoreCase(adjustment.getAdjustmentNumber())) {
+            adjustment.setAdjustmentNumber(documentSequenceService.generateNextSequence(DocumentType.STOCK_ADJUSTMENT, orgId));
         }
 
-        if ("COMPLETED".equalsIgnoreCase(adjustment.getStatus())) {
+        if (adjustment.getLines() != null) {
             for (StockAdjustmentLine line : adjustment.getLines()) {
-                updateStock(adjustment.getWarehouseId(), line.getProductId(), line.getVariantId(), 
-                        line.getQuantityChange(), "ADJUSTMENT", adjustment.getId(), line.getUnitCost());
+                line.setAdjustment(adjustment);
+                if (line.getIsActive() == null) {
+                    line.setIsActive("Y");
+                }
+            }
+        }
+
+        StockAdjustment saved = stockAdjustmentRepository.save(adjustment);
+
+        if ("COMPLETED".equalsIgnoreCase(saved.getStatus()) && saved.getLines() != null) {
+            for (StockAdjustmentLine line : saved.getLines()) {
+                updateStock(saved.getWarehouseId(), line.getProductId(), line.getVariantId(), 
+                        line.getQuantityChange(), "ADJUSTMENT", saved.getId(), line.getUnitCost());
             }
         }
         
-        StockAdjustment saved = stockAdjustmentRepository.save(adjustment);
         accountingPostingService.postStockAdjustment(saved);
         return saved;
     }
 
+
+
     public StockTransfer saveTransfer(StockTransfer transfer) {
         UUID clientId = TenantContext.getCurrentTenant();
-        UUID orgId = branchContext.requireWriteOrgId(transfer.getOrgId());
-        
-        transfer.setClientId(clientId);
-        transfer.setOrgId(orgId);
 
-        if (transfer.getTransferNumber() == null) {
-            transfer.setTransferNumber("TRF-" + System.currentTimeMillis());
+        StockTransfer existing = null;
+        if (transfer.getId() != null) {
+            existing = stockTransferRepository.findById(transfer.getId()).orElse(null);
         }
 
-        if ("COMPLETED".equalsIgnoreCase(transfer.getStatus())) {
+        UUID orgId;
+        if (existing != null) {
+            UUID activeOrgId = branchContext.requireWriteOrgId(null);
+            
+            Warehouse sourceWh = warehouseRepository.findById(existing.getSourceWarehouseId()).orElse(null);
+            Warehouse destWh = warehouseRepository.findById(existing.getDestWarehouseId()).orElse(null);
+            UUID sourceOrgId = sourceWh != null && sourceWh.getOrgId() != null ? sourceWh.getOrgId() : existing.getOrgId();
+            UUID destOrgId = destWh != null && destWh.getOrgId() != null ? destWh.getOrgId() : existing.getOrgId();
+            
+            if (!SecurityUtils.isSuperAdmin() && activeOrgId != null 
+                    && !activeOrgId.equals(sourceOrgId) && !activeOrgId.equals(destOrgId)) {
+                throw new com.restaurant.pos.common.exception.BusinessException(
+                        "Selected branch does not match the source or destination branch of this transfer."
+                );
+            }
+            orgId = existing.getOrgId();
+            transfer.setOrgId(orgId);
+        } else {
+            orgId = branchContext.requireWriteOrgId(transfer.getOrgId());
+            transfer.setOrgId(orgId);
+        }
+
+        transfer.setClientId(clientId);
+
+        if ("IN_TRANSIT".equalsIgnoreCase(transfer.getStatus())) {
+            transfer.setWasInTransit(true);
+        } else if (existing != null && Boolean.TRUE.equals(existing.getWasInTransit())) {
+            transfer.setWasInTransit(true);
+        }
+
+        if (transfer.getId() == null || transfer.getTransferNumber() == null 
+                || transfer.getTransferNumber().matches("^TRF-\\d+$")
+                || "Auto Generated".equalsIgnoreCase(transfer.getTransferNumber())) {
+            transfer.setTransferNumber(documentSequenceService.generateNextSequence(DocumentType.STOCK_TRANSFER, orgId));
+        }
+
+        if (transfer.getLines() != null) {
             for (StockTransferLine line : transfer.getLines()) {
-                updateStock(transfer.getSourceWarehouseId(), line.getProductId(), line.getVariantId(), 
-                        line.getTransferQuantity().negate(), "TRANSFER_OUT", transfer.getId(), BigDecimal.ZERO);
-                
-                updateStock(transfer.getDestWarehouseId(), line.getProductId(), line.getVariantId(), 
-                        line.getTransferQuantity(), "TRANSFER_IN", transfer.getId(), BigDecimal.ZERO);
+                line.setTransfer(transfer);
+                if (line.getIsActive() == null) {
+                    line.setIsActive("Y");
+                }
             }
         }
 
-        return stockTransferRepository.save(transfer);
+        if (!"DRAFT".equalsIgnoreCase(transfer.getStatus()) && transfer.getLines() != null) {
+            boolean isNewTransitionToActive = existing == null || "DRAFT".equalsIgnoreCase(existing.getStatus());
+            if (isNewTransitionToActive) {
+                for (StockTransferLine line : transfer.getLines()) {
+                    StockSnapshot snapshot = stockSnapshotRepository
+                            .findByWarehouseIdAndProductIdAndVariantId(transfer.getSourceWarehouseId(), line.getProductId(), line.getVariantId())
+                            .orElse(null);
+                    BigDecimal available = snapshot != null && snapshot.getCurrentQuantity() != null ? snapshot.getCurrentQuantity() : BigDecimal.ZERO;
+                    if (available.compareTo(BigDecimal.ZERO) <= 0) {
+                        throw new com.restaurant.pos.common.exception.BusinessException(
+                                "Cannot transfer non-stock item. Available stock is 0."
+                        );
+                    }
+                    if (line.getTransferQuantity() != null && line.getTransferQuantity().compareTo(available) > 0) {
+                        throw new com.restaurant.pos.common.exception.BusinessException(
+                                "Transfer quantity (" + line.getTransferQuantity() + ") exceeds available stock (" + available + ")."
+                        );
+                    }
+                }
+            }
+        }
+
+        StockTransfer saved = stockTransferRepository.save(transfer);
+
+        if ("COMPLETED".equalsIgnoreCase(saved.getStatus())) {
+            boolean alreadyCompleted = existing != null && "COMPLETED".equalsIgnoreCase(existing.getStatus());
+            if (!alreadyCompleted) {
+                Warehouse sourceWh = warehouseRepository.findById(saved.getSourceWarehouseId()).orElse(null);
+                Warehouse destWh = warehouseRepository.findById(saved.getDestWarehouseId()).orElse(null);
+                UUID sourceOrgId = sourceWh != null && sourceWh.getOrgId() != null ? sourceWh.getOrgId() : orgId;
+                UUID destOrgId = destWh != null && destWh.getOrgId() != null ? destWh.getOrgId() : orgId;
+
+                for (StockTransferLine line : saved.getLines()) {
+                    updateStock(saved.getSourceWarehouseId(), line.getProductId(), line.getVariantId(), 
+                            line.getTransferQuantity().negate(), "TRANSFER_OUT", saved.getId(), BigDecimal.ZERO, sourceOrgId);
+                    
+                    updateStock(saved.getDestWarehouseId(), line.getProductId(), line.getVariantId(), 
+                            line.getTransferQuantity(), "TRANSFER_IN", saved.getId(), BigDecimal.ZERO, destOrgId);
+                }
+            }
+        } else if ("CANCELLED".equalsIgnoreCase(saved.getStatus()) || "VOIDED".equalsIgnoreCase(saved.getStatus())) {
+            boolean wasAlreadyCompleted = existing != null && "COMPLETED".equalsIgnoreCase(existing.getStatus());
+            if (wasAlreadyCompleted) {
+                Warehouse sourceWh = warehouseRepository.findById(saved.getSourceWarehouseId()).orElse(null);
+                Warehouse destWh = warehouseRepository.findById(saved.getDestWarehouseId()).orElse(null);
+                UUID sourceOrgId = sourceWh != null && sourceWh.getOrgId() != null ? sourceWh.getOrgId() : orgId;
+                UUID destOrgId = destWh != null && destWh.getOrgId() != null ? destWh.getOrgId() : orgId;
+
+                for (StockTransferLine line : saved.getLines()) {
+                    updateStock(saved.getSourceWarehouseId(), line.getProductId(), line.getVariantId(), 
+                            line.getTransferQuantity(), "TRANSFER_VOID_REVERT", saved.getId(), BigDecimal.ZERO, sourceOrgId);
+                    
+                    updateStock(saved.getDestWarehouseId(), line.getProductId(), line.getVariantId(), 
+                            line.getTransferQuantity().negate(), "TRANSFER_VOID_REVERT", saved.getId(), BigDecimal.ZERO, destOrgId);
+                }
+            }
+        }
+
+        return saved;
     }
 }

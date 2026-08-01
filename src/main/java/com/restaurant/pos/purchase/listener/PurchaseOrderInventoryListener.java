@@ -27,18 +27,32 @@ public class PurchaseOrderInventoryListener {
     @Transactional
     public void onPurchaseOrderCompleted(PurchaseOrderCompletedEvent event) {
         Order purchaseOrder = event.purchaseOrder();
-        if (purchaseOrder.getWarehouseId() == null || purchaseOrder.getLines() == null) {
+        if (purchaseOrder == null || purchaseOrder.getLines() == null) {
             return;
         }
 
+        java.util.UUID warehouseId = purchaseOrder.getWarehouseId();
+        if (warehouseId == null) {
+            var defaultWh = inventoryService.findDefaultWarehouse(purchaseOrder.getClientId(), purchaseOrder.getOrgId());
+            if (defaultWh.isPresent()) {
+                warehouseId = defaultWh.get().getId();
+            } else {
+                log.warn("EventListener: skipping stock intake for PO {} — no warehouseId set and no default warehouse configured for org {}",
+                        purchaseOrder.getOrderNo(), purchaseOrder.getOrgId());
+                return;
+            }
+        }
+
+        final java.util.UUID targetWarehouseId = warehouseId;
+
         log.info("EventListener: Processing stock intake | orderNo={} | warehouseId={} | lines={}",
-                purchaseOrder.getOrderNo(), purchaseOrder.getWarehouseId(), purchaseOrder.getLines().size());
+                purchaseOrder.getOrderNo(), targetWarehouseId, purchaseOrder.getLines().size());
 
         for (OrderLine line : purchaseOrder.getLines()) {
             if (line.getProductId() != null && line.getQuantity() != null && line.getQuantity().compareTo(BigDecimal.ZERO) > 0) {
                 try {
                     inventoryService.updateStock(
-                            purchaseOrder.getWarehouseId(),
+                            targetWarehouseId,
                             line.getProductId(),
                             line.getVariantId(),
                             line.getQuantity(),           // Positive = Stock IN

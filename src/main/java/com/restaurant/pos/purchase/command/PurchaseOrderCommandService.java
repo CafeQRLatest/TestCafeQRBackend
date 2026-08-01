@@ -40,6 +40,7 @@ public class PurchaseOrderCommandService {
     private final PurchaseOrderDtoMapper purchaseOrderDtoMapper;
     private final BranchContextService branchContext;
     private final ApplicationEventPublisher eventPublisher;
+    private final com.restaurant.pos.inventory.service.InventoryService inventoryService;
 
     /**
      * Creates and saves a new Purchase Order with server-side total recalculation.
@@ -87,6 +88,11 @@ public class PurchaseOrderCommandService {
         }
         if (!StringUtils.hasText(purchaseOrder.getPaymentStatus())) {
             purchaseOrder.setPaymentStatus("PENDING");
+        }
+
+        if (purchaseOrder.getWarehouseId() == null && orgId != null) {
+            inventoryService.findDefaultWarehouse(clientId, orgId)
+                    .ifPresent(dw -> purchaseOrder.setWarehouseId(dw.getId()));
         }
 
         // Link child lines to parent order

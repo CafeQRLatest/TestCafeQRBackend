@@ -48,17 +48,27 @@ public class StockTransfer extends AuditableEntity {
     @Column(length = 20)
     private String status = "DRAFT"; // DRAFT, IN_TRANSIT, COMPLETED, CANCELLED
 
+    @Builder.Default
+    @Column(name = "was_in_transit")
+    private Boolean wasInTransit = false;
+
     @Column(columnDefinition = "TEXT")
     private String notes;
+
+    @Transient
+    private String createdByName;
+
+    @Transient
+    private String updatedByName;
 
     @Builder.Default
     @JsonProperty("isActive")
     @Column(name = "isactive", length = 1)
     private String isactive = "Y";
 
-    @OneToMany(mappedBy = "transfer", cascade = CascadeType.ALL, orphanRemoval = true)
+    @OneToMany(mappedBy = "transfer", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
+    @BatchSize(size = 50)
     @Builder.Default
-    @BatchSize(size = 20)
     private List<StockTransferLine> lines = new ArrayList<>();
 
     public void addLine(StockTransferLine line) {

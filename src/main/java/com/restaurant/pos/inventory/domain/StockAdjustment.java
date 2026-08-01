@@ -51,6 +51,12 @@ public class StockAdjustment extends AuditableEntity {
     @Column(columnDefinition = "TEXT")
     private String notes;
 
+    @Transient
+    private String createdByName;
+
+    @Transient
+    private String updatedByName;
+
     @Builder.Default
     @JsonProperty("isActive")
     @Column(name = "isactive", length = 1)

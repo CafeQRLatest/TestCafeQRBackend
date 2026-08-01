@@ -77,4 +77,18 @@ public class InventoryQueryController {
         Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "transferDate"));
         return ResponseEntity.ok(ApiResponse.success(queryService.getTransfers(orgId, pageable)));
     }
+
+    @GetMapping("/transfers/{id}")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
+    @Operation(summary = "Get Stock Transfer By ID", description = "Retrieves details of a specific stock transfer.")
+    public ResponseEntity<ApiResponse<StockTransfer>> getTransferById(@PathVariable UUID id) {
+        return ResponseEntity.ok(ApiResponse.success(queryService.getTransferById(id)));
+    }
+
+    @GetMapping("/adjustments/{id}")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
+    @Operation(summary = "Get Stock Adjustment By ID", description = "Retrieves details of a specific stock adjustment.")
+    public ResponseEntity<ApiResponse<StockAdjustment>> getAdjustmentById(@PathVariable UUID id) {
+        return ResponseEntity.ok(ApiResponse.success(queryService.getAdjustmentById(id)));
+    }
 }

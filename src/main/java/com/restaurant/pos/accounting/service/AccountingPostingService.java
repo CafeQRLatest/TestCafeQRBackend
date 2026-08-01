@@ -1043,7 +1043,8 @@ public class AccountingPostingService {
         BigDecimal value = BigDecimal.ZERO;
         if (adjustment.getLines() != null) {
             for (StockAdjustmentLine line : adjustment.getLines()) {
-                if (line == null || !"Y".equalsIgnoreCase(line.getIsactive())) {
+                if (line == null || !"Y".equalsIgnoreCase(line.getIsActive())) {
+
                     continue;
                 }
                 value = value.add(quantity(line.getQuantityChange()).multiply(money(line.getUnitCost())));

@@ -1,5 +1,6 @@
 package com.restaurant.pos.warehouse.service;
 
+import com.restaurant.pos.common.exception.BusinessException;
 import com.restaurant.pos.common.exception.ResourceNotFoundException;
 import com.restaurant.pos.common.service.BranchContextService;
 import com.restaurant.pos.common.tenant.TenantContext;
@@ -27,6 +28,10 @@ public class WarehouseService {
             if (!defaults.isEmpty()) {
                 return Optional.of(defaults.get(0));
             }
+            List<Warehouse> orgWarehouses = warehouseRepository.findByClientIdAndOrgIdOrderByCreatedAtDesc(clientId, orgId);
+            if (!orgWarehouses.isEmpty()) {
+                return Optional.of(orgWarehouses.get(0));
+            }
         }
         return warehouseRepository.findFirstByClientIdAndIsDefaultTrue(clientId);
     }
@@ -34,10 +39,24 @@ public class WarehouseService {
     public List<Warehouse> getWarehouses(UUID orgId) {
         UUID clientId = TenantContext.getCurrentTenant();
         UUID effectiveOrgId = orgId != null ? orgId : TenantContext.getCurrentOrg();
+        List<Warehouse> list;
         if (SecurityUtils.isSuperAdmin() && orgId == null) {
-            return warehouseRepository.findByClientIdOrderByCreatedAtDesc(clientId);
+            list = warehouseRepository.findByClientIdOrderByCreatedAtDesc(clientId);
+        } else {
+            list = warehouseRepository.findByClientIdAndOrgIdOrGlobalOrderByCreatedAtDesc(clientId, effectiveOrgId);
         }
-        return warehouseRepository.findByClientIdAndOrgIdOrGlobalOrderByCreatedAtDesc(clientId, effectiveOrgId);
+
+        if (effectiveOrgId != null) {
+            List<Warehouse> orgWhs = list.stream()
+                    .filter(w -> effectiveOrgId.equals(w.getOrgId()))
+                    .toList();
+            if (orgWhs.size() == 1 && !orgWhs.get(0).isDefault()) {
+                Warehouse single = orgWhs.get(0);
+                single.setDefault(true);
+                warehouseRepository.save(single);
+            }
+        }
+        return list;
     }
 
     public List<Warehouse> getWarehouses() {
@@ -57,12 +76,27 @@ public class WarehouseService {
     @Transactional
     public Warehouse saveWarehouse(Warehouse warehouse) {
         UUID clientId = TenantContext.getCurrentTenant();
+        if (warehouse.getOrgId() == null) {
+            throw new BusinessException("Organization is required for warehouse creation");
+        }
         UUID orgId = branchContext.requireWriteOrgId(warehouse.getOrgId());
         warehouse.setClientId(clientId);
         warehouse.setOrgId(orgId);
 
-        if (warehouse.isDefault()) {
+        List<Warehouse> existingForOrg = warehouseRepository.findByClientIdAndOrgIdOrderByCreatedAtDesc(clientId, orgId);
+
+        boolean isOnlyWarehouse = existingForOrg.isEmpty() ||
+                (existingForOrg.size() == 1 && (warehouse.getId() == null || existingForOrg.get(0).getId().equals(warehouse.getId())));
+
+        if (isOnlyWarehouse || warehouse.isDefault()) {
+            warehouse.setDefault(true);
             warehouseRepository.unsetOtherDefaultsForOrg(clientId, orgId, warehouse.getId());
+        } else {
+            boolean hasOtherDefault = existingForOrg.stream()
+                    .anyMatch(w -> w.isDefault() && !w.getId().equals(warehouse.getId()));
+            if (!hasOtherDefault) {
+                warehouse.setDefault(true);
+            }
         }
 
         return warehouseRepository.save(warehouse);
@@ -72,7 +106,20 @@ public class WarehouseService {
     public void deleteWarehouse(UUID id) {
         Warehouse warehouse = getWarehouse(id);
         if (warehouse != null) {
+            boolean wasDefault = warehouse.isDefault();
+            UUID clientId = warehouse.getClientId();
+            UUID orgId = warehouse.getOrgId();
+
             warehouseRepository.delete(warehouse);
+
+            if (wasDefault && orgId != null) {
+                List<Warehouse> remaining = warehouseRepository.findByClientIdAndOrgIdOrderByCreatedAtDesc(clientId, orgId);
+                if (!remaining.isEmpty()) {
+                    Warehouse nextDefault = remaining.get(0);
+                    nextDefault.setDefault(true);
+                    warehouseRepository.save(nextDefault);
+                }
+            }
         }
     }
 }

@@ -40,8 +40,23 @@ public class StockAdjustmentLine {
     @Column(name = "unit_cost", precision = 15, scale = 2)
     private BigDecimal unitCost = BigDecimal.ZERO;
 
+    @Transient
+    private String productName;
+
+    @Transient
+    private String variantName;
+
+    @Transient
+    private String sku;
+
+    @Transient
+    private String categoryName;
+
     @Builder.Default
     @JsonProperty("isActive")
     @Column(name = "isactive", length = 1)
-    private String isactive = "Y";
+    private String isActive = "Y";
 }
+
+
+

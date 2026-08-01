@@ -26,6 +26,11 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+import com.restaurant.pos.auth.repository.UserRepository;
+import com.restaurant.pos.inventory.domain.StockAdjustmentLine;
+import com.restaurant.pos.inventory.domain.StockTransferLine;
+import com.restaurant.pos.product.domain.Product;
+
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -36,7 +41,27 @@ public class InventoryQueryService {
     private final StockTransferRepository stockTransferRepository;
     private final WarehouseRepository warehouseRepository;
     private final ProductRepository productRepository;
+    private final UserRepository userRepository;
     private final BranchContextService branchContext;
+
+    private String resolveUserName(String userIdStr) {
+        if (userIdStr == null || userIdStr.isBlank() || "SYSTEM".equalsIgnoreCase(userIdStr)) {
+            return "System";
+        }
+        try {
+            UUID uid = UUID.fromString(userIdStr);
+            return userRepository.findById(uid)
+                    .map(u -> {
+                        String fn = u.getFirstName() != null ? u.getFirstName() : "";
+                        String ln = u.getLastName() != null ? u.getLastName() : "";
+                        String full = (fn + " " + ln).trim();
+                        return full.isEmpty() ? (u.getEmail() != null ? u.getEmail() : userIdStr) : full;
+                    })
+                    .orElse(userIdStr);
+        } catch (Exception e) {
+            return userIdStr;
+        }
+    }
 
     public List<StockSnapshot> getStockOverview(UUID warehouseId) {
         List<StockSnapshot> snapshots = stockSnapshotRepository.findByWarehouseId(warehouseId);
@@ -91,19 +116,94 @@ public class InventoryQueryService {
     public Page<StockAdjustment> getAdjustments(UUID orgId, Pageable pageable) {
         UUID clientId = TenantContext.getCurrentTenant();
         UUID effectiveOrgId = branchContext.getReadOrgId(orgId);
+        Page<StockAdjustment> page;
         if (effectiveOrgId != null) {
-            return stockAdjustmentRepository.findByClientIdAndOrgIdOrderByAdjustmentDateDesc(clientId, effectiveOrgId, pageable);
+            page = stockAdjustmentRepository.findByClientIdAndOrgIdOrderByAdjustmentDateDesc(clientId, effectiveOrgId, pageable);
+        } else {
+            page = stockAdjustmentRepository.findByClientIdOrderByAdjustmentDateDesc(clientId, pageable);
         }
-        return stockAdjustmentRepository.findByClientIdOrderByAdjustmentDateDesc(clientId, pageable);
+        page.getContent().forEach(adj -> {
+            adj.setCreatedByName(resolveUserName(adj.getCreatedBy()));
+            adj.setUpdatedByName(resolveUserName(adj.getUpdatedBy()));
+            if (adj.getLines() != null) {
+                for (StockAdjustmentLine line : adj.getLines()) {
+                    if (line.getProductId() != null) {
+                        productRepository.findById(line.getProductId()).ifPresent(p -> {
+                            line.setProductName(p.getName());
+                            line.setSku(p.getProductCode());
+                            if (p.getCategory() != null) {
+                                line.setCategoryName(p.getCategory().getName());
+                            }
+                        });
+                    }
+                }
+            }
+        });
+        return page;
     }
+
 
     public Page<StockTransfer> getTransfers(UUID orgId, Pageable pageable) {
         UUID clientId = TenantContext.getCurrentTenant();
         UUID effectiveOrgId = branchContext.getReadOrgId(orgId);
+        Page<StockTransfer> page;
         if (effectiveOrgId != null) {
-            return stockTransferRepository.findByClientIdAndOrgIdOrderByTransferDateDesc(clientId, effectiveOrgId, pageable);
+            page = stockTransferRepository.findByClientIdAndOrgIdOrDestOrgId(clientId, effectiveOrgId, pageable);
+        } else {
+            page = stockTransferRepository.findByClientIdOrderByTransferDateDesc(clientId, pageable);
         }
-        return stockTransferRepository.findByClientIdOrderByTransferDateDesc(clientId, pageable);
+        page.getContent().forEach(t -> {
+            t.setCreatedByName(resolveUserName(t.getCreatedBy()));
+            t.setUpdatedByName(resolveUserName(t.getUpdatedBy()));
+        });
+        return page;
+    }
+
+    public StockTransfer getTransferById(UUID id) {
+        StockTransfer transfer = stockTransferRepository.findById(id)
+                .orElseThrow(() -> new com.restaurant.pos.common.exception.ResourceNotFoundException("Stock transfer not found with ID: " + id));
+
+        transfer.setCreatedByName(resolveUserName(transfer.getCreatedBy()));
+        transfer.setUpdatedByName(resolveUserName(transfer.getUpdatedBy()));
+
+        if (transfer.getLines() != null) {
+            for (StockTransferLine line : transfer.getLines()) {
+                if (line.getProductId() != null) {
+                    productRepository.findById(line.getProductId()).ifPresent(p -> {
+                        line.setProductName(p.getName());
+                        line.setSku(p.getProductCode());
+                        if (p.getCategory() != null) {
+                            line.setCategoryName(p.getCategory().getName());
+                        }
+                    });
+                }
+            }
+        }
+        return transfer;
+    }
+
+    public StockAdjustment getAdjustmentById(UUID id) {
+        StockAdjustment adjustment = stockAdjustmentRepository.findById(id)
+                .orElseThrow(() -> new com.restaurant.pos.common.exception.ResourceNotFoundException("Stock adjustment not found with ID: " + id));
+
+        adjustment.setCreatedByName(resolveUserName(adjustment.getCreatedBy()));
+        adjustment.setUpdatedByName(resolveUserName(adjustment.getUpdatedBy()));
+
+        if (adjustment.getLines() != null) {
+            for (StockAdjustmentLine line : adjustment.getLines()) {
+                if (line.getProductId() != null) {
+                    productRepository.findById(line.getProductId()).ifPresent(p -> {
+                        line.setProductName(p.getName());
+                        line.setSku(p.getProductCode());
+                        if (p.getCategory() != null) {
+                            line.setCategoryName(p.getCategory().getName());
+                        }
+                    });
+                }
+            }
+        }
+
+        return adjustment;
     }
 
     private List<StockSnapshot> appendRecipeProductsStock(List<StockSnapshot> snapshots, UUID clientId, UUID orgId, UUID warehouseId, boolean isConsolidated) {

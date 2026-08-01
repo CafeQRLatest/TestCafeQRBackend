@@ -20,7 +20,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -92,12 +94,20 @@ public class DocumentSequenceService {
         
         List<DocumentSequence> existing = sequenceRepository.findByClientIdAndOrgId(clientId, orgId);
         
-        // Auto-seed missing sequences if none exist
-        if (existing.isEmpty()) {
-            log.info("Auto-seeding default sequences for Org: {}", orgId);
-            for (DocumentType type : DocumentType.values()) {
+        // Auto-seed missing document sequence types for the organization
+        Set<DocumentType> existingTypes = existing.stream()
+                .map(DocumentSequence::getDocumentType)
+                .collect(Collectors.toSet());
+
+        boolean seededNew = false;
+        for (DocumentType type : DocumentType.values()) {
+            if (!existingTypes.contains(type)) {
                 createDefaultSequence(clientId, orgId, type);
+                seededNew = true;
             }
+        }
+
+        if (seededNew) {
             return sequenceRepository.findByClientIdAndOrgId(clientId, orgId);
         }
         

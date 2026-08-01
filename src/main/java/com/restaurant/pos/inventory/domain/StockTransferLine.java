@@ -36,8 +36,25 @@ public class StockTransferLine {
     @Column(name = "transfer_quantity", nullable = false, precision = 15, scale = 3)
     private BigDecimal transferQuantity;
 
+    @Transient
+    private String productName;
+
+    @Transient
+    private String variantName;
+
+    @Transient
+    private String sku;
+
+    @Transient
+    private String categoryName;
+
+    @Transient
+    private BigDecimal unitCost;
+
     @Builder.Default
     @JsonProperty("isActive")
     @Column(name = "isactive", length = 1)
-    private String isactive = "Y";
+    private String isActive = "Y";
 }
+
+
