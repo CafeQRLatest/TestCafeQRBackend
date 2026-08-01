@@ -1,336 +1,96 @@
 package com.restaurant.pos.inventory.service;
 
-import com.restaurant.pos.common.exception.ResourceNotFoundException;
-import com.restaurant.pos.common.service.BranchContextService;
-import com.restaurant.pos.common.tenant.TenantContext;
-import com.restaurant.pos.common.util.SecurityUtils;
-import com.restaurant.pos.accounting.service.AccountingPostingService;
-import com.restaurant.pos.inventory.domain.*;
-import com.restaurant.pos.inventory.repository.*;
+import com.restaurant.pos.inventory.command.InventoryCommandService;
+import com.restaurant.pos.inventory.domain.StockAdjustment;
+import com.restaurant.pos.inventory.domain.StockSnapshot;
+import com.restaurant.pos.inventory.domain.StockTransfer;
+import com.restaurant.pos.inventory.query.InventoryQueryService;
+import com.restaurant.pos.warehouse.domain.Warehouse;
+import com.restaurant.pos.warehouse.service.WarehouseService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import com.restaurant.pos.product.repository.ProductRepository;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
+/**
+ * Unified Inventory Service Façade delegating CQRS commands and queries.
+ * Maintains complete backwards compatibility for existing callers (OrderService,Listeners,etc.).
+ */
 @Service
 @RequiredArgsConstructor
 public class InventoryService {
 
-    private final WarehouseRepository warehouseRepository;
-    private final StockLedgerRepository stockLedgerRepository;
-    private final StockSnapshotRepository stockSnapshotRepository;
-    private final StockAdjustmentRepository stockAdjustmentRepository;
-    private final StockTransferRepository stockTransferRepository;
-    private final AccountingPostingService accountingPostingService;
-    private final BranchContextService branchContext;
-    private final ProductRepository productRepository;
+    private final InventoryCommandService commandService;
+    private final InventoryQueryService queryService;
+    private final WarehouseService warehouseService;
 
-    /**
-     * Resolves the default warehouse for an org.
-     * Returns empty if no default warehouse is configured — callers should skip stock operations.
-     */
-    public java.util.Optional<Warehouse> findDefaultWarehouse(UUID clientId, UUID orgId) {
-        if (orgId != null) {
-            java.util.List<Warehouse> defaults = warehouseRepository.findDefaultWarehousesForOrg(clientId, orgId);
-            if (!defaults.isEmpty()) {
-                return java.util.Optional.of(defaults.get(0));
-            }
-        }
-        return warehouseRepository.findFirstByClientIdAndIsDefaultTrue(clientId);
+    public Optional<Warehouse> findDefaultWarehouse(UUID clientId, UUID orgId) {
+        return warehouseService.findDefaultWarehouse(clientId, orgId);
     }
 
     // --- Warehouse Management ---
 
     public List<Warehouse> getWarehouses(UUID orgId) {
-        UUID clientId = TenantContext.getCurrentTenant();
-        UUID effectiveOrgId = orgId != null ? orgId : TenantContext.getCurrentOrg();
-        if (SecurityUtils.isSuperAdmin() && orgId == null) {
-            return warehouseRepository.findByClientIdOrderByCreatedAtDesc(clientId);
-        }
-        return warehouseRepository.findByClientIdAndOrgIdOrGlobalOrderByCreatedAtDesc(clientId, effectiveOrgId);
+        return warehouseService.getWarehouses(orgId);
     }
 
     public List<Warehouse> getWarehouses() {
-        return getWarehouses(null);
+        return warehouseService.getWarehouses();
     }
 
     public Warehouse getWarehouse(UUID id) {
-        UUID clientId = TenantContext.getCurrentTenant();
-        if (SecurityUtils.isSuperAdmin()) {
-            return warehouseRepository.findByIdAndClientId(id, clientId)
-                    .orElseThrow(() -> new ResourceNotFoundException("Warehouse not found"));
-        }
-        return warehouseRepository.findByIdAndClientIdAndOrgIdOrGlobal(id, clientId, TenantContext.getCurrentOrg())
-                .orElseThrow(() -> new ResourceNotFoundException("Warehouse not found for ID: " + id));
+        return warehouseService.getWarehouse(id);
     }
 
     @Transactional
     public Warehouse saveWarehouse(Warehouse warehouse) {
-        UUID clientId = TenantContext.getCurrentTenant();
-        UUID orgId = branchContext.requireWriteOrgId(warehouse.getOrgId());
-        warehouse.setClientId(clientId);
-        warehouse.setOrgId(orgId);
-
-        if (warehouse.isDefault()) {
-            warehouseRepository.unsetOtherDefaultsForOrg(clientId, orgId, warehouse.getId());
-        }
-
-        return warehouseRepository.save(warehouse);
+        return warehouseService.saveWarehouse(warehouse);
     }
 
     @Transactional
     public void deleteWarehouse(UUID id) {
-        Warehouse warehouse = getWarehouse(id);
-        if (warehouse != null) {
-            warehouseRepository.delete(warehouse);
-        }
+        warehouseService.deleteWarehouse(id);
     }
 
-    // --- Core Stock Logic (Ledger & Snapshots) ---
+    // --- Core Stock Commands ---
 
     @Transactional
     public void updateStock(UUID warehouseId, UUID productId, UUID variantId,
                              BigDecimal quantityChange, String transactionType,
                              UUID referenceId, BigDecimal unitCost) {
-        UUID orgId = branchContext.requireWriteOrgId(TenantContext.getCurrentOrg());
-        updateStock(warehouseId, productId, variantId, quantityChange, transactionType, referenceId, unitCost, orgId);
+        commandService.updateStock(warehouseId, productId, variantId, quantityChange, transactionType, referenceId, unitCost);
     }
 
-    /**
-     * Stock update with an explicit orgId — use this when the org is already known from the
-     * source document (e.g. a completed Purchase Order) rather than relying on TenantContext,
-     * which may not carry the correct branch during nested transactional calls.
-     */
     @Transactional
     public void updateStock(UUID warehouseId, UUID productId, UUID variantId,
                              BigDecimal quantityChange, String transactionType,
                              UUID referenceId, BigDecimal unitCost, UUID explicitOrgId) {
-
-        UUID clientId = TenantContext.getCurrentTenant();
-        UUID orgId = explicitOrgId != null ? explicitOrgId
-                : branchContext.requireWriteOrgId(TenantContext.getCurrentOrg());
-
-        // 1. Get current balance from snapshot (or 0)
-        StockSnapshot snapshot = stockSnapshotRepository
-                .findByWarehouseIdAndProductIdAndVariantId(warehouseId, productId, variantId)
-                .orElseGet(() -> StockSnapshot.builder()
-                        .clientId(clientId)
-                        .orgId(orgId)
-                        .warehouseId(warehouseId)
-                        .productId(productId)
-                        .variantId(variantId)
-                        .currentQuantity(BigDecimal.ZERO)
-                        .build());
-
-        // 2. Calculate new balance
-        BigDecimal newBalance = snapshot.getCurrentQuantity().add(quantityChange);
-        snapshot.setCurrentQuantity(newBalance);
-        snapshot.setLastUpdated(LocalDateTime.now());
-        stockSnapshotRepository.save(snapshot);
-
-        // 3. Log to Ledger
-        StockLedger ledger = StockLedger.builder()
-                .clientId(clientId)
-                .orgId(orgId)
-                .warehouseId(warehouseId)
-                .productId(productId)
-                .variantId(variantId)
-                .transactionType(transactionType)
-                .referenceId(referenceId)
-                .quantityChange(quantityChange)
-                .balanceAfterTransaction(newBalance)
-                .unitCost(unitCost)
-                .createdBy(SecurityUtils.getCurrentUserId())
-                .build();
-        stockLedgerRepository.save(ledger);
+        commandService.updateStock(warehouseId, productId, variantId, quantityChange, transactionType, referenceId, unitCost, explicitOrgId);
     }
+
+    @Transactional
+    public StockAdjustment saveAdjustment(StockAdjustment adjustment) {
+        return commandService.saveAdjustment(adjustment);
+    }
+
+    @Transactional
+    public StockTransfer saveTransfer(StockTransfer transfer) {
+        return commandService.saveTransfer(transfer);
+    }
+
+    // --- Core Stock Queries ---
 
     @Transactional(readOnly = true)
     public List<StockSnapshot> getStockOverview(UUID warehouseId) {
-        List<StockSnapshot> snapshots = stockSnapshotRepository.findByWarehouseId(warehouseId);
-        Warehouse warehouse = warehouseRepository.findById(warehouseId).orElse(null);
-        if (warehouse == null) {
-            return snapshots;
-        }
-        return appendRecipeProductsStock(snapshots, warehouse.getClientId(), warehouse.getOrgId(), warehouseId, false);
+        return queryService.getStockOverview(warehouseId);
     }
 
     @Transactional(readOnly = true)
     public List<StockSnapshot> getConsolidatedStockOverview(UUID orgId, UUID warehouseId) {
-        UUID clientId = TenantContext.getCurrentTenant();
-        UUID effectiveOrgId = orgId != null ? orgId : TenantContext.getCurrentOrg();
-        
-        if (warehouseId != null) {
-            List<StockSnapshot> raw = stockSnapshotRepository.findByClientIdAndWarehouseId(clientId, warehouseId);
-            return appendRecipeProductsStock(raw, clientId, effectiveOrgId, warehouseId, false);
-        }
-        
-        List<StockSnapshot> rawSnapshots;
-        if (orgId != null) {
-            rawSnapshots = stockSnapshotRepository.findByClientIdAndOrgId(clientId, orgId);
-        } else {
-            rawSnapshots = stockSnapshotRepository.findByClientId(clientId);
-        }
-        
-        java.util.Map<String, StockSnapshot> consolidatedMap = new java.util.HashMap<>();
-        for (StockSnapshot snap : rawSnapshots) {
-            String key = snap.getProductId().toString() + "_" + (snap.getVariantId() != null ? snap.getVariantId().toString() : "null");
-            if (consolidatedMap.containsKey(key)) {
-                StockSnapshot existing = consolidatedMap.get(key);
-                existing.setCurrentQuantity(existing.getCurrentQuantity().add(snap.getCurrentQuantity()));
-            } else {
-                StockSnapshot copy = StockSnapshot.builder()
-                        .id(null)
-                        .clientId(snap.getClientId())
-                        .orgId(snap.getOrgId())
-                        .warehouseId(null)
-                        .productId(snap.getProductId())
-                        .variantId(snap.getVariantId())
-                        .currentQuantity(snap.getCurrentQuantity())
-                        .lastUpdated(snap.getLastUpdated())
-                        .build();
-                consolidatedMap.put(key, copy);
-            }
-        }
-        
-        List<StockSnapshot> consolidatedSnapshots = new java.util.ArrayList<>(consolidatedMap.values());
-        return appendRecipeProductsStock(consolidatedSnapshots, clientId, effectiveOrgId, null, true);
-    }
-
-    private List<StockSnapshot> appendRecipeProductsStock(List<StockSnapshot> snapshots, UUID clientId, UUID orgId, UUID warehouseId, boolean isConsolidated) {
-        List<StockSnapshot> resultList = new java.util.ArrayList<>(snapshots);
-        
-        // Map available stock of ingredients by productId
-        java.util.Map<UUID, BigDecimal> ingredientStockMap = new java.util.HashMap<>();
-        for (StockSnapshot snap : resultList) {
-            UUID prodId = snap.getProductId();
-            BigDecimal qty = snap.getCurrentQuantity();
-            if (prodId != null && qty != null) {
-                ingredientStockMap.merge(prodId, qty, BigDecimal::add);
-            }
-        }
-        
-        // Fetch all active products for the branch/client
-        List<com.restaurant.pos.product.domain.Product> products = productRepository.findByClientIdAndOrgIdOrGlobalAndIsActiveTrue(clientId, orgId);
-        
-        for (com.restaurant.pos.product.domain.Product p : products) {
-            if (p.getRecipeLines() != null && !p.getRecipeLines().isEmpty()) {
-                List<com.restaurant.pos.product.domain.ProductRecipe> activeLines = p.getRecipeLines().stream()
-                        .filter(com.restaurant.pos.product.domain.ProductRecipe::isActive)
-                        .collect(java.util.stream.Collectors.toList());
-                
-                if (activeLines.isEmpty()) {
-                    continue;
-                }
-                
-                BigDecimal minAvailable = null;
-                for (com.restaurant.pos.product.domain.ProductRecipe line : activeLines) {
-                    if (line.getIngredient() == null || line.getQuantity() == null || line.getQuantity().compareTo(BigDecimal.ZERO) <= 0) {
-                        continue;
-                    }
-                    
-                    UUID ingId = line.getIngredient().getId();
-                    BigDecimal ingStock = ingredientStockMap.getOrDefault(ingId, BigDecimal.ZERO);
-                    
-                    BigDecimal possible = ingStock.divide(line.getQuantity(), 3, java.math.RoundingMode.DOWN);
-                    if (minAvailable == null || possible.compareTo(minAvailable) < 0) {
-                        minAvailable = possible;
-                    }
-                }
-                
-                if (minAvailable == null || minAvailable.compareTo(BigDecimal.ZERO) < 0) {
-                    minAvailable = BigDecimal.ZERO;
-                }
-                
-                // If the product is already listed, overwrite its stock; otherwise, add virtual snapshot
-                boolean found = false;
-                for (StockSnapshot existing : resultList) {
-                    if (existing.getProductId().equals(p.getId())) {
-                        existing.setCurrentQuantity(minAvailable);
-                        existing.setLastUpdated(LocalDateTime.now());
-                        found = true;
-                        break;
-                    }
-                }
-                
-                if (!found) {
-                    StockSnapshot virtualSnap = StockSnapshot.builder()
-                            .id(null)
-                            .clientId(clientId)
-                            .orgId(orgId)
-                            .warehouseId(isConsolidated ? null : warehouseId)
-                            .productId(p.getId())
-                            .variantId(null)
-                            .currentQuantity(minAvailable)
-                            .lastUpdated(LocalDateTime.now())
-                            .build();
-                    resultList.add(virtualSnap);
-                }
-            }
-        }
-        
-        return resultList;
-    }
-
-    // --- Stock Adjustments ---
-
-    @Transactional
-    public StockAdjustment saveAdjustment(StockAdjustment adjustment) {
-        UUID clientId = TenantContext.getCurrentTenant();
-        UUID orgId = branchContext.requireWriteOrgId(adjustment.getOrgId());
-        
-        adjustment.setClientId(clientId);
-        adjustment.setOrgId(orgId);
-
-        if (adjustment.getAdjustmentNumber() == null) {
-            adjustment.setAdjustmentNumber("ADJ-" + System.currentTimeMillis());
-        }
-
-        // Process lines if completed
-        if ("COMPLETED".equalsIgnoreCase(adjustment.getStatus())) {
-            for (StockAdjustmentLine line : adjustment.getLines()) {
-                updateStock(adjustment.getWarehouseId(), line.getProductId(), line.getVariantId(), 
-                        line.getQuantityChange(), "ADJUSTMENT", adjustment.getId(), line.getUnitCost());
-            }
-        }
-        
-        StockAdjustment saved = stockAdjustmentRepository.save(adjustment);
-        accountingPostingService.postStockAdjustment(saved);
-        return saved;
-    }
-
-    // --- Stock Transfers ---
-
-    @Transactional
-    public StockTransfer saveTransfer(StockTransfer transfer) {
-        UUID clientId = TenantContext.getCurrentTenant();
-        UUID orgId = branchContext.requireWriteOrgId(transfer.getOrgId());
-        
-        transfer.setClientId(clientId);
-        transfer.setOrgId(orgId);
-
-        if (transfer.getTransferNumber() == null) {
-            transfer.setTransferNumber("TRF-" + System.currentTimeMillis());
-        }
-
-        // Process inventory movement if completed
-        if ("COMPLETED".equalsIgnoreCase(transfer.getStatus())) {
-            for (StockTransferLine line : transfer.getLines()) {
-                // Deduct from source
-                updateStock(transfer.getSourceWarehouseId(), line.getProductId(), line.getVariantId(), 
-                        line.getTransferQuantity().negate(), "TRANSFER_OUT", transfer.getId(), BigDecimal.ZERO);
-                
-                // Add to destination
-                updateStock(transfer.getDestWarehouseId(), line.getProductId(), line.getVariantId(), 
-                        line.getTransferQuantity(), "TRANSFER_IN", transfer.getId(), BigDecimal.ZERO);
-            }
-        }
-
-        return stockTransferRepository.save(transfer);
+        return queryService.getConsolidatedStockOverview(orgId, warehouseId);
     }
 }

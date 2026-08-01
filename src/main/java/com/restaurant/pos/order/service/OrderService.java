@@ -3589,7 +3589,7 @@ public class OrderService {
         // Resolve warehouse: use order's explicit warehouseId, else fall back to org default
         UUID warehouseId = order.getWarehouseId();
         if (warehouseId == null) {
-            java.util.Optional<com.restaurant.pos.inventory.domain.Warehouse> defaultWh =
+            java.util.Optional<com.restaurant.pos.warehouse.domain.Warehouse> defaultWh =
                     inventoryService.findDefaultWarehouse(clientId, orgId);
             if (defaultWh.isEmpty()) {
                 log.info("deductStockForSale: skipping order {} — no warehouseId set and no default warehouse configured for org {}",

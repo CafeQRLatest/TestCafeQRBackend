@@ -1,6 +1,6 @@
-package com.restaurant.pos.inventory.repository;
+package com.restaurant.pos.warehouse.repository;
 
-import com.restaurant.pos.inventory.domain.Warehouse;
+import com.restaurant.pos.warehouse.domain.Warehouse;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;

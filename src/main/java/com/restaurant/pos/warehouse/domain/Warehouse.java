@@ -1,4 +1,4 @@
-package com.restaurant.pos.inventory.domain;
+package com.restaurant.pos.warehouse.domain;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.restaurant.pos.common.entity.AuditableEntity;
