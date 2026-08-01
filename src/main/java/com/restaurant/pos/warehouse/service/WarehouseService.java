@@ -76,10 +76,22 @@ public class WarehouseService {
     @Transactional
     public Warehouse saveWarehouse(Warehouse warehouse) {
         UUID clientId = TenantContext.getCurrentTenant();
-        if (warehouse.getOrgId() == null) {
+
+        // Always resolve orgId from JWT context first;
+        // fall back to payload orgId only for Super Admin without active branch
+        UUID jwtOrgId = TenantContext.getCurrentOrg();
+        UUID resolvedOrgId;
+        if (jwtOrgId != null) {
+            resolvedOrgId = jwtOrgId;
+        } else if (warehouse.getOrgId() != null && com.restaurant.pos.common.util.SecurityUtils.isSuperAdmin()) {
+            resolvedOrgId = warehouse.getOrgId();
+        } else if (warehouse.getOrgId() != null) {
+            resolvedOrgId = warehouse.getOrgId();
+        } else {
             throw new BusinessException("Organization is required for warehouse creation");
         }
-        UUID orgId = branchContext.requireWriteOrgId(warehouse.getOrgId());
+
+        UUID orgId = resolvedOrgId;
         warehouse.setClientId(clientId);
         warehouse.setOrgId(orgId);
 
