@@ -586,11 +586,16 @@ public class ProductService {
             throw new BusinessException("Product name is required");
         }
         if (product.getPrice() == null) {
-            throw new BusinessException("Product price is required");
+            if (product.isIngredient() || product.isVariant()) {
+                product.setPrice(java.math.BigDecimal.ZERO);
+            } else {
+                throw new BusinessException("Product price is required");
+            }
         }
-        if (product.getPrice().compareTo(java.math.BigDecimal.ZERO) <= 0) {
-            throw new BusinessException("Product price must be greater than zero");
+        if (!product.isIngredient() && !product.isVariant() && product.getPrice().compareTo(java.math.BigDecimal.ZERO) < 0) {
+            throw new BusinessException("Product price cannot be negative");
         }
+
         if (product.getCategory() == null || product.getCategory().getId() == null) {
             throw new BusinessException("Product category is required");
         }
@@ -755,11 +760,16 @@ public class ProductService {
             throw new BusinessException("Product name is required");
         }
         if (product.getPrice() == null) {
-            throw new BusinessException("Product price is required");
+            if (product.isIngredient() || product.isVariant()) {
+                product.setPrice(java.math.BigDecimal.ZERO);
+            } else {
+                throw new BusinessException("Product price is required");
+            }
         }
-        if (product.getPrice().compareTo(java.math.BigDecimal.ZERO) <= 0) {
-            throw new BusinessException("Product price must be greater than zero");
+        if (!product.isIngredient() && !product.isVariant() && product.getPrice().compareTo(java.math.BigDecimal.ZERO) < 0) {
+            throw new BusinessException("Product price cannot be negative");
         }
+
         if (product.getCategory() == null || product.getCategory().getId() == null) {
             throw new BusinessException("Product category is required");
         }
@@ -807,12 +817,16 @@ public class ProductService {
         existing.setUom(resolveUomReference(product.getUom(), clientId, orgId));
         existing.setDefaultPricelist(product.getDefaultPricelist());
 
-        setProductRelationships(product, clientId, orgId);
-
         // Update Mappings
-        existing.getVariantMappings().clear();
+
+        if (existing.getVariantMappings() == null) {
+            existing.setVariantMappings(new java.util.ArrayList<>());
+        } else {
+            existing.getVariantMappings().clear();
+        }
         if (product.getVariantMappings() != null) {
             product.getVariantMappings().forEach(vm -> {
+                vm.setId(null);
                 vm.setVariantGroup(resolveVariantGroupReference(vm.getVariantGroup()));
                 vm.setProduct(existing);
                 vm.setClientId(clientId);
@@ -822,9 +836,15 @@ public class ProductService {
         }
 
         // Update Pricings
-        existing.getVariantPricings().clear();
+        if (existing.getVariantPricings() == null) {
+            existing.setVariantPricings(new java.util.ArrayList<>());
+        } else {
+
+            existing.getVariantPricings().clear();
+        }
         if (product.getVariantPricings() != null) {
             product.getVariantPricings().forEach(vp -> {
+                vp.setId(null);
                 vp.setVariantOption(resolveVariantOptionReference(vp.getVariantOption()));
                 vp.setProduct(existing);
                 vp.setClientId(clientId);
@@ -834,9 +854,14 @@ public class ProductService {
         }
 
         // Update Upsells
-        existing.getUpsells().clear();
+        if (existing.getUpsells() == null) {
+            existing.setUpsells(new java.util.ArrayList<>());
+        } else {
+            existing.getUpsells().clear();
+        }
         if (product.getUpsells() != null) {
             product.getUpsells().forEach(upsell -> {
+                upsell.setId(null);
                 if (existing.getId() != null && upsell.getUpsellProduct() != null
                         && existing.getId().equals(upsell.getUpsellProduct().getId())) {
                     throw new BusinessException("A product cannot be an upsell to itself");
@@ -855,9 +880,14 @@ public class ProductService {
         }
 
         // Update Pricelist Products
-        existing.getPricelistProducts().clear();
+        if (existing.getPricelistProducts() == null) {
+            existing.setPricelistProducts(new java.util.ArrayList<>());
+        } else {
+            existing.getPricelistProducts().clear();
+        }
         if (product.getPricelistProducts() != null) {
             product.getPricelistProducts().forEach(pp -> {
+                pp.setId(null);
                 pp.setProduct(existing);
                 pp.setClientId(clientId);
                 pp.setOrgId(orgId);
@@ -871,9 +901,14 @@ public class ProductService {
         }
 
         // Update Recipe Lines
-        existing.getRecipeLines().clear();
+        if (existing.getRecipeLines() == null) {
+            existing.setRecipeLines(new java.util.ArrayList<>());
+        } else {
+            existing.getRecipeLines().clear();
+        }
         if (product.getRecipeLines() != null) {
             product.getRecipeLines().forEach(recipe -> {
+                recipe.setId(null);
                 if (existing.getId() != null && recipe.getIngredient() != null
                         && existing.getId().equals(recipe.getIngredient().getId())) {
                     throw new BusinessException("A product cannot be an ingredient of itself");
@@ -894,6 +929,7 @@ public class ProductService {
             });
             existing.getRecipeLines().addAll(product.getRecipeLines());
         }
+
 
         return productRepository.save(existing);
     }
@@ -973,16 +1009,16 @@ public class ProductService {
     }
 
     private void validateOwnership(UUID ownerClientId, UUID ownerOrgId, String entityName, boolean forModification) {
+        if (SecurityUtils.isSuperAdmin()) {
+            return;
+        }
+
         UUID currentClientId = TenantContext.getCurrentTenant();
         UUID currentOrgId = TenantContext.getCurrentOrg();
 
         // 1. Cross-Tenant Check
-        if (!currentClientId.equals(ownerClientId)) {
+        if (currentClientId != null && ownerClientId != null && !currentClientId.equals(ownerClientId)) {
             throw new BusinessException("Access denied: " + entityName + " belongs to another tenant");
-        }
-
-        if (SecurityUtils.isSuperAdmin() && currentOrgId == null) {
-            return;
         }
 
         // 2. Global Data Protection (Global records have NULL orgId)
@@ -995,7 +1031,7 @@ public class ProductService {
         }
 
         // 3. Cross-Org Check
-        if (ownerOrgId != null && !java.util.Objects.equals(currentOrgId, ownerOrgId)) {
+        if (ownerOrgId != null && currentOrgId != null && !java.util.Objects.equals(currentOrgId, ownerOrgId)) {
             throw new BusinessException("Access denied: " + entityName + " belongs to another organization");
         }
     }

@@ -1792,9 +1792,19 @@ public class OrderService {
             order.setOrgId(resolveOrderWriteOrgId(order));
             prepareSourceFields(order);
 
+            if (order.getWarehouseId() == null && order.getOrgId() != null) {
+                try {
+                    inventoryService.findDefaultWarehouse(order.getClientId(), order.getOrgId())
+                            .ifPresent(wh -> order.setWarehouseId(wh.getId()));
+                } catch (Exception e) {
+                    log.debug("No default warehouse resolved for order creation: {}", e.getMessage());
+                }
+            }
+
             if (order.getOrderStatus() == null) {
                 order.setOrderStatus("DRAFT");
             }
+
 
             diagnosticPhase = "validate_table_available";
             validateTableAvailableForNewOrder(order);
