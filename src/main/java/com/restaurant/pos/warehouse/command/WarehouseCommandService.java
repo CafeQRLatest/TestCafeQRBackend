@@ -1,6 +1,5 @@
 package com.restaurant.pos.warehouse.command;
 
-import com.restaurant.pos.common.exception.BusinessException;
 import com.restaurant.pos.common.exception.ResourceNotFoundException;
 import com.restaurant.pos.common.service.BranchContextService;
 import com.restaurant.pos.common.tenant.TenantContext;
@@ -31,14 +30,7 @@ public class WarehouseCommandService {
     @Transactional
     public Warehouse createWarehouse(WarehouseCommand command) {
         UUID clientId = TenantContext.getCurrentTenant();
-        UUID orgId    = TenantContext.getCurrentOrg();
-
-        if (orgId == null) {
-            throw new BusinessException(
-                "A branch must be selected before creating a warehouse. " +
-                "Please select an active branch from the branch picker."
-            );
-        }
+        UUID orgId    = branchContext.requireWriteOrgId(command.getOrgId());
 
         Warehouse warehouse = Warehouse.builder()
                 .clientId(clientId)
@@ -61,23 +53,25 @@ public class WarehouseCommandService {
     @Transactional
     public Warehouse updateWarehouse(UUID id, WarehouseCommand command) {
         UUID clientId = TenantContext.getCurrentTenant();
-        UUID orgId    = TenantContext.getCurrentOrg();
 
         Warehouse warehouse = warehouseRepository.findByIdAndClientId(id, clientId)
                 .orElseThrow(() -> new ResourceNotFoundException("Warehouse not found for ID: " + id));
+
+        UUID orgId = branchContext.requireWriteOrgId(command.getOrgId() != null ? command.getOrgId() : warehouse.getOrgId());
 
         warehouse.setName(command.getName() != null ? command.getName() : warehouse.getName());
         warehouse.setCode(command.getCode() != null ? command.getCode() : warehouse.getCode());
         warehouse.setAddress(command.getAddress() != null ? command.getAddress() : warehouse.getAddress());
         warehouse.setManagerName(command.getManagerName() != null ? command.getManagerName() : warehouse.getManagerName());
         warehouse.setManagerPhone(command.getManagerPhone() != null ? command.getManagerPhone() : warehouse.getManagerPhone());
-        warehouse.setDefault(command.isDefault());
+        if (command.getIsDefault() != null) {
+            warehouse.setDefault(command.isDefault());
+        }
         if (command.getIsactive() != null) {
             warehouse.setIsactive(command.getIsactive());
         }
 
-        UUID effectiveOrgId = orgId != null ? orgId : warehouse.getOrgId();
-        return saveWithDefaultLogic(warehouse, clientId, effectiveOrgId);
+        return saveWithDefaultLogic(warehouse, clientId, orgId);
     }
 
     /**
