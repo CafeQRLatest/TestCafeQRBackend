@@ -945,7 +945,12 @@ public class ReportService {
                 .filter(Objects::nonNull)
                 .collect(Collectors.toSet());
 
-        List<Customer> linkedCustomers = customerRepository.findByClientIdAndOrderIds(clientId, orderIds);
+        Set<String> orderIdStrings = orderIds.stream()
+                .map(UUID::toString)
+                .collect(Collectors.toSet());
+
+        List<Customer> linkedCustomers = orderIdStrings.isEmpty() ? List.of()
+                : customerRepository.findByClientIdAndOrderIds(clientId, orderIdStrings);
 
         Set<UUID> directCustomerIds = orders.stream()
                 .map(Order::getCustomerId)

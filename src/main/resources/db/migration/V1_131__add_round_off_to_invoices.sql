@@ -1,0 +1,1 @@
+ALTER TABLE invoices ADD COLUMN IF NOT EXISTS round_off_amount DECIMAL(15, 2);

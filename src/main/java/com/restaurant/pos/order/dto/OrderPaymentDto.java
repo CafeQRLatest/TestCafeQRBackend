@@ -18,6 +18,14 @@ public class OrderPaymentDto {
     private String referenceNo;
     private LocalDateTime paymentDate;
     private BigDecimal amount;
+    private BigDecimal roundOffAmount;
+    private BigDecimal taxAmount;
+    private BigDecimal subtotal;
+    private BigDecimal grossAmount;
+    private BigDecimal discountAmount;
+    private String type;
+    private String paymentType;
+    private String paymentTypeLabel;
     private String paymentMethod;
     private String description;
 }

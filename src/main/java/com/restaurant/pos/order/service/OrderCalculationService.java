@@ -413,19 +413,18 @@ public class OrderCalculationService {
     /** Computes round-off, honouring explicit request mode before falling back to config. */
     private BigDecimal computeRoundOff(CalculationRequest request, ConfigurationDto config,
                                        BigDecimal sumTotal, int dp) {
-        // Explicit mode on request takes priority; fall back to config
-        String mode = request.getRoundOffMode() != null
-                ? request.getRoundOffMode().toUpperCase()
-                : (config.isRoundOffEnabled() && config.getRoundOffMode() != null
-                   ? config.getRoundOffMode().toUpperCase()
-                   : "DISABLED");
-
-        if (!Set.of("DISABLED", "MANUAL", "AUTOMATIC").contains(mode)) {
-            throw new BusinessException("Invalid round-off mode: " + mode);
+        if (request.getRequestedRoundOff() != null && request.getRequestedRoundOff().compareTo(BigDecimal.ZERO) != 0) {
+            BigDecimal req = request.getRequestedRoundOff();
+            if (req.abs().compareTo(BigDecimal.ONE) < 0) {
+                return req;
+            }
         }
 
-        boolean enabled = config.isRoundOffEnabled() || "AUTOMATIC".equals(mode) || "MANUAL".equals(mode);
-        if (!enabled || "DISABLED".equals(mode)) return BigDecimal.ZERO;
+        String mode = request.getRoundOffMode() != null && !request.getRoundOffMode().isBlank()
+                ? request.getRoundOffMode().toUpperCase()
+                : (config != null && config.getRoundOffMode() != null ? config.getRoundOffMode().toUpperCase() : "AUTOMATIC");
+
+        if ("DISABLED".equals(mode)) return BigDecimal.ZERO;
 
         if ("MANUAL".equals(mode)) {
             if (request.getRequestedRoundOff() == null) return BigDecimal.ZERO;

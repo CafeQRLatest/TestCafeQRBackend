@@ -208,12 +208,13 @@ public class CreditService {
 
         UUID invoiceId = request != null ? request.getInvoiceId() : null;
         String orderOrInvoiceNo = null;
+        Order linkedCreditOrder = null;
         if (invoiceId != null) {
             Invoice linkedInvoice = invoiceRepository.findByIdAndClientId(invoiceId, clientId)
                     .orElseThrow(() -> new ResourceNotFoundException("Invoice not found"));
             validateCreditInvoice(customer, linkedInvoice);
-            Order order = resolveOrder(linkedInvoice.getOrderId());
-            orderOrInvoiceNo = order != null ? order.getOrderNo() : linkedInvoice.getInvoiceNo();
+            linkedCreditOrder = resolveOrder(linkedInvoice.getOrderId());
+            orderOrInvoiceNo = linkedCreditOrder != null ? linkedCreditOrder.getOrderNo() : linkedInvoice.getInvoiceNo();
         }
 
         String referenceNo = sequenceService.generateNextSequence(DocumentType.INBOUND_PAYMENT, orgId);
@@ -225,15 +226,18 @@ public class CreditService {
             description = resolvePaymentDescription(customer, request != null ? request.getDescription() : null);
         }
 
+        BigDecimal roundOffAmount = linkedCreditOrder != null ? linkedCreditOrder.getRoundOffAmount() : null;
+
         Payment payment = Payment.builder()
                 .paymentType(PaymentType.INBOUND)
                 .customerId(customer.getLinkedCustomerId())
                 .creditCustomerId(customer.getId())
-                .orderId(invoiceId != null ? invoiceRepository.findById(invoiceId).map(Invoice::getOrderId).orElse(null) : null)
+                .orderId(linkedCreditOrder != null ? linkedCreditOrder.getId() : null)
                 .invoiceId(invoiceId)
                 .paymentDate(LocalDateTime.now())
                 .paymentMethod(paymentMethod)
                 .amountPaid(amount)
+                .roundOffAmount(roundOffAmount)
                 .referenceNo(referenceNo)
                 .description(description)
                 .build();
@@ -542,10 +546,15 @@ public class CreditService {
 
     private CreditReportDto.PaymentTransactionDto toPaymentTransaction(Payment payment, CreditCustomer customer) {
         String orderNo = null;
-        if (payment.getOrderId() != null) {
-            orderNo = orderRepository.findById(payment.getOrderId())
-                    .map(Order::getOrderNo)
-                    .orElse(null);
+        Order order = payment.getOrderId() != null ? resolveOrder(payment.getOrderId()) : null;
+        if (order == null && payment.getInvoiceId() != null) {
+            Invoice inv = invoiceRepository.findById(payment.getInvoiceId()).orElse(null);
+            if (inv != null && inv.getOrderId() != null) {
+                order = resolveOrder(inv.getOrderId());
+            }
+        }
+        if (order != null) {
+            orderNo = order.getOrderNo();
         }
         String invoiceNo = null;
         if (payment.getInvoiceId() != null) {
@@ -554,15 +563,31 @@ public class CreditService {
                     .orElse(null);
         }
 
+        BigDecimal taxAmount = order != null ? order.getTotalTaxAmount() : BigDecimal.ZERO;
+        BigDecimal subtotal = order != null ? order.getTotalAmount() : BigDecimal.ZERO;
+        BigDecimal grossAmount = order != null ? order.getGrossAmount() : BigDecimal.ZERO;
+        BigDecimal discountAmount = order != null ? order.getTotalDiscountAmount() : BigDecimal.ZERO;
+        BigDecimal roundOff = payment.getRoundOffAmount() != null ? payment.getRoundOffAmount()
+                : (order != null ? order.getRoundOffAmount() : BigDecimal.ZERO);
+        String paymentTypeStr = payment.getPaymentType() != null ? payment.getPaymentType().name() : "INBOUND";
+        String pTypeLabel = "INBOUND".equalsIgnoreCase(paymentTypeStr) ? "Customer Payment" : "Vendor Settlement";
+
         return CreditReportDto.PaymentTransactionDto.builder()
                 .paymentId(payment.getId())
                 .creditCustomerId(payment.getCreditCustomerId())
                 .customerName(customer != null ? customer.getName() : null)
                 .customerPhone(customer != null ? customer.getPhone() : null)
                 .transactionDate(payment.getPaymentDate())
-                .type("payment")
+                .type(paymentTypeStr)
+                .paymentType(paymentTypeStr)
+                .paymentTypeLabel(pTypeLabel)
                 .paymentMethod(payment.getPaymentMethod())
                 .amount(money(payment.getAmountPaid()))
+                .roundOffAmount(roundOff)
+                .taxAmount(taxAmount)
+                .subtotal(subtotal)
+                .grossAmount(grossAmount)
+                .discountAmount(discountAmount)
                 .description(payment.getDescription())
                 .referenceNo(payment.getReferenceNo())
                 .orderId(payment.getOrderId())

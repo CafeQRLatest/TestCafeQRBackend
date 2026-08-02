@@ -108,10 +108,11 @@ public class Invoice extends BaseEntity {
     @Column(name = "amount_due", precision = 15, scale = 2, nullable = false)
     private BigDecimal amountDue;
 
+    @Column(name = "round_off_amount", precision = 15, scale = 2)
+    private BigDecimal roundOffAmount;
+
     // ─────────────────────────────────────────────────────────────
     // GST Discount Engine Fields (V1_110 migration)
-    // NOTE: round_off_amount is intentionally NOT here — invoice is a
-    // GST document. Rounding must never modify GST document values.
     // ─────────────────────────────────────────────────────────────
 
     /** Pre-discount gross (sum of line gross_line_amount). */

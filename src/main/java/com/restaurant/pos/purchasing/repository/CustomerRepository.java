@@ -78,16 +78,17 @@ public interface CustomerRepository extends JpaRepository<Customer, UUID> {
             @Param("orderNeedle") String orderNeedle,
             @Param("primaryNeedle") String primaryNeedle);
 
-    List<Customer> findByIdInAndClientId(java.util.Collection<UUID> ids, UUID clientId);
+    @Query("SELECT c FROM Customer c WHERE c.id IN :ids AND (:clientId IS NULL OR c.clientId = :clientId)")
+    List<Customer> findByIdInAndClientId(@Param("ids") java.util.Collection<UUID> ids, @Param("clientId") UUID clientId);
 
     @Query(value = """
             SELECT DISTINCT c.*
             FROM customers c
-            CROSS JOIN LATERAL jsonb_array_elements(c.order_links) link
-            WHERE c.client_id = :clientId
-              AND CAST(link ->> 'orderId' AS uuid) IN :orderIds
+            CROSS JOIN LATERAL jsonb_array_elements(COALESCE(c.order_links, CAST('[]' AS jsonb))) link
+            WHERE (:clientId IS NULL OR c.client_id = :clientId)
+              AND (link ->> 'orderId') IN :orderIdStrings
             """, nativeQuery = true)
     List<Customer> findByClientIdAndOrderIds(
             @Param("clientId") UUID clientId,
-            @Param("orderIds") java.util.Collection<UUID> orderIds);
+            @Param("orderIdStrings") java.util.Collection<String> orderIdStrings);
 }

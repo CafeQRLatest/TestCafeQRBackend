@@ -1167,8 +1167,14 @@ public class OrderService {
             return orders;
         }
 
+        Set<String> orderIdStrings = orderIds.stream()
+                .filter(java.util.Objects::nonNull)
+                .map(UUID::toString)
+                .collect(Collectors.toSet());
+
         // 1. Fetch all customers linked to any of the orderIds in ONE query
-        List<Customer> linkedCustomers = customerRepository.findByClientIdAndOrderIds(clientId, orderIds);
+        List<Customer> linkedCustomers = orderIdStrings.isEmpty() ? List.of()
+                : customerRepository.findByClientIdAndOrderIds(clientId, orderIdStrings);
 
         // Map orderId -> List of linked customers
         Map<UUID, List<Customer>> orderIdToCustomers = new java.util.HashMap<>();
@@ -2146,12 +2152,13 @@ public class OrderService {
             List<Invoice> existingInvoices = invoiceRepository.findByOrderId(saved.getId());
             for (Invoice existingInv : existingInvoices) {
                 if (!"VOID".equalsIgnoreCase(existingInv.getStatus())) {
-                    existingInv.setTotalAmount(saved.getGrandTotal().subtract(saved.getRoundOffAmount() != null ? saved.getRoundOffAmount() : BigDecimal.ZERO));
-                    existingInv.setAmountDue(saved.getGrandTotal().subtract(saved.getRoundOffAmount() != null ? saved.getRoundOffAmount() : BigDecimal.ZERO));
+                    existingInv.setTotalAmount(saved.getGrandTotal());
+                    existingInv.setAmountDue(saved.getGrandTotal());
+                    existingInv.setRoundOffAmount(saved.getRoundOffAmount());
                     existingInv.setTotalDiscountAmount(saved.getTotalDiscountAmount());
                     existingInv.setTotalTaxAmount(saved.getTotalTaxAmount());
                     existingInv.setGrossAmount(saved.getGrossAmount());
-                    existingInv.setTaxableAmount(saved.getGrossAmount().subtract(saved.getTotalDiscountAmount()));
+                    existingInv.setTaxableAmount(computeTaxableSum(saved.getLines()));
 
                     if (existingInv.getLines() != null) {
                         for (InvoiceLine invLine : existingInv.getLines()) {
@@ -2732,22 +2739,25 @@ public class OrderService {
             paymentMethod = "MIXED";
         }
         
-        BigDecimal discountAmount = moneyValue(safeRequest.getDiscountAmount());
-        BigDecimal roundOffAmount = moneyValue(safeRequest.getRoundOffAmount());
+        if (safeRequest.getDiscountAmount() != null) {
+            order.setOrderDiscountValue(BigDecimal.ZERO);
+            recalculateOrderTotals(order);
+            BigDecimal lineDiscountSum = order.getTotalDiscountAmount() != null ? order.getTotalDiscountAmount() : BigDecimal.ZERO;
 
-        // First, calculate line-level discounts only by setting order discount to zero
-        order.setOrderDiscountValue(BigDecimal.ZERO);
-        recalculateOrderTotals(order);
-        BigDecimal lineDiscountSum = order.getTotalDiscountAmount() != null ? order.getTotalDiscountAmount() : BigDecimal.ZERO;
+            BigDecimal requestedTotalDiscount = moneyValue(safeRequest.getDiscountAmount());
+            BigDecimal orderDiscountValue = requestedTotalDiscount.subtract(lineDiscountSum).max(BigDecimal.ZERO);
 
-        BigDecimal requestedTotalDiscount = moneyValue(safeRequest.getDiscountAmount());
-        BigDecimal orderDiscountValue = requestedTotalDiscount.subtract(lineDiscountSum).max(BigDecimal.ZERO);
+            order.setOrderDiscountType("AMOUNT");
+            order.setOrderDiscountValue(orderDiscountValue);
+            order.setDiscountSource(com.restaurant.pos.order.domain.DiscountSource.MANUAL);
+        }
 
-        order.setOrderDiscountType("AMOUNT");
-        order.setOrderDiscountValue(orderDiscountValue);
-        order.setDiscountSource(com.restaurant.pos.order.domain.DiscountSource.MANUAL);
-        order.setRoundOffAmount(roundOffAmount);
-        order.setRoundOffMode(safeRequest.getRoundOffMode());
+        if (safeRequest.getRoundOffAmount() != null) {
+            order.setRoundOffAmount(safeRequest.getRoundOffAmount());
+        }
+        if (safeRequest.getRoundOffMode() != null && !safeRequest.getRoundOffMode().isBlank()) {
+            order.setRoundOffMode(safeRequest.getRoundOffMode());
+        }
 
         recalculateOrderTotals(order);
 
@@ -2767,8 +2777,13 @@ public class OrderService {
         List<Invoice> existingInvoices = invoiceRepository.findByOrderId(saved.getId());
         for (Invoice existingInv : existingInvoices) {
             if (!"VOID".equalsIgnoreCase(existingInv.getStatus())) {
-                existingInv.setTotalAmount(saved.getGrandTotal().subtract(roundOffAmount));
-                existingInv.setAmountDue(saved.getGrandTotal().subtract(roundOffAmount));
+                existingInv.setTotalAmount(saved.getGrandTotal());
+                existingInv.setAmountDue(saved.getGrandTotal());
+                existingInv.setRoundOffAmount(saved.getRoundOffAmount());
+                existingInv.setGrossAmount(saved.getGrossAmount());
+                existingInv.setTotalTaxAmount(saved.getTotalTaxAmount());
+                existingInv.setTotalDiscountAmount(saved.getTotalDiscountAmount());
+                existingInv.setTaxableAmount(computeTaxableSum(saved.getLines()));
                 invoiceRepository.save(existingInv);
                 accountingPostingService.replaceInvoiceJournal(saved, existingInv,
                         "Invoice amount corrected after discount/roundoff");
@@ -2776,7 +2791,6 @@ public class OrderService {
             }
         }
         
-        saved.setRoundOffAmount(roundOffAmount);
         Invoice generatedInv = generateInvoice(saved);
         if (linkedInvoice == null) {
             linkedInvoice = generatedInv;
@@ -2786,7 +2800,13 @@ public class OrderService {
         BigDecimal amountPaid = safeRequest.getAmountPaid() != null
                 ? moneyValue(safeRequest.getAmountPaid())
                 : payable;
-        BigDecimal settleRoundOff = moneyValue(safeRequest.getRoundOffAmount());
+        BigDecimal settleRoundOff = saved.getRoundOffAmount() != null ? saved.getRoundOffAmount() : BigDecimal.ZERO;
+        if (safeRequest.getAmountPaid() != null && settleRoundOff.compareTo(BigDecimal.ZERO) != 0) {
+            BigDecimal preRoundOff = payable.subtract(settleRoundOff);
+            if (amountPaid.compareTo(preRoundOff) == 0) {
+                amountPaid = payable;
+            }
+        }
 
         // Validate payment invariant: amount_paid = invoice_total + round_off_amount
         BigDecimal invoiceTotal = linkedInvoice != null
@@ -2839,22 +2859,25 @@ public class OrderService {
         prepareCreditCustomer(order, true);
         prepareCustomerFields(order);
 
-        BigDecimal discountAmount = moneyValue(safeRequest.getDiscountAmount());
-        BigDecimal roundOffAmount = moneyValue(safeRequest.getRoundOffAmount());
+        if (safeRequest.getDiscountAmount() != null) {
+            order.setOrderDiscountValue(BigDecimal.ZERO);
+            recalculateOrderTotals(order);
+            BigDecimal lineDiscountSum = order.getTotalDiscountAmount() != null ? order.getTotalDiscountAmount() : BigDecimal.ZERO;
 
-        // First, calculate line-level discounts only by setting order discount to zero
-        order.setOrderDiscountValue(BigDecimal.ZERO);
-        recalculateOrderTotals(order);
-        BigDecimal lineDiscountSum = order.getTotalDiscountAmount() != null ? order.getTotalDiscountAmount() : BigDecimal.ZERO;
+            BigDecimal requestedTotalDiscount = moneyValue(safeRequest.getDiscountAmount());
+            BigDecimal orderDiscountValue = requestedTotalDiscount.subtract(lineDiscountSum).max(BigDecimal.ZERO);
 
-        BigDecimal requestedTotalDiscount = moneyValue(safeRequest.getDiscountAmount());
-        BigDecimal orderDiscountValue = requestedTotalDiscount.subtract(lineDiscountSum).max(BigDecimal.ZERO);
+            order.setOrderDiscountType("AMOUNT");
+            order.setOrderDiscountValue(orderDiscountValue);
+            order.setDiscountSource(com.restaurant.pos.order.domain.DiscountSource.MANUAL);
+        }
 
-        order.setOrderDiscountType("AMOUNT");
-        order.setOrderDiscountValue(orderDiscountValue);
-        order.setDiscountSource(com.restaurant.pos.order.domain.DiscountSource.MANUAL);
-        order.setRoundOffAmount(roundOffAmount);
-        order.setRoundOffMode(safeRequest.getRoundOffMode());
+        if (safeRequest.getRoundOffAmount() != null) {
+            order.setRoundOffAmount(safeRequest.getRoundOffAmount());
+        }
+        if (safeRequest.getRoundOffMode() != null && !safeRequest.getRoundOffMode().isBlank()) {
+            order.setRoundOffMode(safeRequest.getRoundOffMode());
+        }
 
         recalculateOrderTotals(order);
 
@@ -2881,6 +2904,11 @@ public class OrderService {
                 invoice.setIsCredit(true);
                 invoice.setTotalAmount(saved.getGrandTotal());
                 invoice.setAmountDue(saved.getGrandTotal());
+                invoice.setRoundOffAmount(saved.getRoundOffAmount());
+                invoice.setGrossAmount(saved.getGrossAmount());
+                invoice.setTotalTaxAmount(saved.getTotalTaxAmount());
+                invoice.setTotalDiscountAmount(saved.getTotalDiscountAmount());
+                invoice.setTaxableAmount(computeTaxableSum(saved.getLines()));
                 invoice.setStatus("UNPAID");
                 invoice.setIsPaid(false);
                 Invoice updatedInvoice = invoiceRepository.save(invoice);
@@ -3008,10 +3036,9 @@ public class OrderService {
                 .invoiceNo(invNo)
                 .invoiceDate(invoiceDate)
                 .dailyBillNo(dailyBillNo)
-                .totalAmount(order.getGrandTotal()
-                        .subtract(order.getRoundOffAmount() != null ? order.getRoundOffAmount() : BigDecimal.ZERO))
-                .amountDue(order.getGrandTotal()
-                        .subtract(order.getRoundOffAmount() != null ? order.getRoundOffAmount() : BigDecimal.ZERO))
+                .totalAmount(order.getGrandTotal())
+                .amountDue(order.getGrandTotal())
+                .roundOffAmount(order.getRoundOffAmount())
                 .status("UNPAID")
                 .isPaid(false)
                 .isCredit(Boolean.TRUE.equals(order.getIsCredit()))
@@ -3749,16 +3776,33 @@ public class OrderService {
     @Transactional(readOnly = true)
     public List<OrderPaymentDto> getOrderPayments(UUID orderId) {
         List<OrderPaymentDto> list = new ArrayList<>();
+        Order order = orderRepository.findById(orderId).orElse(null);
+        BigDecimal taxAmount = order != null ? order.getTotalTaxAmount() : BigDecimal.ZERO;
+        BigDecimal subtotal = order != null ? order.getTotalAmount() : BigDecimal.ZERO;
+        BigDecimal grossAmount = order != null ? order.getGrossAmount() : BigDecimal.ZERO;
+        BigDecimal discountAmount = order != null ? order.getTotalDiscountAmount() : BigDecimal.ZERO;
 
         // 1. Direct payments linked via payment.orderId
         List<Payment> directPayments = paymentRepository.findByOrderId(orderId);
         for (Payment p : directPayments) {
             if ("Y".equalsIgnoreCase(p.getIsactive()) && !"VOID".equalsIgnoreCase(p.getDocStatus()) && !"VOIDED".equalsIgnoreCase(p.getDocStatus())) {
+                BigDecimal effectiveRoundOff = p.getRoundOffAmount() != null ? p.getRoundOffAmount()
+                        : (order != null ? order.getRoundOffAmount() : BigDecimal.ZERO);
+                String pType = p.getPaymentType() != null ? p.getPaymentType().name() : "INBOUND";
+                String pTypeLabel = "INBOUND".equalsIgnoreCase(pType) ? "Customer Payment" : "Vendor Settlement";
                 list.add(OrderPaymentDto.builder()
                         .paymentId(p.getId())
                         .referenceNo(p.getReferenceNo())
                         .paymentDate(p.getPaymentDate())
                         .amount(p.getAmountPaid())
+                        .roundOffAmount(effectiveRoundOff)
+                        .taxAmount(taxAmount)
+                        .subtotal(subtotal)
+                        .grossAmount(grossAmount)
+                        .discountAmount(discountAmount)
+                        .type(pType)
+                        .paymentType(pType)
+                        .paymentTypeLabel(pTypeLabel)
                         .paymentMethod(p.getPaymentMethod())
                         .description(p.getDescription())
                         .build());
@@ -3772,11 +3816,23 @@ public class OrderService {
             if (!alreadyAdded) {
                 paymentRepository.findById(alloc.getPaymentId()).ifPresent(p -> {
                     if ("Y".equalsIgnoreCase(p.getIsactive()) && !"VOID".equalsIgnoreCase(p.getDocStatus()) && !"VOIDED".equalsIgnoreCase(p.getDocStatus())) {
+                        BigDecimal effectiveRoundOff = p.getRoundOffAmount() != null ? p.getRoundOffAmount()
+                                : (order != null ? order.getRoundOffAmount() : BigDecimal.ZERO);
+                        String pType = p.getPaymentType() != null ? p.getPaymentType().name() : "INBOUND";
+                        String pTypeLabel = "INBOUND".equalsIgnoreCase(pType) ? "Customer Payment" : "Vendor Settlement";
                         list.add(OrderPaymentDto.builder()
                                 .paymentId(p.getId())
                                 .referenceNo(p.getReferenceNo())
                                 .paymentDate(alloc.getAllocationDate())
                                 .amount(alloc.getAllocatedAmount())
+                                .roundOffAmount(effectiveRoundOff)
+                                .taxAmount(taxAmount)
+                                .subtotal(subtotal)
+                                .grossAmount(grossAmount)
+                                .discountAmount(discountAmount)
+                                .type(pType)
+                                .paymentType(pType)
+                                .paymentTypeLabel(pTypeLabel)
                                 .paymentMethod(p.getPaymentMethod())
                                 .description(p.getDescription())
                                 .build());
