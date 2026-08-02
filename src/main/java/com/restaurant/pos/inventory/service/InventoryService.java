@@ -5,8 +5,9 @@ import com.restaurant.pos.inventory.domain.StockAdjustment;
 import com.restaurant.pos.inventory.domain.StockSnapshot;
 import com.restaurant.pos.inventory.domain.StockTransfer;
 import com.restaurant.pos.inventory.query.InventoryQueryService;
+import com.restaurant.pos.warehouse.command.WarehouseCommandService;
 import com.restaurant.pos.warehouse.domain.Warehouse;
-import com.restaurant.pos.warehouse.service.WarehouseService;
+import com.restaurant.pos.warehouse.query.WarehouseQueryService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -26,34 +27,30 @@ public class InventoryService {
 
     private final InventoryCommandService commandService;
     private final InventoryQueryService queryService;
-    private final WarehouseService warehouseService;
+    private final WarehouseQueryService warehouseQueryService;
+    private final WarehouseCommandService warehouseCommandService;
 
     public Optional<Warehouse> findDefaultWarehouse(UUID clientId, UUID orgId) {
-        return warehouseService.findDefaultWarehouse(clientId, orgId);
+        return warehouseQueryService.findDefaultWarehouse(clientId, orgId);
     }
 
     // --- Warehouse Management ---
 
     public List<Warehouse> getWarehouses(UUID orgId) {
-        return warehouseService.getWarehouses(orgId);
+        return warehouseQueryService.getWarehouses(orgId);
     }
 
     public List<Warehouse> getWarehouses() {
-        return warehouseService.getWarehouses();
+        return warehouseQueryService.getWarehouses();
     }
 
     public Warehouse getWarehouse(UUID id) {
-        return warehouseService.getWarehouse(id);
-    }
-
-    @Transactional
-    public Warehouse saveWarehouse(Warehouse warehouse) {
-        return warehouseService.saveWarehouse(warehouse);
+        return warehouseQueryService.getWarehouse(id);
     }
 
     @Transactional
     public void deleteWarehouse(UUID id) {
-        warehouseService.deleteWarehouse(id);
+        warehouseCommandService.deleteWarehouse(id);
     }
 
     // --- Core Stock Commands ---
