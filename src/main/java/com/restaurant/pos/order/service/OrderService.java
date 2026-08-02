@@ -2108,8 +2108,18 @@ public class OrderService {
                         .orElse(null);
                     if (match != null) {
                         if (upLine.getDiscountAmount() != null) match.setDiscountAmount(upLine.getDiscountAmount());
-                        if (upLine.getManualDiscountAmount() != null) match.setManualDiscountAmount(upLine.getManualDiscountAmount());
-                        if (upLine.getManualDiscountPercent() != null) match.setManualDiscountPercent(upLine.getManualDiscountPercent());
+                        // Maintain mutual exclusivity between amount and percent — mirrors
+                        // the same logic in recalculateOrderTotals so that switching from
+                        // an AMOUNT discount to a PERCENT discount (or vice versa) never
+                        // leaves a stale value in the other field that would mislead
+                        // resolveLineDiscountType/resolveLineDiscountValue.
+                        if (upLine.getManualDiscountPercent() != null) {
+                            match.setManualDiscountPercent(upLine.getManualDiscountPercent());
+                            match.setManualDiscountAmount(null);  // clear stale amount
+                        } else if (upLine.getManualDiscountAmount() != null) {
+                            match.setManualDiscountAmount(upLine.getManualDiscountAmount());
+                            match.setManualDiscountPercent(null);  // clear stale percent
+                        }
                         if (upLine.getAllocatedOrderDiscount() != null) match.setAllocatedOrderDiscount(upLine.getAllocatedOrderDiscount());
                         if (upLine.getTaxAmount() != null) match.setTaxAmount(upLine.getTaxAmount());
                         if (upLine.getLineTotal() != null) match.setLineTotal(upLine.getLineTotal());

@@ -676,16 +676,37 @@ public class ProductService {
             });
         }
         if (product.getRecipeLines() != null) {
+            java.util.Set<UUID> addedIngredientIds = new java.util.HashSet<>();
+            java.util.List<ProductRecipe> validRecipes = new java.util.ArrayList<>();
             product.getRecipeLines().forEach(recipe -> {
                 if (product.getId() != null && recipe.getIngredient() != null
                         && product.getId().equals(recipe.getIngredient().getId())) {
                     throw new BusinessException("A product cannot be an ingredient of itself");
                 }
+                if (recipe.getIngredient() != null && recipe.getIngredient().getId() != null) {
+                    UUID ingId = recipe.getIngredient().getId();
+                    if (addedIngredientIds.contains(ingId)) return;
+                    addedIngredientIds.add(ingId);
+                    Product ingredientProduct = productRepository.findById(ingId).orElse(null);
+                    if (ingredientProduct != null) {
+                        if (!ingredientProduct.isIngredient()) {
+                            ingredientProduct.setIngredient(true);
+                            productRepository.save(ingredientProduct);
+                        }
+                        recipe.setIngredient(ingredientProduct);
+                    }
+                }
+                if (recipe.getQuantity() == null || recipe.getQuantity().compareTo(java.math.BigDecimal.ZERO) <= 0) {
+                    recipe.setQuantity(java.math.BigDecimal.ONE);
+                }
                 recipe.setProduct(product);
                 recipe.setClientId(clientId);
                 recipe.setOrgId(orgId);
+                validRecipes.add(recipe);
             });
+            product.setRecipeLines(validRecipes);
         }
+
     }
 
     @Transactional
@@ -907,6 +928,7 @@ public class ProductService {
             existing.getRecipeLines().clear();
         }
         if (product.getRecipeLines() != null) {
+            java.util.Set<UUID> addedIngredientIds = new java.util.HashSet<>();
             product.getRecipeLines().forEach(recipe -> {
                 recipe.setId(null);
                 if (existing.getId() != null && recipe.getIngredient() != null
@@ -914,21 +936,32 @@ public class ProductService {
                     throw new BusinessException("A product cannot be an ingredient of itself");
                 }
                 if (recipe.getIngredient() != null && recipe.getIngredient().getId() != null) {
-                    Product ingredientProduct = productRepository.findById(recipe.getIngredient().getId())
+                    UUID ingId = recipe.getIngredient().getId();
+                    if (addedIngredientIds.contains(ingId)) {
+                        return; // Prevent duplicate ingredient entries in recipe lines
+                    }
+                    addedIngredientIds.add(ingId);
+
+                    Product ingredientProduct = productRepository.findById(ingId)
                             .orElseThrow(() -> new ResourceNotFoundException("Ingredient product not found"));
                     validateOwnership(ingredientProduct.getClientId(), ingredientProduct.getOrgId(),
                             "Ingredient Product", false);
                     if (!ingredientProduct.isIngredient()) {
-                        throw new BusinessException("Product must be set as an ingredient to be used in a recipe");
+                        ingredientProduct.setIngredient(true);
+                        productRepository.save(ingredientProduct);
                     }
                     recipe.setIngredient(ingredientProduct);
+                }
+                if (recipe.getQuantity() == null || recipe.getQuantity().compareTo(java.math.BigDecimal.ZERO) <= 0) {
+                    recipe.setQuantity(java.math.BigDecimal.ONE);
                 }
                 recipe.setProduct(existing);
                 recipe.setClientId(clientId);
                 recipe.setOrgId(orgId);
+                existing.getRecipeLines().add(recipe);
             });
-            existing.getRecipeLines().addAll(product.getRecipeLines());
         }
+
 
 
         return productRepository.save(existing);
