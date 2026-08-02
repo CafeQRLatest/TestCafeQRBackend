@@ -1,6 +1,6 @@
-package com.restaurant.pos.purchasing.repository;
+package com.restaurant.pos.paymenttype.repository;
 
-import com.restaurant.pos.purchasing.domain.PaymentType;
+import com.restaurant.pos.paymenttype.domain.PaymentType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 

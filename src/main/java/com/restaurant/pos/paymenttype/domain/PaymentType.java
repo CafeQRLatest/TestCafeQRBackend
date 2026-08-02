@@ -1,4 +1,4 @@
-package com.restaurant.pos.purchasing.domain;
+package com.restaurant.pos.paymenttype.domain;
 
 import com.restaurant.pos.common.entity.BaseEntity;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -48,23 +48,17 @@ public class PaymentType extends BaseEntity {
     @Column(name = "ledger_ref", length = 80)
     private String ledgerRef;
 
-    /**
-     * When true, this is the default payment type for its applicable contexts.
-     */
+    /** When true, this is the default payment type for its applicable contexts. */
     @Builder.Default
     @Column(name = "is_default")
     private Boolean isDefault = false;
 
-    /**
-     * Display order in dropdowns — lower numbers appear first.
-     */
+    /** Display order in dropdowns — lower numbers appear first. */
     @Builder.Default
     @Column(name = "sort_order")
     private Integer sortOrder = 0;
 
-    /**
-     * Optional free-text notes about this payment type.
-     */
+    /** Optional free-text notes about this payment type. */
     @Column(columnDefinition = "TEXT")
     private String description;
 

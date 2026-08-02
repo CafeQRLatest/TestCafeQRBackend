@@ -31,7 +31,7 @@ public class DataInitializer implements CommandLineRunner {
     private final MenuRepository menuRepository;
     private final com.restaurant.pos.client.repository.OrganizationRepository organizationRepository;
     private final com.restaurant.pos.client.repository.ClientRepository clientRepository;
-    private final com.restaurant.pos.purchasing.repository.PaymentTypeRepository paymentTypeRepository;
+    private final com.restaurant.pos.paymenttype.repository.PaymentTypeRepository paymentTypeRepository;
 
     @Override
     @Transactional
@@ -163,7 +163,7 @@ public class DataInitializer implements CommandLineRunner {
                 boolean exists = paymentTypeRepository.existsByClientIdAndOrgIdAndDisplayName(clientId, orgId,
                         s.display());
                 if (!exists) {
-                    com.restaurant.pos.purchasing.domain.PaymentType pt = com.restaurant.pos.purchasing.domain.PaymentType
+                    com.restaurant.pos.paymenttype.domain.PaymentType pt = com.restaurant.pos.paymenttype.domain.PaymentType
                             .builder()
                             .displayName(s.display())
                             .paymentType(s.paymentType())
