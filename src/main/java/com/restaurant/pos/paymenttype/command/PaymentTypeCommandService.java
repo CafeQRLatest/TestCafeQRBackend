@@ -37,8 +37,6 @@ public class PaymentTypeCommandService {
         }
 
         PaymentType paymentType = PaymentType.builder()
-                .clientId(tenantId)
-                .orgId(orgId)
                 .displayName(command.getDisplayName())
                 .paymentType(command.getPaymentType() != null ? command.getPaymentType() : "OTHERS")
                 .sales(command.getSales() != null ? command.getSales() : "Y")
@@ -50,6 +48,8 @@ public class PaymentTypeCommandService {
                 .description(command.getDescription())
                 .isactive(command.getIsactive() != null ? command.getIsactive() : "Y")
                 .build();
+        paymentType.setClientId(tenantId);
+        paymentType.setOrgId(orgId);
 
         if (Boolean.TRUE.equals(command.getIsDefault())) {
             clearDefaultPaymentTypes(tenantId, orgId);
