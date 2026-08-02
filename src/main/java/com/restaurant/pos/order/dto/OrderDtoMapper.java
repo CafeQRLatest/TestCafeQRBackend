@@ -277,6 +277,9 @@ public class OrderDtoMapper {
                 }
             }
         } catch (Exception ignored) {}
+        if (Boolean.TRUE.equals(order.getIsCredit()) || "CREDIT".equalsIgnoreCase(order.getPaymentMethod())) {
+            return "CREDIT";
+        }
         return order.getPaymentMethod();
     }
 

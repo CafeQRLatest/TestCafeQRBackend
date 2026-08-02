@@ -527,14 +527,19 @@ public class ReportService {
 
             if (inv.getOrderId() != null) {
                 List<Payment> payments = paymentsByOrderMap.getOrDefault(inv.getOrderId(), List.of());
+                Order linkedOrder = orderMap.get(inv.getOrderId());
+                paymentMethod = resolveCombinedPaymentMethod(payments, linkedOrder);
                 if (!payments.isEmpty()) {
                     Payment latest = payments.get(payments.size() - 1);
-                    paymentMethod = resolveCombinedPaymentMethod(payments, orderMap.get(inv.getOrderId()));
                     paymentNo = latest.getReferenceNo();
                 }
-                Order linkedOrder = orderMap.get(inv.getOrderId());
                 if (linkedOrder != null) {
                     customerName = customerDisplay(customerMap.getOrDefault(linkedOrder.getId(), List.of()));
+                }
+            }
+            if (paymentMethod == null || paymentMethod.isBlank()) {
+                if (inv.getCreditCustomerId() != null || "CREDIT".equalsIgnoreCase(inv.getInvoiceType() != null ? inv.getInvoiceType().name() : null)) {
+                    paymentMethod = "CREDIT";
                 }
             }
 
@@ -703,7 +708,13 @@ public class ReportService {
 
     private String resolveCombinedPaymentMethod(List<Payment> payments, Order order) {
         if (payments == null || payments.isEmpty()) {
-            return order != null ? order.getPaymentMethod() : null;
+            if (order != null) {
+                if (Boolean.TRUE.equals(order.getIsCredit()) || "CREDIT".equalsIgnoreCase(order.getPaymentMethod())) {
+                    return "CREDIT";
+                }
+                return order.getPaymentMethod();
+            }
+            return null;
         }
         Set<String> methods = new LinkedHashSet<>();
         for (Payment p : payments) {
@@ -715,7 +726,13 @@ public class ReportService {
             }
         }
         if (methods.isEmpty()) {
-            return order != null ? order.getPaymentMethod() : null;
+            if (order != null) {
+                if (Boolean.TRUE.equals(order.getIsCredit()) || "CREDIT".equalsIgnoreCase(order.getPaymentMethod())) {
+                    return "CREDIT";
+                }
+                return order.getPaymentMethod();
+            }
+            return null;
         }
         return String.join(", ", methods);
     }
@@ -723,6 +740,12 @@ public class ReportService {
     private SalesInvoiceReportDto buildSalesInvoiceRow(Order order, Invoice invoice, List<Payment> payments, boolean preferOrderDate, Map<UUID, List<OrderCustomerDto>> customerMap) {
         Payment payment = latestPayment(payments);
         String paymentMethod = resolveCombinedPaymentMethod(payments, order);
+        if (paymentMethod == null || paymentMethod.isBlank()) {
+            if ((invoice != null && (invoice.getCreditCustomerId() != null || "CREDIT".equalsIgnoreCase(invoice.getInvoiceType() != null ? invoice.getInvoiceType().name() : null)))
+                    || (order != null && (Boolean.TRUE.equals(order.getIsCredit()) || "CREDIT".equalsIgnoreCase(order.getPaymentMethod())))) {
+                paymentMethod = "CREDIT";
+            }
+        }
         ZoneId zoneId = ZoneOffset.UTC;
         LocalDateTime orderDate = order != null && order.getOrderDate() != null
                 ? LocalDateTime.ofInstant(order.getOrderDate(), zoneId)
