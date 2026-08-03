@@ -481,6 +481,7 @@ public class ProductService {
                         .map(pricing -> ProductDetailDto.VariantPricingDto.builder()
                                 .id(pricing.getId())
                                 .overridePrice(pricing.getOverridePrice())
+                                .costPrice(pricing.getCostPrice())
                                 .isAvailable(pricing.isAvailable())
                                 .variantOption(pricing.getVariantOption() == null ? null
                                         : mapVariantOptionToDto(pricing.getVariantOption()))

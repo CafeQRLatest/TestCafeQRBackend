@@ -9,6 +9,10 @@ import com.restaurant.pos.inventory.repository.StockAdjustmentRepository;
 import com.restaurant.pos.inventory.repository.StockSnapshotRepository;
 import com.restaurant.pos.inventory.repository.StockTransferRepository;
 import com.restaurant.pos.product.repository.ProductRepository;
+import com.restaurant.pos.product.repository.VariantOptionRepository;
+import com.restaurant.pos.product.domain.VariantOption;
+import com.restaurant.pos.product.repository.VariantPricingRepository;
+import com.restaurant.pos.product.domain.VariantPricing;
 import com.restaurant.pos.warehouse.domain.Warehouse;
 import com.restaurant.pos.warehouse.repository.WarehouseRepository;
 import lombok.RequiredArgsConstructor;
@@ -41,6 +45,8 @@ public class InventoryQueryService {
     private final StockTransferRepository stockTransferRepository;
     private final WarehouseRepository warehouseRepository;
     private final ProductRepository productRepository;
+    private final VariantOptionRepository variantOptionRepository;
+    private final VariantPricingRepository variantPricingRepository;
     private final UserRepository userRepository;
     private final BranchContextService branchContext;
 
@@ -63,13 +69,43 @@ public class InventoryQueryService {
         }
     }
 
+    private List<StockSnapshot> consolidateByProductAndVariant(List<StockSnapshot> snapshots) {
+        if (snapshots == null || snapshots.isEmpty()) {
+            return new ArrayList<>();
+        }
+        Map<String, StockSnapshot> map = new HashMap<>();
+        for (StockSnapshot snap : snapshots) {
+            if (snap.getProductId() == null) continue;
+            String key = snap.getVariantId() != null 
+                    ? snap.getProductId() + "_" + snap.getVariantId() 
+                    : snap.getProductId().toString();
+            if (map.containsKey(key)) {
+                StockSnapshot existing = map.get(key);
+                existing.setCurrentQuantity(existing.getCurrentQuantity().add(snap.getCurrentQuantity()));
+            } else {
+                StockSnapshot copy = StockSnapshot.builder()
+                        .id(snap.getId())
+                        .clientId(snap.getClientId())
+                        .orgId(snap.getOrgId())
+                        .warehouseId(snap.getWarehouseId())
+                        .productId(snap.getProductId())
+                        .variantId(snap.getVariantId())
+                        .currentQuantity(snap.getCurrentQuantity())
+                        .lastUpdated(snap.getLastUpdated())
+                        .build();
+                map.put(key, copy);
+            }
+        }
+        return new ArrayList<>(map.values());
+    }
+
     public List<StockSnapshot> getStockOverview(UUID warehouseId) {
         List<StockSnapshot> snapshots = stockSnapshotRepository.findByWarehouseId(warehouseId);
         Warehouse warehouse = warehouseRepository.findById(warehouseId).orElse(null);
         if (warehouse == null) {
-            return snapshots;
+            return enrichWithVariantNames(snapshots);
         }
-        return appendRecipeProductsStock(snapshots, warehouse.getClientId(), warehouse.getOrgId(), warehouseId, false);
+        return enrichWithVariantNames(appendRecipeProductsStock(snapshots, warehouse.getClientId(), warehouse.getOrgId(), warehouseId, false));
     }
 
     public List<StockSnapshot> getConsolidatedStockOverview(UUID orgId, UUID warehouseId) {
@@ -77,8 +113,8 @@ public class InventoryQueryService {
         UUID effectiveOrgId = orgId != null ? orgId : TenantContext.getCurrentOrg();
         
         if (warehouseId != null) {
-            List<StockSnapshot> raw = stockSnapshotRepository.findByClientIdAndWarehouseId(clientId, warehouseId);
-            return appendRecipeProductsStock(raw, clientId, effectiveOrgId, warehouseId, false);
+            List<StockSnapshot> raw = consolidateByProductAndVariant(stockSnapshotRepository.findByClientIdAndWarehouseId(clientId, warehouseId));
+            return enrichWithVariantNames(appendRecipeProductsStock(raw, clientId, effectiveOrgId, warehouseId, false));
         }
         
         List<StockSnapshot> rawSnapshots;
@@ -88,29 +124,8 @@ public class InventoryQueryService {
             rawSnapshots = stockSnapshotRepository.findByClientId(clientId);
         }
         
-        Map<String, StockSnapshot> consolidatedMap = new HashMap<>();
-        for (StockSnapshot snap : rawSnapshots) {
-            String key = snap.getProductId().toString() + "_" + (snap.getVariantId() != null ? snap.getVariantId().toString() : "null");
-            if (consolidatedMap.containsKey(key)) {
-                StockSnapshot existing = consolidatedMap.get(key);
-                existing.setCurrentQuantity(existing.getCurrentQuantity().add(snap.getCurrentQuantity()));
-            } else {
-                StockSnapshot copy = StockSnapshot.builder()
-                        .id(null)
-                        .clientId(snap.getClientId())
-                        .orgId(snap.getOrgId())
-                        .warehouseId(null)
-                        .productId(snap.getProductId())
-                        .variantId(snap.getVariantId())
-                        .currentQuantity(snap.getCurrentQuantity())
-                        .lastUpdated(snap.getLastUpdated())
-                        .build();
-                consolidatedMap.put(key, copy);
-            }
-        }
-        
-        List<StockSnapshot> consolidatedSnapshots = new ArrayList<>(consolidatedMap.values());
-        return appendRecipeProductsStock(consolidatedSnapshots, clientId, effectiveOrgId, null, true);
+        List<StockSnapshot> consolidatedSnapshots = consolidateByProductAndVariant(rawSnapshots);
+        return enrichWithVariantNames(appendRecipeProductsStock(consolidatedSnapshots, clientId, effectiveOrgId, null, true));
     }
 
     public Page<StockAdjustment> getAdjustments(UUID orgId, Pageable pageable) {
@@ -204,6 +219,47 @@ public class InventoryQueryService {
         }
 
         return adjustment;
+    }
+
+    private List<StockSnapshot> enrichWithVariantNames(List<StockSnapshot> snapshots) {
+        List<UUID> variantIds = snapshots.stream()
+                .filter(s -> s.getVariantId() != null)
+                .map(StockSnapshot::getVariantId)
+                .distinct()
+                .collect(Collectors.toList());
+        if (variantIds.isEmpty()) return snapshots;
+
+        // Build variantId -> name map
+        Map<UUID, String> nameMap = new HashMap<>();
+        variantOptionRepository.findAllById(variantIds)
+                .forEach(vo -> nameMap.put(vo.getId(), vo.getName()));
+
+        // Build variantId -> costPrice map from variant_pricing
+        List<UUID> productIds = snapshots.stream()
+                .filter(s -> s.getVariantId() != null && s.getProductId() != null)
+                .map(StockSnapshot::getProductId)
+                .distinct()
+                .collect(Collectors.toList());
+        Map<UUID, java.math.BigDecimal> costMap = new HashMap<>();
+        for (UUID pid : productIds) {
+            variantPricingRepository.findByProductId(pid).forEach(vp -> {
+                if (vp.getVariantOption() != null) {
+                    java.math.BigDecimal cost = vp.getCostPrice() != null ? vp.getCostPrice()
+                            : (vp.getOverridePrice() != null ? vp.getOverridePrice() : null);
+                    if (cost != null) {
+                        costMap.put(vp.getVariantOption().getId(), cost);
+                    }
+                }
+            });
+        }
+
+        snapshots.forEach(s -> {
+            if (s.getVariantId() != null) {
+                s.setVariantOptionName(nameMap.getOrDefault(s.getVariantId(), null));
+                s.setVariantCostPrice(costMap.getOrDefault(s.getVariantId(), null));
+            }
+        });
+        return snapshots;
     }
 
     private List<StockSnapshot> appendRecipeProductsStock(List<StockSnapshot> snapshots, UUID clientId, UUID orgId, UUID warehouseId, boolean isConsolidated) {

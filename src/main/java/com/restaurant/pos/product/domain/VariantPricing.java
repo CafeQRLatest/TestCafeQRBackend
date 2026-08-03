@@ -38,6 +38,8 @@ public class VariantPricing extends AuditableEntity {
 
     private BigDecimal overridePrice;
 
+    private BigDecimal costPrice;
+
     @Builder.Default
     @JsonProperty("isAvailable")
     private boolean isAvailable = true;

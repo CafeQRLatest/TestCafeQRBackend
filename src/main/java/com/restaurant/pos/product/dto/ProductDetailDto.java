@@ -117,6 +117,7 @@ public class ProductDetailDto {
     public static class VariantPricingDto {
         private UUID id;
         private BigDecimal overridePrice;
+        private BigDecimal costPrice;
 
         @JsonProperty("isAvailable")
         private boolean isAvailable;

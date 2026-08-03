@@ -46,4 +46,10 @@ public class StockSnapshot {
     private LocalDateTime lastUpdated = LocalDateTime.now();
     
     // We do not inherit AuditableEntity because this is just a cache representation
+
+    @Transient
+    private String variantOptionName;
+
+    @Transient
+    private java.math.BigDecimal variantCostPrice;
 }

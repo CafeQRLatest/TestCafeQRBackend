@@ -24,6 +24,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.Optional;
 import java.util.UUID;
 
 @Service
@@ -51,16 +52,22 @@ public class InventoryCommandService {
         UUID orgId = explicitOrgId != null ? explicitOrgId
                 : branchContext.requireWriteOrgId(TenantContext.getCurrentOrg());
 
-        StockSnapshot snapshot = stockSnapshotRepository
-                .findByWarehouseIdAndProductIdAndVariantId(warehouseId, productId, variantId)
-                .orElseGet(() -> StockSnapshot.builder()
-                        .clientId(clientId)
-                        .orgId(orgId)
-                        .warehouseId(warehouseId)
-                        .productId(productId)
-                        .variantId(variantId)
-                        .currentQuantity(BigDecimal.ZERO)
-                        .build());
+        Optional<StockSnapshot> exactOpt = stockSnapshotRepository
+                .findByWarehouseIdAndProductIdAndVariantId(warehouseId, productId, variantId);
+
+        StockSnapshot snapshot;
+        if (exactOpt.isPresent()) {
+            snapshot = exactOpt.get();
+        } else {
+            snapshot = StockSnapshot.builder()
+                    .clientId(clientId)
+                    .orgId(orgId)
+                    .warehouseId(warehouseId)
+                    .productId(productId)
+                    .variantId(variantId)
+                    .currentQuantity(BigDecimal.ZERO)
+                    .build();
+        }
 
         BigDecimal newBalance = snapshot.getCurrentQuantity().add(quantityChange);
         snapshot.setCurrentQuantity(newBalance);
@@ -85,6 +92,12 @@ public class InventoryCommandService {
 
     public StockAdjustment saveAdjustment(StockAdjustment adjustment) {
         UUID clientId = TenantContext.getCurrentTenant();
+
+        StockAdjustment existing = null;
+        if (adjustment.getId() != null) {
+            existing = stockAdjustmentRepository.findById(adjustment.getId()).orElse(null);
+        }
+
         UUID orgId = branchContext.requireWriteOrgId(adjustment.getOrgId());
         
         adjustment.setClientId(clientId);
@@ -108,9 +121,12 @@ public class InventoryCommandService {
         StockAdjustment saved = stockAdjustmentRepository.save(adjustment);
 
         if ("COMPLETED".equalsIgnoreCase(saved.getStatus()) && saved.getLines() != null) {
-            for (StockAdjustmentLine line : saved.getLines()) {
-                updateStock(saved.getWarehouseId(), line.getProductId(), line.getVariantId(), 
-                        line.getQuantityChange(), "ADJUSTMENT", saved.getId(), line.getUnitCost());
+            boolean alreadyCompleted = existing != null && "COMPLETED".equalsIgnoreCase(existing.getStatus());
+            if (!alreadyCompleted) {
+                for (StockAdjustmentLine line : saved.getLines()) {
+                    updateStock(saved.getWarehouseId(), line.getProductId(), line.getVariantId(), 
+                            line.getQuantityChange(), "ADJUSTMENT", saved.getId(), line.getUnitCost());
+                }
             }
         }
         
@@ -180,6 +196,11 @@ public class InventoryCommandService {
                     StockSnapshot snapshot = stockSnapshotRepository
                             .findByWarehouseIdAndProductIdAndVariantId(transfer.getSourceWarehouseId(), line.getProductId(), line.getVariantId())
                             .orElse(null);
+                    if (snapshot == null && line.getVariantId() != null) {
+                        snapshot = stockSnapshotRepository
+                                .findByWarehouseIdAndProductIdAndVariantId(transfer.getSourceWarehouseId(), line.getProductId(), null)
+                                .orElse(null);
+                    }
                     BigDecimal available = snapshot != null && snapshot.getCurrentQuantity() != null ? snapshot.getCurrentQuantity() : BigDecimal.ZERO;
                     if (available.compareTo(BigDecimal.ZERO) <= 0) {
                         throw new com.restaurant.pos.common.exception.BusinessException(
