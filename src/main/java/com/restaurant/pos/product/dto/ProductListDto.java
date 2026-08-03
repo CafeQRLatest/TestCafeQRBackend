@@ -23,6 +23,8 @@ public class ProductListDto {
     private String name;
     private String description;
     private BigDecimal price;
+    private BigDecimal costPrice;
+    private BigDecimal mrp;
     @JsonProperty("isAvailable")
     private boolean isAvailable;
     private String imageUrl;

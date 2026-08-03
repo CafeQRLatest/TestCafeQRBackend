@@ -414,6 +414,8 @@ public class ProductService {
                     .name(product.getName())
                     .description(product.getDescription())
                     .price(product.getPrice())
+                    .costPrice(product.getCostPrice())
+                    .mrp(product.getMrp())
                     .isAvailable(product.isAvailable())
                     .imageUrl(product.getImageUrl())
                     .categoryId(product.getCategory() != null ? product.getCategory().getId() : null)
