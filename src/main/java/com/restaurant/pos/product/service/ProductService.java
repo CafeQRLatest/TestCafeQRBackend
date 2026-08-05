@@ -971,25 +971,66 @@ public class ProductService {
     }
 
     private Category resolveCategoryReference(Category category, UUID clientId, UUID orgId) {
-        if (category == null || category.getId() == null) {
+        if (category == null || (category.getId() == null && category.getName() == null)) {
             return null;
         }
 
-        Category resolved = categoryRepository.findById(category.getId())
-                .orElseThrow(() -> new ResourceNotFoundException("Category not found"));
-        validateOwnership(resolved.getClientId(), resolved.getOrgId(), "Category", false);
-        return resolved;
+        if (category.getId() != null) {
+            Optional<Category> catOpt = categoryRepository.findById(category.getId());
+            if (catOpt.isPresent()) {
+                Category resolved = catOpt.get();
+                if (resolved.getClientId() == null || clientId.equals(resolved.getClientId())) {
+                    return resolved;
+                }
+            }
+        }
+
+        if (category.getName() != null && !category.getName().trim().isEmpty()) {
+            String catName = category.getName().trim();
+            return categoryRepository.findByNameAndClientIdAndOrgIdOrGlobal(catName, clientId, orgId)
+                    .orElseGet(() -> {
+                        Category newCat = new Category();
+                        newCat.setName(catName);
+                        newCat.setClientId(clientId);
+                        newCat.setOrgId(orgId);
+                        newCat.setActive(true);
+                        return categoryRepository.save(newCat);
+                    });
+        }
+
+        throw new BusinessException("Category not found or invalid");
     }
 
     private Uom resolveUomReference(Uom uom, UUID clientId, UUID orgId) {
-        if (uom == null || uom.getId() == null) {
+        if (uom == null || (uom.getId() == null && uom.getName() == null)) {
             return null;
         }
 
-        Uom resolved = uomRepository.findById(uom.getId())
-                .orElseThrow(() -> new ResourceNotFoundException("UOM not found"));
-        validateOwnership(resolved.getClientId(), resolved.getOrgId(), "UOM", false);
-        return resolved;
+        if (uom.getId() != null) {
+            Optional<Uom> uomOpt = uomRepository.findById(uom.getId());
+            if (uomOpt.isPresent()) {
+                Uom resolved = uomOpt.get();
+                if (resolved.getClientId() == null || clientId.equals(resolved.getClientId())) {
+                    return resolved;
+                }
+            }
+        }
+
+        if (uom.getName() != null && !uom.getName().trim().isEmpty()) {
+            String uomName = uom.getName().trim();
+            return uomRepository.findByNameAndClientIdAndOrgIdOrGlobal(uomName, clientId, orgId)
+                    .orElseGet(() -> {
+                        Uom newUom = new Uom();
+                        newUom.setName(uomName);
+                        newUom.setShortName(uom.getShortName() != null ? uom.getShortName() : uomName);
+                        newUom.setClientId(clientId);
+                        newUom.setOrgId(orgId);
+                        newUom.setActive(true);
+                        return uomRepository.save(newUom);
+                    });
+        }
+
+        throw new BusinessException("UOM not found or invalid");
     }
 
     private VariantGroup resolveVariantGroupReference(VariantGroup group) {
@@ -999,7 +1040,9 @@ public class ProductService {
 
         VariantGroup resolved = variantGroupRepository.findById(group.getId())
                 .orElseThrow(() -> new ResourceNotFoundException("Variant Group not found"));
-        validateOwnership(resolved.getClientId(), resolved.getOrgId(), "Variant Group", false);
+        if (resolved.getClientId() == null || TenantContext.getCurrentTenant().equals(resolved.getClientId())) {
+            return resolved;
+        }
         return resolved;
     }
 
@@ -1010,7 +1053,9 @@ public class ProductService {
 
         VariantOption resolved = variantOptionRepository.findById(option.getId())
                 .orElseThrow(() -> new ResourceNotFoundException("Variant Option not found"));
-        validateOwnership(resolved.getClientId(), resolved.getOrgId(), "Variant Option", false);
+        if (resolved.getClientId() == null || TenantContext.getCurrentTenant().equals(resolved.getClientId())) {
+            return resolved;
+        }
         return resolved;
     }
 
@@ -1078,17 +1123,27 @@ public class ProductService {
     }
 
     private void validateProductIntegrity(Product product, UUID clientId, UUID orgId) {
-        // Deep Validation for individual create/update (uses standard lookup)
+        // Deep Validation for individual create/update
         if (product.getCategory() != null && product.getCategory().getId() != null) {
             Category cat = categoryRepository.findById(java.util.Objects.requireNonNull(product.getCategory().getId()))
-                    .orElseThrow(() -> new ResourceNotFoundException("Category not found"));
-            validateOwnership(cat.getClientId(), cat.getOrgId(), "Category", false);
+                    .orElse(null);
+            if (cat != null && cat.getClientId() != null && !clientId.equals(cat.getClientId())) {
+                Category resolvedCat = resolveCategoryReference(product.getCategory(), clientId, orgId);
+                product.setCategory(resolvedCat);
+            } else if (cat != null) {
+                validateOwnership(cat.getClientId(), cat.getOrgId(), "Category", false);
+            }
         }
 
         if (product.getUom() != null && product.getUom().getId() != null) {
             Uom uom = uomRepository.findById(java.util.Objects.requireNonNull(product.getUom().getId()))
-                    .orElseThrow(() -> new ResourceNotFoundException("UOM not found"));
-            validateOwnership(uom.getClientId(), uom.getOrgId(), "UOM", false);
+                    .orElse(null);
+            if (uom != null && uom.getClientId() != null && !clientId.equals(uom.getClientId())) {
+                Uom resolvedUom = resolveUomReference(product.getUom(), clientId, orgId);
+                product.setUom(resolvedUom);
+            } else if (uom != null) {
+                validateOwnership(uom.getClientId(), uom.getOrgId(), "UOM", false);
+            }
         }
 
         // Upsell Check
@@ -1097,8 +1152,10 @@ public class ProductService {
                 if (upsell.getUpsellProduct() != null && upsell.getUpsellProduct().getId() != null) {
                     Product upProduct = productRepository
                             .findById(java.util.Objects.requireNonNull(upsell.getUpsellProduct().getId()))
-                            .orElseThrow(() -> new ResourceNotFoundException("Upsell product not found"));
-                    validateOwnership(upProduct.getClientId(), upProduct.getOrgId(), "Upsell Product", false);
+                            .orElse(null);
+                    if (upProduct != null && upProduct.getClientId() != null && clientId.equals(upProduct.getClientId())) {
+                        validateOwnership(upProduct.getClientId(), upProduct.getOrgId(), "Upsell Product", false);
+                    }
                 }
             }
         }
