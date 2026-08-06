@@ -100,7 +100,8 @@ public class InventoryQueryService {
     }
 
     public List<StockSnapshot> getStockOverview(UUID warehouseId) {
-        List<StockSnapshot> snapshots = stockSnapshotRepository.findByWarehouseId(warehouseId);
+        List<StockSnapshot> rawSnapshots = stockSnapshotRepository.findByWarehouseId(warehouseId);
+        List<StockSnapshot> snapshots = consolidateByProductAndVariant(rawSnapshots);
         Warehouse warehouse = warehouseRepository.findById(warehouseId).orElse(null);
         if (warehouse == null) {
             return enrichWithVariantNames(snapshots);
@@ -111,20 +112,29 @@ public class InventoryQueryService {
     public List<StockSnapshot> getConsolidatedStockOverview(UUID orgId, UUID warehouseId) {
         UUID clientId = TenantContext.getCurrentTenant();
         UUID effectiveOrgId = orgId != null ? orgId : TenantContext.getCurrentOrg();
-        
+        if (effectiveOrgId == null) {
+            effectiveOrgId = branchContext.getReadOrgId(null);
+        }
+        if (effectiveOrgId == null) {
+            return java.util.Collections.emptyList();
+        }
+
         if (warehouseId != null) {
             List<StockSnapshot> raw = consolidateByProductAndVariant(stockSnapshotRepository.findByClientIdAndWarehouseId(clientId, warehouseId));
             return enrichWithVariantNames(appendRecipeProductsStock(raw, clientId, effectiveOrgId, warehouseId, false));
         }
         
-        List<StockSnapshot> rawSnapshots;
-        if (orgId != null) {
-            rawSnapshots = stockSnapshotRepository.findByClientIdAndOrgId(clientId, orgId);
-        } else {
-            rawSnapshots = stockSnapshotRepository.findByClientId(clientId);
-        }
+        List<StockSnapshot> rawSnapshots = stockSnapshotRepository.findByClientIdAndOrgId(clientId, effectiveOrgId);
         
-        List<StockSnapshot> consolidatedSnapshots = consolidateByProductAndVariant(rawSnapshots);
+        List<Warehouse> activeWhs = warehouseRepository.findByClientIdAndOrgIdOrGlobalOrderByCreatedAtDesc(clientId, effectiveOrgId);
+        
+        java.util.Set<UUID> validWhIds = activeWhs.stream().map(Warehouse::getId).collect(Collectors.toSet());
+
+        List<StockSnapshot> validSnapshots = rawSnapshots.stream()
+                .filter(s -> s.getWarehouseId() != null && validWhIds.contains(s.getWarehouseId()))
+                .collect(Collectors.toList());
+        
+        List<StockSnapshot> consolidatedSnapshots = consolidateByProductAndVariant(validSnapshots);
         return enrichWithVariantNames(appendRecipeProductsStock(consolidatedSnapshots, clientId, effectiveOrgId, null, true));
     }
 
@@ -308,8 +318,6 @@ public class InventoryQueryService {
                 boolean found = false;
                 for (StockSnapshot existing : resultList) {
                     if (existing.getProductId().equals(p.getId()) && existing.getVariantId() == null) {
-                        existing.setCurrentQuantity(minAvailable);
-                        existing.setLastUpdated(LocalDateTime.now());
                         found = true;
                         break;
                     }

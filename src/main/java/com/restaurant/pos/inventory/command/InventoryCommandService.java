@@ -41,6 +41,32 @@ public class InventoryCommandService {
     private final DocumentSequenceService documentSequenceService;
     private final WarehouseRepository warehouseRepository;
 
+    public Optional<StockSnapshot> findStockSnapshot(UUID warehouseId, UUID productId, UUID variantId) {
+        java.util.List<StockSnapshot> list = stockSnapshotRepository
+                .findByWarehouseIdAndProductIdAndVariantId(warehouseId, productId, variantId);
+        if (list == null || list.isEmpty()) {
+            return Optional.empty();
+        }
+        if (list.size() == 1) {
+            return Optional.of(list.get(0));
+        }
+        StockSnapshot primary = list.get(0);
+        BigDecimal totalQty = BigDecimal.ZERO;
+        for (StockSnapshot s : list) {
+            if (s.getCurrentQuantity() != null) {
+                totalQty = totalQty.add(s.getCurrentQuantity());
+            }
+        }
+        primary.setCurrentQuantity(totalQty);
+        stockSnapshotRepository.save(primary);
+        for (int i = 1; i < list.size(); i++) {
+            try {
+                stockSnapshotRepository.delete(list.get(i));
+            } catch (Exception ignored) {}
+        }
+        return Optional.of(primary);
+    }
+
     public void updateStock(UUID warehouseId, UUID productId, UUID variantId, BigDecimal quantityChange,
                             String transactionType, UUID referenceId, BigDecimal unitCost) {
         updateStock(warehouseId, productId, variantId, quantityChange, transactionType, referenceId, unitCost, null);
@@ -52,8 +78,7 @@ public class InventoryCommandService {
         UUID orgId = explicitOrgId != null ? explicitOrgId
                 : branchContext.requireWriteOrgId(TenantContext.getCurrentOrg());
 
-        Optional<StockSnapshot> exactOpt = stockSnapshotRepository
-                .findByWarehouseIdAndProductIdAndVariantId(warehouseId, productId, variantId);
+        Optional<StockSnapshot> exactOpt = findStockSnapshot(warehouseId, productId, variantId);
 
         StockSnapshot snapshot;
         if (exactOpt.isPresent()) {
@@ -97,6 +122,7 @@ public class InventoryCommandService {
         if (adjustment.getId() != null) {
             existing = stockAdjustmentRepository.findById(adjustment.getId()).orElse(null);
         }
+        String previousStatus = existing != null ? existing.getStatus() : null;
 
         UUID orgId = branchContext.requireWriteOrgId(adjustment.getOrgId());
         
@@ -121,7 +147,7 @@ public class InventoryCommandService {
         StockAdjustment saved = stockAdjustmentRepository.save(adjustment);
 
         if ("COMPLETED".equalsIgnoreCase(saved.getStatus()) && saved.getLines() != null) {
-            boolean alreadyCompleted = existing != null && "COMPLETED".equalsIgnoreCase(existing.getStatus());
+            boolean alreadyCompleted = "COMPLETED".equalsIgnoreCase(previousStatus);
             if (!alreadyCompleted) {
                 for (StockAdjustmentLine line : saved.getLines()) {
                     updateStock(saved.getWarehouseId(), line.getProductId(), line.getVariantId(), 
@@ -143,6 +169,7 @@ public class InventoryCommandService {
         if (transfer.getId() != null) {
             existing = stockTransferRepository.findById(transfer.getId()).orElse(null);
         }
+        String previousStatus = existing != null ? existing.getStatus() : null;
 
         UUID orgId;
         if (existing != null) {
@@ -190,15 +217,13 @@ public class InventoryCommandService {
         }
 
         if (!"DRAFT".equalsIgnoreCase(transfer.getStatus()) && transfer.getLines() != null) {
-            boolean isNewTransitionToActive = existing == null || "DRAFT".equalsIgnoreCase(existing.getStatus());
+            boolean isNewTransitionToActive = previousStatus == null || "DRAFT".equalsIgnoreCase(previousStatus);
             if (isNewTransitionToActive) {
                 for (StockTransferLine line : transfer.getLines()) {
-                    StockSnapshot snapshot = stockSnapshotRepository
-                            .findByWarehouseIdAndProductIdAndVariantId(transfer.getSourceWarehouseId(), line.getProductId(), line.getVariantId())
+                    StockSnapshot snapshot = findStockSnapshot(transfer.getSourceWarehouseId(), line.getProductId(), line.getVariantId())
                             .orElse(null);
                     if (snapshot == null && line.getVariantId() != null) {
-                        snapshot = stockSnapshotRepository
-                                .findByWarehouseIdAndProductIdAndVariantId(transfer.getSourceWarehouseId(), line.getProductId(), null)
+                        snapshot = findStockSnapshot(transfer.getSourceWarehouseId(), line.getProductId(), null)
                                 .orElse(null);
                     }
                     BigDecimal available = snapshot != null && snapshot.getCurrentQuantity() != null ? snapshot.getCurrentQuantity() : BigDecimal.ZERO;
@@ -219,7 +244,7 @@ public class InventoryCommandService {
         StockTransfer saved = stockTransferRepository.save(transfer);
 
         if ("COMPLETED".equalsIgnoreCase(saved.getStatus())) {
-            boolean alreadyCompleted = existing != null && "COMPLETED".equalsIgnoreCase(existing.getStatus());
+            boolean alreadyCompleted = "COMPLETED".equalsIgnoreCase(previousStatus);
             if (!alreadyCompleted) {
                 Warehouse sourceWh = warehouseRepository.findById(saved.getSourceWarehouseId()).orElse(null);
                 Warehouse destWh = warehouseRepository.findById(saved.getDestWarehouseId()).orElse(null);
@@ -235,7 +260,7 @@ public class InventoryCommandService {
                 }
             }
         } else if ("CANCELLED".equalsIgnoreCase(saved.getStatus()) || "VOIDED".equalsIgnoreCase(saved.getStatus())) {
-            boolean wasAlreadyCompleted = existing != null && "COMPLETED".equalsIgnoreCase(existing.getStatus());
+            boolean wasAlreadyCompleted = "COMPLETED".equalsIgnoreCase(previousStatus);
             if (wasAlreadyCompleted) {
                 Warehouse sourceWh = warehouseRepository.findById(saved.getSourceWarehouseId()).orElse(null);
                 Warehouse destWh = warehouseRepository.findById(saved.getDestWarehouseId()).orElse(null);

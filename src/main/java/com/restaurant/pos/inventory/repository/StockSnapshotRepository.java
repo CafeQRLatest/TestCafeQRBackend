@@ -19,7 +19,7 @@ public interface StockSnapshotRepository extends JpaRepository<StockSnapshot, UU
     
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT s FROM StockSnapshot s WHERE s.warehouseId = :warehouseId AND s.productId = :productId AND ((:variantId IS NULL AND s.variantId IS NULL) OR s.variantId = :variantId)")
-    Optional<StockSnapshot> findByWarehouseIdAndProductIdAndVariantId(
+    List<StockSnapshot> findByWarehouseIdAndProductIdAndVariantId(
             @Param("warehouseId") UUID warehouseId, 
             @Param("productId") UUID productId, 
             @Param("variantId") UUID variantId);
