@@ -307,7 +307,7 @@ public class InventoryQueryService {
                 
                 boolean found = false;
                 for (StockSnapshot existing : resultList) {
-                    if (existing.getProductId().equals(p.getId())) {
+                    if (existing.getProductId().equals(p.getId()) && existing.getVariantId() == null) {
                         existing.setCurrentQuantity(minAvailable);
                         existing.setLastUpdated(LocalDateTime.now());
                         found = true;
