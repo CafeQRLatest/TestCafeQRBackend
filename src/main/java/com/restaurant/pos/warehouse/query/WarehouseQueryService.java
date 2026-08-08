@@ -7,6 +7,7 @@ import com.restaurant.pos.warehouse.domain.Warehouse;
 import com.restaurant.pos.warehouse.repository.WarehouseRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -27,8 +28,10 @@ public class WarehouseQueryService {
     /**
      * Returns all warehouses visible to the current tenant/branch.
      * Super-admins with no explicit orgId filter see all warehouses for the client.
+     * Result is cached in Redis under 'warehouses_v1' for 6 hours.
      */
     @Transactional(readOnly = true)
+    @Cacheable(value = "warehouses_v1", key = "T(com.restaurant.pos.common.tenant.TenantContext).getCurrentTenant() + ':' + (T(com.restaurant.pos.common.util.SecurityUtils).isSuperAdmin() ? 'all' : (T(com.restaurant.pos.common.tenant.TenantContext).getCurrentOrg() != null ? T(com.restaurant.pos.common.tenant.TenantContext).getCurrentOrg() : 'all'))")
     public List<Warehouse> getWarehouses(UUID orgId) {
         UUID clientId = TenantContext.getCurrentTenant();
         UUID effectiveOrgId = orgId != null ? orgId : TenantContext.getCurrentOrg();

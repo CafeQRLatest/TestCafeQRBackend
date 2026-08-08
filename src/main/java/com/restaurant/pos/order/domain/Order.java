@@ -135,6 +135,11 @@ public class Order extends BaseEntity {
     private UUID customerId;
 
     @Builder.Default
+    @JsonProperty("isReceived")
+    @Column(name = "is_received")
+    private Boolean isReceived = false;
+
+    @Builder.Default
     @JsonProperty("isCredit")
     @Column(name = "is_credit")
     private Boolean isCredit = false;

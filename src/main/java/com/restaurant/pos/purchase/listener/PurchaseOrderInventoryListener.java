@@ -31,6 +31,12 @@ public class PurchaseOrderInventoryListener {
             return;
         }
 
+        // Only update warehouse inventory if goods have actually been marked as received
+        if (!Boolean.TRUE.equals(purchaseOrder.getIsReceived())) {
+            log.info("EventListener: Skipping stock intake for PO {} — isReceived is false", purchaseOrder.getOrderNo());
+            return;
+        }
+
         java.util.UUID warehouseId = purchaseOrder.getWarehouseId();
         if (warehouseId == null) {
             var defaultWh = inventoryService.findDefaultWarehouse(purchaseOrder.getClientId(), purchaseOrder.getOrgId());

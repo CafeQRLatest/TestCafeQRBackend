@@ -7,6 +7,7 @@ import com.restaurant.pos.warehouse.domain.Warehouse;
 import com.restaurant.pos.warehouse.repository.WarehouseRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -28,6 +29,7 @@ public class WarehouseCommandService {
      * Creates a new Warehouse for the current branch, enforcing default logic.
      */
     @Transactional
+    @CacheEvict(value = "warehouses_v1", allEntries = true)
     public Warehouse createWarehouse(WarehouseCommand command) {
         UUID clientId = TenantContext.getCurrentTenant();
         UUID orgId    = branchContext.requireWriteOrgId(command.getOrgId());
@@ -51,6 +53,7 @@ public class WarehouseCommandService {
      * Updates an existing Warehouse identified by {@code id}.
      */
     @Transactional
+    @CacheEvict(value = "warehouses_v1", allEntries = true)
     public Warehouse updateWarehouse(UUID id, WarehouseCommand command) {
         UUID clientId = TenantContext.getCurrentTenant();
 
@@ -78,6 +81,7 @@ public class WarehouseCommandService {
      * Deletes a Warehouse and promotes the next one as default when needed.
      */
     @Transactional
+    @CacheEvict(value = "warehouses_v1", allEntries = true)
     public void deleteWarehouse(UUID id) {
         UUID clientId = TenantContext.getCurrentTenant();
         Warehouse warehouse = warehouseRepository.findByIdAndClientId(id, clientId)

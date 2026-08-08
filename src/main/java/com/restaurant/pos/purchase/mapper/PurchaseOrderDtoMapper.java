@@ -5,11 +5,14 @@ import com.restaurant.pos.invoice.domain.Invoice;
 import com.restaurant.pos.invoice.repository.InvoiceRepository;
 import com.restaurant.pos.order.domain.Order;
 import com.restaurant.pos.order.domain.OrderLine;
+import com.restaurant.pos.order.domain.OrderStatus;
 import com.restaurant.pos.order.domain.OrderType;
 import com.restaurant.pos.order.dto.OrderResponseDto;
 import com.restaurant.pos.purchase.command.CreatePurchaseOrderCommand;
 import com.restaurant.pos.purchase.command.UpdatePurchaseOrderCommand;
+import com.restaurant.pos.common.tenant.TenantContext;
 import com.restaurant.pos.purchase.domain.PurchaseOrder;
+import com.restaurant.pos.purchase.dto.PurchaseOrderSummaryDto;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -52,6 +55,7 @@ public class PurchaseOrderDtoMapper {
         }
 
         order.setPaymentMethod(command.getPaymentMethod());
+        order.setPaymentSplits(command.getPaymentSplits());
         order.setReference(command.getReference());
         order.setDescription(command.getDescription());
         order.setSourceLocalRef(command.getSourceLocalRef());
@@ -159,14 +163,21 @@ public class PurchaseOrderDtoMapper {
                 .orderNo(order.getOrderNo())
                 .orderType(order.getOrderType())
                 .orderStatus(order.getOrderStatus())
+                .isReceived(order.getIsReceived() != null ? order.getIsReceived() : OrderStatus.COMPLETED.name().equalsIgnoreCase(order.getOrderStatus()))
                 .paymentStatus(order.getPaymentStatus())
                 .vendorId(order.getVendorId())
                 .warehouseId(order.getWarehouseId())
+                .orgId(order.getOrgId())
+                .terminalId(order.getTerminalId())
+                .orderSource(order.getOrderSource())
+                .syncOrigin(order.getSyncOrigin())
                 .currencyId(order.getCurrencyId())
                 .orderDate(order.getOrderDate())
+                .grossAmount(order.getGrossAmount())
                 .totalAmount(order.getTotalAmount())
                 .totalTaxAmount(order.getTotalTaxAmount())
                 .totalDiscountAmount(order.getTotalDiscountAmount())
+                .roundOffAmount(order.getRoundOffAmount())
                 .grandTotal(order.getGrandTotal())
                 .paymentMethod(order.getPaymentMethod())
                 .reference(order.getReference())
@@ -222,11 +233,46 @@ public class PurchaseOrderDtoMapper {
     private String resolveInvoiceNo(UUID orderId, UUID clientId) {
         if (orderId == null || clientId == null) return null;
         try {
+            UUID orgId = TenantContext.getCurrentOrg();
+            if (orgId != null) {
+                return invoiceRepository.findByOrderIdAndClientIdAndOrgId(orderId, clientId, orgId)
+                        .map(com.restaurant.pos.invoice.domain.Invoice::getInvoiceNo)
+                        .orElseGet(() -> invoiceRepository.findByOrderIdAndClientId(orderId, clientId)
+                                .map(com.restaurant.pos.invoice.domain.Invoice::getInvoiceNo)
+                                .orElse(null));
+            }
             return invoiceRepository.findByOrderIdAndClientId(orderId, clientId)
-                    .map(inv -> inv.getInvoiceNo())
+                    .map(com.restaurant.pos.invoice.domain.Invoice::getInvoiceNo)
                     .orElse(null);
         } catch (Exception e) {
             return null;
         }
     }
+
+    /**
+     * Maps an Order domain entity to a lightweight PurchaseOrderSummaryDto.
+     * Reads column properties directly from the Order entity — does NOT trigger lazy collections or sub-queries.
+     */
+    public PurchaseOrderSummaryDto toSummaryDto(Order order) {
+        if (order == null) return null;
+        return PurchaseOrderSummaryDto.builder()
+                .id(order.getId())
+                .orderNo(order.getOrderNo())
+                .orderStatus(order.getOrderStatus())
+                .isReceived(order.getIsReceived())
+                .paymentStatus(order.getPaymentStatus())
+                .paymentMethod(order.getPaymentMethod())
+                .vendorId(order.getVendorId())
+                .warehouseId(order.getWarehouseId())
+                .orgId(order.getOrgId())
+                .orderDate(order.getOrderDate())
+                .grandTotal(order.getGrandTotal())
+                .totalTaxAmount(order.getTotalTaxAmount())
+                .totalDiscountAmount(order.getTotalDiscountAmount())
+                .totalAmount(order.getTotalAmount())
+                .createdAt(order.getCreatedAt() != null ? order.getCreatedAt().atZone(java.time.ZoneId.systemDefault()).toInstant() : null)
+                .reference(order.getReference())
+                .build();
+    }
 }
+

@@ -20,7 +20,6 @@ import org.springframework.data.redis.serializer.RedisSerializationContext;
 import org.springframework.data.redis.serializer.StringRedisSerializer;
 
 import java.time.Duration;
-import java.util.Collection;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.restaurant.pos.common.context.ContextProvider;
@@ -86,10 +85,16 @@ public class CacheConfig {
                 .serializeKeysWith(RedisSerializationContext.SerializationPair.fromSerializer(new StringRedisSerializer()))
                 .serializeValuesWith(RedisSerializationContext.SerializationPair.fromSerializer(serializer));
 
+        // Per-cache TTL overrides — master data caches live longer (6 h) since they change rarely
+        java.util.Map<String, RedisCacheConfiguration> cacheConfigs = new java.util.HashMap<>();
+        RedisCacheConfiguration masterDataConfig = config.entryTtl(Duration.ofHours(6));
+        cacheConfigs.put("vendors_v1",    masterDataConfig);
+        cacheConfigs.put("warehouses_v1", masterDataConfig);
+
         // Use non-locking writer so cache errors don't propagate to callers
         RedisCacheWriter writer = RedisCacheWriter.nonLockingRedisCacheWriter(connectionFactory);
 
-        return new FaultTolerantRedisCacheManager(writer, config);
+        return new FaultTolerantRedisCacheManager(writer, config, cacheConfigs);
     }
 
     /**
@@ -100,6 +105,11 @@ public class CacheConfig {
 
         public FaultTolerantRedisCacheManager(RedisCacheWriter cacheWriter, RedisCacheConfiguration defaultCacheConfiguration) {
             super(cacheWriter, defaultCacheConfiguration);
+        }
+
+        public FaultTolerantRedisCacheManager(RedisCacheWriter cacheWriter, RedisCacheConfiguration defaultCacheConfiguration,
+                                              java.util.Map<String, RedisCacheConfiguration> initialCacheConfigurations) {
+            super(cacheWriter, defaultCacheConfiguration, initialCacheConfigurations);
         }
 
         @Override

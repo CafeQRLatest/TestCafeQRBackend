@@ -198,6 +198,7 @@ public class OrderDtoMapper {
                 .reference(order.getReference())
                 .customers(order.getCustomers())
                 .isCredit(order.getIsCredit())
+                .isReceived(order.getIsReceived())
                 .creditCustomerId(order.getCreditCustomerId())
                 .invoiceNo(order.getInvoiceNo())
                 .dailyBillNo(order.getDailyBillNo())

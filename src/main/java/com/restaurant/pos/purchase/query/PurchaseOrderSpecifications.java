@@ -22,7 +22,10 @@ public class PurchaseOrderSpecifications {
             predicates.add(cb.equal(root.get("orderType"), OrderType.PURCHASE));
 
             if (orgId != null) {
-                predicates.add(cb.equal(root.get("orgId"), orgId));
+                predicates.add(cb.or(
+                        cb.equal(root.get("orgId"), orgId),
+                        cb.isNull(root.get("orgId"))
+                ));
             }
             if (request.getVendorId() != null) {
                 predicates.add(cb.equal(root.get("vendorId"), request.getVendorId()));
@@ -31,16 +34,60 @@ public class PurchaseOrderSpecifications {
                 predicates.add(cb.equal(root.get("warehouseId"), request.getWarehouseId()));
             }
             if (request.getStatus() != null) {
-                predicates.add(cb.equal(cb.upper(root.get("orderStatus")), request.getStatus().name()));
+                if (request.getStatus() == com.restaurant.pos.order.domain.OrderStatus.VOID || request.getStatus() == com.restaurant.pos.order.domain.OrderStatus.CANCELLED) {
+                    predicates.add(cb.or(
+                            cb.equal(cb.upper(root.get("orderStatus")), "VOID"),
+                            cb.equal(cb.upper(root.get("orderStatus")), "CANCELLED")
+                    ));
+                } else {
+                    predicates.add(cb.equal(cb.upper(root.get("orderStatus")), request.getStatus().name()));
+                }
             }
             if (StringUtils.hasText(request.getPaymentMethod())) {
-                predicates.add(cb.equal(cb.upper(root.get("paymentMethod")), request.getPaymentMethod().toUpperCase()));
+                String targetMethod = request.getPaymentMethod().trim().toUpperCase();
+
+                if ("CREDIT".equals(targetMethod)) {
+                    // For Credit orders: Check paymentMethod formula, order paymentStatus PENDING, or linked invoice with isCredit / UNPAID
+                    jakarta.persistence.criteria.Subquery<UUID> invoiceCreditSubquery = query.subquery(UUID.class);
+                    jakarta.persistence.criteria.Root<com.restaurant.pos.invoice.domain.Invoice> invRoot = invoiceCreditSubquery.from(com.restaurant.pos.invoice.domain.Invoice.class);
+                    invoiceCreditSubquery.select(invRoot.get("orderId"))
+                            .where(
+                                    cb.equal(invRoot.get("orderId"), root.get("id")),
+                                    cb.or(
+                                            cb.isTrue(invRoot.get("isCredit")),
+                                            cb.equal(cb.upper(invRoot.get("status")), "UNPAID")
+                                    )
+                            );
+
+                    Predicate matchFormulaCredit = cb.equal(cb.upper(root.get("paymentMethod")), "CREDIT");
+                    Predicate matchPendingStatus = cb.equal(cb.upper(root.get("paymentStatus")), "PENDING");
+                    Predicate matchInvoiceCredit = cb.exists(invoiceCreditSubquery);
+
+                    predicates.add(cb.or(matchFormulaCredit, matchPendingStatus, matchInvoiceCredit));
+                } else {
+                    // For general payment types: Check direct paymentMethod formula on payments, OR payment splits
+                    jakarta.persistence.criteria.Subquery<UUID> splitSubquery = query.subquery(UUID.class);
+                    jakarta.persistence.criteria.Root<com.restaurant.pos.order.domain.Payment> payRoot = splitSubquery.from(com.restaurant.pos.order.domain.Payment.class);
+                    jakarta.persistence.criteria.Root<com.restaurant.pos.order.domain.PaymentSplit> splitRoot = splitSubquery.from(com.restaurant.pos.order.domain.PaymentSplit.class);
+                    splitSubquery.select(payRoot.get("orderId"))
+                            .where(
+                                    cb.equal(payRoot.get("orderId"), root.get("id")),
+                                    cb.equal(splitRoot.get("paymentId"), payRoot.get("id")),
+                                    cb.equal(cb.upper(splitRoot.get("paymentMethod")), targetMethod)
+                            );
+
+                    Predicate matchDirectMethod = cb.equal(cb.upper(root.get("paymentMethod")), targetMethod);
+                    Predicate matchSplitMethod = cb.exists(splitSubquery);
+
+                    predicates.add(cb.or(matchDirectMethod, matchSplitMethod));
+                }
             }
+            jakarta.persistence.criteria.Expression<java.time.Instant> effectiveDate = cb.coalesce(root.get("orderDate"), root.get("createdAt"));
             if (request.getFromDate() != null) {
-                predicates.add(cb.greaterThanOrEqualTo(root.get("orderDate"), request.getFromDate()));
+                predicates.add(cb.greaterThanOrEqualTo(effectiveDate, request.getFromDate()));
             }
             if (request.getToDate() != null) {
-                predicates.add(cb.lessThanOrEqualTo(root.get("orderDate"), request.getToDate()));
+                predicates.add(cb.lessThanOrEqualTo(effectiveDate, request.getToDate()));
             }
             if (StringUtils.hasText(request.getSearchTerm())) {
                 String pattern = "%" + request.getSearchTerm().trim().toLowerCase() + "%";

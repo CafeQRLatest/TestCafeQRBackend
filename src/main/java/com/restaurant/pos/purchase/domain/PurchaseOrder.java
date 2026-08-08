@@ -45,20 +45,24 @@ public class PurchaseOrder extends Order {
      * Advances the Purchase Order status to COMPLETED.
      */
     public void complete() {
-        if ("CANCELLED".equalsIgnoreCase(this.getOrderStatus()) || "VOID".equalsIgnoreCase(this.getOrderStatus())) {
-            throw new BusinessException("Cannot complete a cancelled or void Purchase Order");
+        if ("VOID".equalsIgnoreCase(this.getOrderStatus()) || "CANCELLED".equalsIgnoreCase(this.getOrderStatus())) {
+            throw new BusinessException("Cannot complete a voided Purchase Order");
         }
         this.setOrderStatus(OrderStatus.COMPLETED.name());
     }
 
     /**
-     * Cancels the Purchase Order.
+     * Voids the Purchase Order.
      */
-    public void cancel() {
-        if ("COMPLETED".equalsIgnoreCase(this.getOrderStatus())) {
-            throw new BusinessException("Cannot cancel an already completed Purchase Order");
+    public void voidOrder() {
+        if ("VOID".equalsIgnoreCase(this.getOrderStatus()) || "CANCELLED".equalsIgnoreCase(this.getOrderStatus())) {
+            throw new BusinessException("Purchase Order is already voided");
         }
-        this.setOrderStatus(OrderStatus.CANCELLED.name());
+        this.setOrderStatus(OrderStatus.VOID.name());
+    }
+
+    public void cancel() {
+        voidOrder();
     }
 
     public boolean isCompleted() {

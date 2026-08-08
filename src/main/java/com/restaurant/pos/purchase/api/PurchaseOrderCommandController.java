@@ -3,6 +3,7 @@ package com.restaurant.pos.purchase.api;
 import com.restaurant.pos.common.dto.ApiResponse;
 import com.restaurant.pos.common.security.StaffAccess;
 import com.restaurant.pos.order.dto.OrderResponseDto;
+import com.restaurant.pos.purchase.command.BulkPurchaseOrderActionCommand;
 import com.restaurant.pos.purchase.command.CreatePurchaseOrderCommand;
 import com.restaurant.pos.purchase.command.PurchaseOrderCommandService;
 import com.restaurant.pos.purchase.command.UpdatePurchaseOrderCommand;
@@ -72,6 +73,54 @@ public class PurchaseOrderCommandController {
         log.info("Updating Purchase Order | id={} | targetStatus={}", id, command.getOrderStatus());
 
         OrderResponseDto response = commandService.updatePurchaseOrder(id, command);
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    @PostMapping("/{id}/void")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF') or hasAuthority('ORDER_WRITE')")
+    @Operation(summary = "Void Purchase Order", description = "Voids / cancels a Purchase Order.")
+    public ResponseEntity<ApiResponse<OrderResponseDto>> voidPurchaseOrder(
+            @Parameter(description = "UUID of the Purchase Order to void", required = true) @PathVariable UUID id) {
+
+        log.info("Voiding Purchase Order | id={}", id);
+
+        OrderResponseDto response = commandService.voidPurchaseOrder(id);
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    @PostMapping("/{id}/receive")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF') or hasAuthority('ORDER_WRITE')")
+    @Operation(summary = "Receive Purchase Order", description = "Marks a Purchase Order as received/completed, updating inventory and creating vendor bill.")
+    public ResponseEntity<ApiResponse<OrderResponseDto>> receivePurchaseOrder(
+            @Parameter(description = "UUID of the Purchase Order to receive", required = true) @PathVariable UUID id) {
+
+        log.info("Receiving Purchase Order | id={}", id);
+
+        OrderResponseDto response = commandService.receivePurchaseOrder(id);
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    @PostMapping("/bulk-void")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF') or hasAuthority('ORDER_WRITE')")
+    @Operation(summary = "Bulk Void Purchase Orders", description = "Voids / cancels multiple Purchase Orders in a single call.")
+    public ResponseEntity<ApiResponse<com.restaurant.pos.purchase.dto.BulkPurchaseOrderResponseDto>> bulkVoidPurchaseOrders(
+            @Parameter(description = "Bulk void command with order IDs", required = true) @Valid @RequestBody BulkPurchaseOrderActionCommand command) {
+
+        log.info("Bulk voiding Purchase Orders | count={}", command.getOrderIds() != null ? command.getOrderIds().size() : 0);
+
+        com.restaurant.pos.purchase.dto.BulkPurchaseOrderResponseDto response = commandService.bulkVoidPurchaseOrders(command.getOrderIds());
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    @PostMapping("/bulk-receive")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF') or hasAuthority('ORDER_WRITE')")
+    @Operation(summary = "Bulk Receive Purchase Orders", description = "Receives/completes multiple Purchase Orders in a single call.")
+    public ResponseEntity<ApiResponse<com.restaurant.pos.purchase.dto.BulkPurchaseOrderResponseDto>> bulkReceivePurchaseOrders(
+            @Parameter(description = "Bulk receive command with order IDs", required = true) @Valid @RequestBody BulkPurchaseOrderActionCommand command) {
+
+        log.info("Bulk receiving Purchase Orders | count={}", command.getOrderIds() != null ? command.getOrderIds().size() : 0);
+
+        com.restaurant.pos.purchase.dto.BulkPurchaseOrderResponseDto response = commandService.bulkReceivePurchaseOrders(command.getOrderIds());
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 }

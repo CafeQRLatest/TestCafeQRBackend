@@ -3,6 +3,7 @@ package com.restaurant.pos.purchase.api;
 import com.restaurant.pos.common.dto.ApiResponse;
 import com.restaurant.pos.common.security.StaffAccess;
 import com.restaurant.pos.order.dto.OrderResponseDto;
+import com.restaurant.pos.purchase.dto.PurchaseOrderSummaryDto;
 import com.restaurant.pos.purchase.query.PurchaseOrderQueryService;
 import com.restaurant.pos.purchase.query.PurchaseOrderSearchRequest;
 import com.restaurant.pos.subscription.annotation.RequireModule;
@@ -52,14 +53,14 @@ public class PurchaseOrderQueryController {
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "Invalid search criteria"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "Unauthorized access", content = @Content)
     })
-    public ResponseEntity<ApiResponse<Page<OrderResponseDto>>> searchPurchaseOrders(
+    public ResponseEntity<ApiResponse<Page<PurchaseOrderSummaryDto>>> searchPurchaseOrders(
             @Valid PurchaseOrderSearchRequest searchRequest,
             @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable) {
 
         log.info("Searching Purchase Orders | vendorId={} | warehouseId={} | status={} | page={}",
                 searchRequest.getVendorId(), searchRequest.getWarehouseId(), searchRequest.getStatus(), pageable.getPageNumber());
 
-        Page<OrderResponseDto> dtos = queryService.searchPurchaseOrders(searchRequest, pageable);
+        Page<PurchaseOrderSummaryDto> dtos = queryService.searchPurchaseOrders(searchRequest, pageable);
         return ResponseEntity.ok(ApiResponse.success(dtos));
     }
 

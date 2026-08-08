@@ -43,11 +43,17 @@ public class CreatePurchaseOrderCommand {
     @Schema(description = "Initial order status (DRAFT or CONFIRMED). Defaults to DRAFT if omitted.", example = "DRAFT")
     private String orderStatus;
 
+    @Schema(description = "Optional non-mandatory flag indicating if goods have been received at warehouse", example = "false")
+    private Boolean isReceived;
+
     @Schema(description = "Payment status (PENDING, PARTIAL, PAID). Defaults to PENDING if omitted.", example = "PENDING")
     private String paymentStatus;
 
     @Schema(description = "Payment method (CASH, CREDIT, BANK_TRANSFER, etc.)", example = "CREDIT")
     private String paymentMethod;
+
+    @Schema(description = "Optional split payment breakdown when paymentMethod is MIXED")
+    private List<com.restaurant.pos.order.dto.CreateOrderRequest.PaymentSplitRequest> paymentSplits;
 
     @Schema(description = "External purchase reference number or supplier invoice number")
     private String reference;

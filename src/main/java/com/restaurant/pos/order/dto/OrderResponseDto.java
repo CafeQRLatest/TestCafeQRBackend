@@ -31,11 +31,23 @@ public class OrderResponseDto {
     @Schema(description = "Current order workflow status")
     private String orderStatus;
 
+    @Schema(description = "Whether purchase/goods receipt is received")
+    private Boolean isReceived;
+
     @Schema(description = "Current payment status")
     private String paymentStatus;
 
     @Schema(description = "Source origin of the order")
     private String orderSource;
+
+    @Schema(description = "Branch/Organization UUID")
+    private UUID orgId;
+
+    @Schema(description = "Point of sale terminal UUID")
+    private UUID terminalId;
+
+    @Schema(description = "Offline synchronization origin")
+    private String syncOrigin;
 
     @Schema(description = "Dining table UUID if applicable")
     private UUID tableId;

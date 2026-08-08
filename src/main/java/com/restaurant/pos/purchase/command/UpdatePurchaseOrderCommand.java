@@ -2,8 +2,6 @@ package com.restaurant.pos.purchase.command;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.DecimalMin;
-import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
 import java.math.BigDecimal;
@@ -27,11 +25,17 @@ public class UpdatePurchaseOrderCommand {
     @Schema(description = "Target order status (DRAFT, CONFIRMED, COMPLETED, CANCELLED)")
     private String orderStatus;
 
+    @Schema(description = "Optional non-mandatory flag indicating if goods have been received at warehouse", example = "true")
+    private Boolean isReceived;
+
     @Schema(description = "Payment status (PENDING, PARTIAL, PAID)")
     private String paymentStatus;
 
     @Schema(description = "Payment method (CASH, CREDIT, BANK_TRANSFER, etc.)")
     private String paymentMethod;
+
+    @Schema(description = "Optional split payment breakdown when paymentMethod is MIXED")
+    private List<com.restaurant.pos.order.dto.CreateOrderRequest.PaymentSplitRequest> paymentSplits;
 
     @Schema(description = "External purchase reference or supplier invoice number")
     private String reference;

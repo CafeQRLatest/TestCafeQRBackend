@@ -7,6 +7,7 @@ import com.restaurant.pos.order.domain.Order;
 import com.restaurant.pos.order.domain.OrderType;
 import com.restaurant.pos.order.dto.OrderResponseDto;
 import com.restaurant.pos.order.repository.OrderRepository;
+import com.restaurant.pos.purchase.dto.PurchaseOrderSummaryDto;
 import com.restaurant.pos.purchase.mapper.PurchaseOrderDtoMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -21,7 +22,8 @@ import java.util.UUID;
 
 /**
  * CQRS Query Service for Purchase Orders.
- * Handles read-only operations using PurchaseOrderSpecifications builder.
+ * searchPurchaseOrders() returns lightweight PurchaseOrderSummaryDto (no lines, no N+1 user/invoice queries).
+ * getPurchaseOrder(id) returns the full OrderResponseDto with lines and all detail for the popup.
  */
 @Slf4j
 @Service
@@ -31,14 +33,21 @@ public class PurchaseOrderQueryService {
     private final OrderRepository orderRepository;
     private final PurchaseOrderDtoMapper purchaseOrderDtoMapper;
 
+    /**
+     * Paginated purchase order history list mapped to lightweight PurchaseOrderSummaryDto.
+     * Uses composite indexes and Specification filters to fetch orders cleanly.
+     * Line items and lazy sub-queries are skipped for history listing.
+     */
     @Transactional(readOnly = true)
-    public Page<OrderResponseDto> searchPurchaseOrders(PurchaseOrderSearchRequest request, Pageable pageable) {
+    public Page<PurchaseOrderSummaryDto> searchPurchaseOrders(PurchaseOrderSearchRequest request, Pageable pageable) {
         UUID clientId = TenantContext.getCurrentTenant();
-        UUID orgId = request.getBranchId() != null ? request.getBranchId() : TenantContext.getCurrentOrg();
+        UUID orgId = request.getBranchId() != null 
+                ? request.getBranchId() 
+                : (com.restaurant.pos.common.util.SecurityUtils.isSuperAdmin() ? null : TenantContext.getCurrentOrg());
 
         Specification<Order> spec = PurchaseOrderSpecifications.withFilters(request, clientId, orgId);
         Page<Order> pageResult = orderRepository.findAll(spec, pageable);
-        return pageResult.map(purchaseOrderDtoMapper::toResponseDto);
+        return pageResult.map(purchaseOrderDtoMapper::toSummaryDto);
     }
 
     @Transactional(readOnly = true)
@@ -56,11 +65,21 @@ public class PurchaseOrderQueryService {
                 .toList();
     }
 
+    /**
+     * Returns the FULL purchase order DTO with line items, user names, and linked invoice/payment refs.
+     * Called when the user opens a specific order in the detail popup.
+     */
     @Transactional(readOnly = true)
     public OrderResponseDto getPurchaseOrder(UUID orderId) {
         UUID clientId = TenantContext.getCurrentTenant();
-        Order order = orderRepository.findByIdAndClientId(orderId, clientId)
-                .orElseThrow(() -> new ResourceNotFoundException("Purchase Order not found for ID: " + orderId));
+        UUID orgId = TenantContext.getCurrentOrg();
+
+        Order order = (orgId != null)
+                ? orderRepository.findByIdAndClientIdAndOrgId(orderId, clientId, orgId)
+                    .orElseGet(() -> orderRepository.findByIdAndClientId(orderId, clientId)
+                        .orElseThrow(() -> new ResourceNotFoundException("Purchase Order not found for ID: " + orderId)))
+                : orderRepository.findByIdAndClientId(orderId, clientId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Purchase Order not found for ID: " + orderId));
 
         if (order.getOrderType() != null && order.getOrderType() != OrderType.PURCHASE) {
             throw new BusinessException("Order " + orderId + " is not a Purchase Order");

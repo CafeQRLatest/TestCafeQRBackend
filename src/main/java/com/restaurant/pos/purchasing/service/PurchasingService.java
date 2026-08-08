@@ -8,6 +8,8 @@ import com.restaurant.pos.common.util.SecurityUtils;
 import com.restaurant.pos.purchasing.domain.*;
 import com.restaurant.pos.purchasing.repository.*;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -105,12 +107,20 @@ public class PurchasingService {
     // VENDORS
     // ═══════════════════════════════════════════════════════════════════════
 
+    @Cacheable(value = "vendors_v1", key = "#root.target.cacheKey()")
     public List<Vendor> getVendors() {
         UUID tenantId = TenantContext.getCurrentTenant();
         if (SecurityUtils.isSuperAdmin()) {
             return vendorRepository.findByClientIdOrderByNameAsc(tenantId);
         }
         return vendorRepository.findByClientIdAndOrgIdOrGlobalOrderByNameAsc(tenantId, TenantContext.getCurrentOrg());
+    }
+
+    /** Cache key for vendor list — scoped to current client + org. */
+    public String cacheKey() {
+        UUID tenantId = TenantContext.getCurrentTenant();
+        UUID orgId    = TenantContext.getCurrentOrg();
+        return (tenantId != null ? tenantId.toString() : "null") + ":" + (orgId != null ? orgId.toString() : "all");
     }
 
     public Vendor getVendor(UUID id) {
@@ -124,6 +134,7 @@ public class PurchasingService {
     }
 
     @Transactional
+    @CacheEvict(value = "vendors_v1", allEntries = true)
     public Vendor saveVendor(Vendor vendor) {
         vendor.setClientId(TenantContext.getCurrentTenant());
         vendor.setOrgId(branchContext.requireWriteOrgId(vendor.getOrgId()));
@@ -131,6 +142,7 @@ public class PurchasingService {
     }
 
     @Transactional
+    @CacheEvict(value = "vendors_v1", allEntries = true)
     public Vendor updateVendor(UUID id, Vendor updates) {
         Vendor existing = getVendor(id);
         existing.setName(updates.getName());
@@ -147,6 +159,7 @@ public class PurchasingService {
     }
 
     @Transactional
+    @CacheEvict(value = "vendors_v1", allEntries = true)
     public void deleteVendor(UUID id) {
         Vendor vendor = getVendor(id);
         vendorRepository.delete(vendor);
