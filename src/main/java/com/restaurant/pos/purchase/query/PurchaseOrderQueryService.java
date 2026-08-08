@@ -32,6 +32,7 @@ public class PurchaseOrderQueryService {
 
     private final OrderRepository orderRepository;
     private final PurchaseOrderDtoMapper purchaseOrderDtoMapper;
+    private final com.restaurant.pos.order.service.OrderService orderService;
 
     /**
      * Paginated purchase order history list mapped to lightweight PurchaseOrderSummaryDto.
@@ -86,5 +87,36 @@ public class PurchaseOrderQueryService {
         }
 
         return purchaseOrderDtoMapper.toResponseDto(order);
+    }
+
+    /**
+     * Returns revision history for a purchase order (current + VOID predecessors).
+     */
+    @Transactional(readOnly = true)
+    public List<OrderResponseDto> getPurchaseOrderRevisions(UUID orderId) {
+        UUID clientId = TenantContext.getCurrentTenant();
+        Order current = orderRepository.findByIdAndClientId(orderId, clientId)
+                .orElseThrow(() -> new ResourceNotFoundException("Purchase Order not found for ID: " + orderId));
+
+        String baseOrderNo = current.getOrderNo();
+        if (baseOrderNo != null && baseOrderNo.contains("_VOID_")) {
+            baseOrderNo = baseOrderNo.substring(0, baseOrderNo.indexOf("_VOID_"));
+        }
+        String voidPrefix = baseOrderNo + "_VOID_%";
+
+        return orderRepository.findAllRevisionsByOrderNo(clientId, baseOrderNo, voidPrefix)
+                .stream()
+                .map(purchaseOrderDtoMapper::toResponseDto)
+                .toList();
+    }
+
+    /**
+     * Returns payment splits for a settled mixed payment purchase order.
+     */
+    @Transactional(readOnly = true)
+    public List<com.restaurant.pos.order.dto.PaymentSplitResponseDto> getPaymentSplits(UUID orderId) {
+        return orderService.getPaymentSplits(orderId).stream()
+                .map(ps -> new com.restaurant.pos.order.dto.PaymentSplitResponseDto(ps.getId(), ps.getPaymentMethod(), ps.getAmount(), ps.getReferenceNo()))
+                .toList();
     }
 }

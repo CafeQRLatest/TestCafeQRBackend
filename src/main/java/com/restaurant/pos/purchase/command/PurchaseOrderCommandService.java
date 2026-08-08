@@ -45,6 +45,8 @@ public class PurchaseOrderCommandService {
     private final BranchContextService branchContext;
     private final ApplicationEventPublisher eventPublisher;
     private final com.restaurant.pos.inventory.service.InventoryService inventoryService;
+    private final com.restaurant.pos.invoice.repository.InvoiceRepository invoiceRepository;
+    private final com.restaurant.pos.order.repository.PaymentRepository paymentRepository;
 
     /**
      * Creates and saves a new Purchase Order with server-side total recalculation.
@@ -79,6 +81,8 @@ public class PurchaseOrderCommandService {
             purchaseOrder.setVendorId(mappedOrder.getVendorId());
             purchaseOrder.setWarehouseId(mappedOrder.getWarehouseId());
             purchaseOrder.setLines(mappedOrder.getLines());
+            purchaseOrder.setPaymentMethod(mappedOrder.getPaymentMethod());
+            purchaseOrder.setPaymentSplits(mappedOrder.getPaymentSplits());
         }
 
         purchaseOrder.setClientId(clientId);
@@ -143,62 +147,159 @@ public class PurchaseOrderCommandService {
             throw new BusinessException("Order " + orderId + " is not a Purchase Order");
         }
 
-        boolean wasCompleted = OrderStatus.COMPLETED.name().equalsIgnoreCase(existingEntity.getOrderStatus());
+        boolean isReceived = Boolean.TRUE.equals(existingEntity.getIsReceived());
 
-        // If the order was previously COMPLETED, notify listeners to void prior invoice/payment and reverse old stock
-        if (wasCompleted) {
-            eventPublisher.publishEvent(new PurchaseOrderVoidedEvent(existingEntity));
+        if (isReceived) {
+            throw new BusinessException("Received Purchase Orders cannot be edited. You can void the order if needed.");
         }
 
-        // Update fields if provided
-        if (command.getVendorId() != null) existingEntity.setVendorId(command.getVendorId());
-        if (command.getWarehouseId() != null) existingEntity.setWarehouseId(command.getWarehouseId());
-        if (command.getPaymentStatus() != null) existingEntity.setPaymentStatus(command.getPaymentStatus());
-        if (command.getPaymentMethod() != null) existingEntity.setPaymentMethod(command.getPaymentMethod());
-        if (command.getReference() != null) existingEntity.setReference(command.getReference());
-        if (command.getDescription() != null) existingEntity.setDescription(command.getDescription());
-        if (command.getIsReceived() != null) existingEntity.setIsReceived(command.getIsReceived());
+        boolean isDraft = OrderStatus.DRAFT.name().equalsIgnoreCase(existingEntity.getOrderStatus());
 
-        // Replace lines if provided
-        if (command.getLines() != null) {
-            Order updatedLinesEntity = purchaseOrderDtoMapper.toEntity(command);
-            existingEntity.getLines().clear();
-            if (updatedLinesEntity.getLines() != null) {
-                for (OrderLine line : updatedLinesEntity.getLines()) {
-                    line.setOrder(existingEntity);
-                    existingEntity.getLines().add(line);
+        // IF DRAFT: Update existing entity in place directly without creating _VOID_ revision snapshots
+        if (isDraft) {
+            if (command.getVendorId() != null) existingEntity.setVendorId(command.getVendorId());
+            if (command.getWarehouseId() != null) existingEntity.setWarehouseId(command.getWarehouseId());
+            if (command.getPaymentStatus() != null) existingEntity.setPaymentStatus(command.getPaymentStatus());
+            if (command.getPaymentMethod() != null) existingEntity.setPaymentMethod(command.getPaymentMethod());
+            if (command.getPaymentSplits() != null) existingEntity.setPaymentSplits(command.getPaymentSplits());
+            if (command.getReference() != null) existingEntity.setReference(command.getReference());
+            if (command.getDescription() != null) existingEntity.setDescription(command.getDescription());
+            if (command.getIsReceived() != null) existingEntity.setIsReceived(command.getIsReceived());
+            if (command.getOrderDate() != null) existingEntity.setOrderDate(command.getOrderDate());
+
+            if (command.getLines() != null) {
+                Order updatedLinesEntity = purchaseOrderDtoMapper.toEntity(command);
+                existingEntity.getLines().clear();
+                if (updatedLinesEntity.getLines() != null) {
+                    for (OrderLine line : updatedLinesEntity.getLines()) {
+                        line.setOrder(existingEntity);
+                        existingEntity.getLines().add(line);
+                    }
                 }
             }
+
+            recalculateTotals(existingEntity);
+
+            if (StringUtils.hasText(command.getOrderStatus())) {
+                String targetStatus = command.getOrderStatus().toUpperCase();
+                if (OrderStatus.COMPLETED.name().equals(targetStatus)) {
+                    if (!StringUtils.hasText(existingEntity.getPaymentMethod())) {
+                        throw new BusinessException("Payment method is required to complete a Purchase Order.");
+                    }
+                    if (existingEntity instanceof PurchaseOrder po) {
+                        po.complete();
+                    } else {
+                        existingEntity.setOrderStatus(OrderStatus.COMPLETED.name());
+                    }
+                    existingEntity.setIsReceived(true);
+                } else if (OrderStatus.CONFIRMED.name().equals(targetStatus) && existingEntity instanceof PurchaseOrder po) {
+                    po.confirm();
+                } else if ((OrderStatus.VOID.name().equals(targetStatus) || OrderStatus.CANCELLED.name().equals(targetStatus)) && existingEntity instanceof PurchaseOrder po) {
+                    po.voidOrder();
+                } else {
+                    existingEntity.setOrderStatus(targetStatus);
+                }
+            }
+
+            validatePurchaseOrder(existingEntity);
+
+            log.info("Updating DRAFT Purchase Order in place | id={} | orderNo={} | status={} | grandTotal={}",
+                    orderId, existingEntity.getOrderNo(), existingEntity.getOrderStatus(), existingEntity.getGrandTotal());
+
+            Order savedOrder = orderRepository.save(existingEntity);
+            publishCompletedEventIfNeeded(savedOrder);
+
+            return purchaseOrderDtoMapper.toResponseDto(savedOrder);
         }
 
-        // SERVER-SIDE RECALCULATION: Never trust client totals!
-        recalculateTotals(existingEntity);
+        // NON-DRAFT (e.g. CONFIRMED): Create _VOID_ revision snapshot and new revised entity
+        String originalOrderNo = existingEntity.getOrderNo();
+        if (originalOrderNo != null && originalOrderNo.contains("_VOID_")) {
+            originalOrderNo = originalOrderNo.substring(0, originalOrderNo.indexOf("_VOID_"));
+        }
+        int currentRev = existingEntity.getRevisionNumber() != null ? existingEntity.getRevisionNumber() : 0;
+        UUID rootOrderId = existingEntity.getOriginalOrderId() != null ? existingEntity.getOriginalOrderId() : existingEntity.getId();
 
-        // State transition via domain methods if status is changing
-        if (StringUtils.hasText(command.getOrderStatus())) {
-            String targetStatus = command.getOrderStatus().toUpperCase();
-            if (OrderStatus.COMPLETED.name().equals(targetStatus) && existingEntity instanceof PurchaseOrder po) {
-                po.complete();
-                existingEntity.setIsReceived(true);
-            } else if (OrderStatus.CONFIRMED.name().equals(targetStatus) && existingEntity instanceof PurchaseOrder po) {
-                po.confirm();
-            } else if ((OrderStatus.VOID.name().equals(targetStatus) || OrderStatus.CANCELLED.name().equals(targetStatus)) && existingEntity instanceof PurchaseOrder po) {
-                po.voidOrder();
-            } else {
-                existingEntity.setOrderStatus(targetStatus);
+        existingEntity.setOrderNo(originalOrderNo + "_VOID_" + currentRev);
+        existingEntity.setOrderStatus(OrderStatus.VOID.name());
+        existingEntity.setIsactive("N");
+        orderRepository.saveAndFlush(existingEntity);
+
+        // Void linked invoice (Vendor Bill) and payment for the old revision
+        List<com.restaurant.pos.invoice.domain.Invoice> invoices = invoiceRepository.findByOrderId(orderId);
+        if (invoices != null && !invoices.isEmpty()) {
+            for (com.restaurant.pos.invoice.domain.Invoice inv : invoices) {
+                inv.setInvoiceNo(inv.getInvoiceNo() + "_VOID_" + currentRev);
+                inv.setStatus(OrderStatus.VOID.name());
+                inv.setDocStatus(OrderStatus.VOID.name());
+                inv.setIsactive("N");
+                invoiceRepository.saveAndFlush(inv);
+            }
+        }
+        List<com.restaurant.pos.order.domain.Payment> payments = paymentRepository.findByOrderId(orderId);
+        if (payments != null && !payments.isEmpty()) {
+            for (com.restaurant.pos.order.domain.Payment pay : payments) {
+                pay.setReferenceNo((pay.getReferenceNo() != null ? pay.getReferenceNo() : "PAY") + "_VOID_" + currentRev);
+                pay.setDocStatus(OrderStatus.VOID.name());
+                pay.setIsactive("N");
+                paymentRepository.saveAndFlush(pay);
             }
         }
 
-        log.info("Updating Purchase Order | id={} | orderNo={} | status={} | grandTotal={}",
-                orderId, existingEntity.getOrderNo(), existingEntity.getOrderStatus(), existingEntity.getGrandTotal());
+        // Create NEW revised PurchaseOrder entity retaining original orderNo
+        PurchaseOrder newPo = new PurchaseOrder();
+        newPo.setOrderType(OrderType.PURCHASE);
+        newPo.setClientId(clientId);
+        newPo.setOrgId(existingEntity.getOrgId());
+        newPo.setOrderNo(originalOrderNo);
+        newPo.setOriginalOrderId(rootOrderId);
+        newPo.setRevisionNumber(currentRev + 1);
+        newPo.setIsactive("Y");
 
-        Order savedOrder = orderRepository.save(existingEntity);
+        // Copy / update fields from command or existing
+        newPo.setVendorId(command.getVendorId() != null ? command.getVendorId() : existingEntity.getVendorId());
+        newPo.setWarehouseId(command.getWarehouseId() != null ? command.getWarehouseId() : existingEntity.getWarehouseId());
+        newPo.setPaymentStatus(command.getPaymentStatus() != null ? command.getPaymentStatus() : existingEntity.getPaymentStatus());
+        newPo.setPaymentMethod(command.getPaymentMethod() != null ? command.getPaymentMethod() : existingEntity.getPaymentMethod());
+        newPo.setPaymentSplits(command.getPaymentSplits() != null ? command.getPaymentSplits() : existingEntity.getPaymentSplits());
+        newPo.setReference(command.getReference() != null ? command.getReference() : existingEntity.getReference());
+        newPo.setDescription(command.getDescription() != null ? command.getDescription() : existingEntity.getDescription());
+        newPo.setIsReceived(command.getIsReceived() != null ? command.getIsReceived() : existingEntity.getIsReceived());
+        newPo.setOrderDate(command.getOrderDate() != null ? command.getOrderDate() : existingEntity.getOrderDate());
 
-        // Fire domain event when transitioning to or remaining in COMPLETED
-        boolean isNowCompleted = OrderStatus.COMPLETED.name().equalsIgnoreCase(savedOrder.getOrderStatus());
-        if (isNowCompleted) {
-            eventPublisher.publishEvent(new PurchaseOrderCompletedEvent(savedOrder));
+        String targetStatus = StringUtils.hasText(command.getOrderStatus()) ? command.getOrderStatus().toUpperCase() : existingEntity.getOrderStatus();
+        if (OrderStatus.COMPLETED.name().equals(targetStatus)) {
+            if (!StringUtils.hasText(newPo.getPaymentMethod())) {
+                throw new BusinessException("Payment method is required to complete a Purchase Order.");
+            }
+            newPo.complete();
+            newPo.setIsReceived(true);
+        } else {
+            newPo.setOrderStatus(targetStatus);
         }
+
+        // Copy or replace lines
+        if (command.getLines() != null && !command.getLines().isEmpty()) {
+            Order updatedLinesEntity = purchaseOrderDtoMapper.toEntity(command);
+            if (updatedLinesEntity.getLines() != null) {
+                for (OrderLine line : updatedLinesEntity.getLines()) {
+                    newPo.addLine(line);
+                }
+            }
+        } else if (existingEntity.getLines() != null) {
+            for (OrderLine oldLine : existingEntity.getLines()) {
+                newPo.addLine(copyOrderLine(oldLine));
+            }
+        }
+
+        recalculateTotals(newPo);
+        validatePurchaseOrder(newPo);
+
+        log.info("Creating Revised Purchase Order | newId={} | orderNo={} | rev={} | grandTotal={}",
+                newPo.getId(), newPo.getOrderNo(), newPo.getRevisionNumber(), newPo.getGrandTotal());
+
+        Order savedOrder = orderRepository.save(newPo);
+        publishCompletedEventIfNeeded(savedOrder);
 
         return purchaseOrderDtoMapper.toResponseDto(savedOrder);
     }
@@ -447,5 +548,41 @@ public class PurchaseOrderCommandService {
         order.setTotalTaxAmount(calculatedTax);
         order.setTotalDiscountAmount(calculatedDiscount);
         order.setGrandTotal(calculatedGrandTotal);
+    }
+
+    private void validatePurchaseOrder(Order order) {
+        if (order.getVendorId() == null) {
+            throw new BusinessException("Vendor / Supplier is required for a Purchase Order.");
+        }
+        if (order.getWarehouseId() == null) {
+            throw new BusinessException("Receiving warehouse is required for a Purchase Order.");
+        }
+        if (order.getLines() == null || order.getLines().isEmpty()) {
+            throw new BusinessException("Purchase Order must contain at least one line item.");
+        }
+    }
+
+    private OrderLine copyOrderLine(OrderLine oldLine) {
+        OrderLine newLine = new OrderLine();
+        newLine.setProductId(oldLine.getProductId());
+        newLine.setVariantId(oldLine.getVariantId());
+        newLine.setProductName(oldLine.getProductName());
+        newLine.setCategoryName(oldLine.getCategoryName());
+        newLine.setUnitOfMeasure(oldLine.getUnitOfMeasure());
+        newLine.setQuantity(oldLine.getQuantity());
+        newLine.setUnitPrice(oldLine.getUnitPrice());
+        newLine.setTaxRate(oldLine.getTaxRate());
+        newLine.setTaxAmount(oldLine.getTaxAmount());
+        newLine.setDiscountAmount(oldLine.getDiscountAmount());
+        newLine.setLineTotal(oldLine.getLineTotal());
+        return newLine;
+    }
+
+    private void publishCompletedEventIfNeeded(Order savedOrder) {
+        boolean isNowCompletedOrReceived = OrderStatus.COMPLETED.name().equalsIgnoreCase(savedOrder.getOrderStatus())
+                || Boolean.TRUE.equals(savedOrder.getIsReceived());
+        if (isNowCompletedOrReceived) {
+            eventPublisher.publishEvent(new PurchaseOrderCompletedEvent(savedOrder));
+        }
     }
 }

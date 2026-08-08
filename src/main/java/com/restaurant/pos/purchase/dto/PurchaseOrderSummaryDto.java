@@ -75,4 +75,10 @@ public class PurchaseOrderSummaryDto {
 
     @Schema(description = "External reference or PO number")
     private String reference;
+
+    @Schema(description = "Revision number — 0 for original, incremented on each edit")
+    private Integer revisionNumber;
+
+    @Schema(description = "UUID of the original order this was revised from")
+    private UUID originalOrderId;
 }

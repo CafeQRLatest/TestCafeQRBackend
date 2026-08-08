@@ -30,8 +30,21 @@ public class PurchaseOrderSearchRequest {
     @Schema(description = "End date range filter (ISO-8601 UTC Instant)", example = "2026-05-24T23:59:59Z")
     private Instant toDate;
 
-    @Schema(description = "Strongly typed order status filter (DRAFT, CONFIRMED, COMPLETED, CANCELLED)")
+    @Schema(description = "Order status filter (DRAFT, CONFIRMED, COMPLETED, CANCELLED, CONFIRMED_COMPLETED)")
     private OrderStatus status;
+
+    private String statusRaw;
+
+    public void setStatus(String val) {
+        if (val != null) {
+            this.statusRaw = val;
+            try {
+                this.status = OrderStatus.valueOf(val.trim().toUpperCase());
+            } catch (IllegalArgumentException e) {
+                this.status = null;
+            }
+        }
+    }
 
     @Schema(description = "Filter by branch/organization UUID")
     private UUID branchId;

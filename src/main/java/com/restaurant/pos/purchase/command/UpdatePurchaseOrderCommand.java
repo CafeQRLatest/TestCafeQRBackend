@@ -43,6 +43,10 @@ public class UpdatePurchaseOrderCommand {
     @Schema(description = "Internal notes or description")
     private String description;
 
+    @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE_TIME)
+    @Schema(description = "Order date/time (ISO-8601 UTC Instant)", example = "2026-05-26T10:00:00Z")
+    private java.time.Instant orderDate;
+
     @Schema(description = "Pre-calculated subtotal before tax", example = "1000.00")
     private BigDecimal totalAmount;
 

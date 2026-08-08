@@ -103,6 +103,9 @@ public class PurchaseOrderDtoMapper {
         order.setVendorId(command.getVendorId());
         order.setWarehouseId(command.getWarehouseId());
 
+        if (command.getOrderDate() != null) {
+            order.setOrderDate(command.getOrderDate());
+        }
         if (command.getOrderStatus() != null) {
             order.setOrderStatus(command.getOrderStatus());
         }
@@ -185,6 +188,8 @@ public class PurchaseOrderDtoMapper {
                 .invoiceNo(invoiceNo)
                 .createdBy(createdByName)
                 .updatedBy(updatedByName)
+                .revisionNumber(order.getRevisionNumber())
+                .originalOrderId(order.getOriginalOrderId())
                 .createdAt(order.getCreatedAt() != null ? order.getCreatedAt().atZone(java.time.ZoneId.systemDefault()).toInstant() : null)
                 .updatedAt(order.getUpdatedAt() != null ? order.getUpdatedAt().atZone(java.time.ZoneId.systemDefault()).toInstant() : null);
 
@@ -272,6 +277,8 @@ public class PurchaseOrderDtoMapper {
                 .totalAmount(order.getTotalAmount())
                 .createdAt(order.getCreatedAt() != null ? order.getCreatedAt().atZone(java.time.ZoneId.systemDefault()).toInstant() : null)
                 .reference(order.getReference())
+                .revisionNumber(order.getRevisionNumber())
+                .originalOrderId(order.getOriginalOrderId())
                 .build();
     }
 }

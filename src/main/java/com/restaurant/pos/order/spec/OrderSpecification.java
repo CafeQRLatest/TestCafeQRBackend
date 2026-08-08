@@ -75,7 +75,14 @@ public class OrderSpecification {
             // Status Filtering
             String status = criteria.getStatus();
             if (status != null && !status.isBlank() && !"ALL".equalsIgnoreCase(status)) {
-                if ("VOID".equalsIgnoreCase(status)) {
+                if ("CONFIRMED_COMPLETED".equalsIgnoreCase(status) || "COMPLETED_AND_RECEIVED".equalsIgnoreCase(status)) {
+                    predicates.add(cb.or(
+                        cb.equal(root.get("orderStatus"), "CONFIRMED"),
+                        cb.equal(root.get("orderStatus"), "COMPLETED")
+                    ));
+                    predicates.add(cb.equal(root.get("isactive"), "Y"));
+                    predicates.add(cb.equal(cb.locate(root.get("orderNo"), "_VOID_"), 0));
+                } else if ("VOID".equalsIgnoreCase(status)) {
                     predicates.add(cb.or(
                         cb.equal(root.get("isactive"), "N"),
                         cb.equal(root.get("orderStatus"), "VOID")

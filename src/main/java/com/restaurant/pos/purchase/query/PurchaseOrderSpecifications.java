@@ -33,14 +33,23 @@ public class PurchaseOrderSpecifications {
             if (request.getWarehouseId() != null) {
                 predicates.add(cb.equal(root.get("warehouseId"), request.getWarehouseId()));
             }
-            if (request.getStatus() != null) {
-                if (request.getStatus() == com.restaurant.pos.order.domain.OrderStatus.VOID || request.getStatus() == com.restaurant.pos.order.domain.OrderStatus.CANCELLED) {
+            String effectiveStatus = StringUtils.hasText(request.getStatusRaw()) 
+                    ? request.getStatusRaw().trim().toUpperCase() 
+                    : (request.getStatus() != null ? request.getStatus().name() : null);
+
+            if (StringUtils.hasText(effectiveStatus)) {
+                if ("CONFIRMED_COMPLETED".equals(effectiveStatus) || "COMPLETED_AND_RECEIVED".equals(effectiveStatus)) {
+                    predicates.add(cb.or(
+                            cb.equal(cb.upper(root.get("orderStatus")), "CONFIRMED"),
+                            cb.equal(cb.upper(root.get("orderStatus")), "COMPLETED")
+                    ));
+                } else if ("VOID".equals(effectiveStatus) || "CANCELLED".equals(effectiveStatus)) {
                     predicates.add(cb.or(
                             cb.equal(cb.upper(root.get("orderStatus")), "VOID"),
                             cb.equal(cb.upper(root.get("orderStatus")), "CANCELLED")
                     ));
                 } else {
-                    predicates.add(cb.equal(cb.upper(root.get("orderStatus")), request.getStatus().name()));
+                    predicates.add(cb.equal(cb.upper(root.get("orderStatus")), effectiveStatus));
                 }
             }
             if (StringUtils.hasText(request.getPaymentMethod())) {

@@ -82,4 +82,24 @@ public class PurchaseOrderQueryController {
         OrderResponseDto dto = queryService.getPurchaseOrder(id);
         return ResponseEntity.ok(ApiResponse.success(dto));
     }
+
+    @GetMapping("/{id}/revisions")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
+    @Operation(summary = "Get Purchase Order Revision History", description = "Returns revision history for a purchase order (current + VOID predecessors).")
+    public ResponseEntity<ApiResponse<List<OrderResponseDto>>> getPurchaseOrderRevisions(
+            @Parameter(description = "UUID of the Purchase Order", required = true) @PathVariable UUID id) {
+        log.info("Fetching Purchase Order revisions | id={}", id);
+        List<OrderResponseDto> revisions = queryService.getPurchaseOrderRevisions(id);
+        return ResponseEntity.ok(ApiResponse.success(revisions));
+    }
+
+    @GetMapping("/{id}/payment-splits")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
+    @Operation(summary = "Get Purchase Order Payment Splits", description = "Returns payment splits for a settled mixed payment purchase order.")
+    public ResponseEntity<ApiResponse<List<com.restaurant.pos.order.dto.PaymentSplitResponseDto>>> getPaymentSplits(
+            @Parameter(description = "UUID of the Purchase Order", required = true) @PathVariable UUID id) {
+        log.info("Fetching Purchase Order payment splits | id={}", id);
+        List<com.restaurant.pos.order.dto.PaymentSplitResponseDto> splits = queryService.getPaymentSplits(id);
+        return ResponseEntity.ok(ApiResponse.success(splits));
+    }
 }
