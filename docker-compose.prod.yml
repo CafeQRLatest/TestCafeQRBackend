@@ -82,7 +82,6 @@ services:
         limits:
           memory: 1024M
 
-
   # ── Database (PostgreSQL 15) ──
   db:
     image: postgres:15-alpine

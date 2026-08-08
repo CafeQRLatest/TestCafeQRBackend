@@ -5,6 +5,7 @@
 #   ./deploy.sh              # Deploy all services
 #   ./deploy.sh backend      # Deploy backend after dependencies are healthy
 #
+
 # Set PULL_REPO=false when the caller already performed git pull --ff-only.
 
 set -euo pipefail
