@@ -47,6 +47,7 @@ spring:
       ssl:
         enabled: ${SPRING_DATA_REDIS_SSL:false}
 
+
   mail:
     host: ${SMTP_HOST:smtp.gmail.com}
     port: 587
