@@ -1,11 +1,4 @@
-# ──────────────────────────────────────────────────────────────
-# CafeQR 2.0 Backend — Build & Deploy to Hostinger VPS
-# ──────────────────────────────────────────────────────────────
-# Triggers on push to main. Builds the Docker image using the
-# multi-stage Dockerfile, pushes to GitHub Container Registry,
-# then SSHes into the VPS to pull and restart.
-# ──────────────────────────────────────────────────────────────
-name: Deploy Backend
+name: Deploy Test Backend
 
 on:
   push:
@@ -14,11 +7,11 @@ on:
       - '**.md'
       - '.gitignore'
 
-  workflow_dispatch:     # Allow manual trigger from GitHub UI
+  workflow_dispatch:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
+  IMAGE_NAME: cafeqrlatest/testcafeqrbackend
 
 jobs:
   build-and-deploy:
@@ -28,11 +21,9 @@ jobs:
       packages: write
 
     steps:
-      # ── Checkout ──
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # ── Docker Login ──
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
@@ -40,21 +31,17 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # ── Build Metadata ──
       - name: Extract Docker metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=sha,prefix=
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=latest
 
-      # ── Setup BuildX (required for GHA cache) ──
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # ── Build & Push ──
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
         with:
@@ -65,29 +52,25 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # ── Deploy to VPS ──
-      - name: Deploy to Oracle Cloud VPS
+      - name: Deploy to Oracle Cloud VM
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.ORACLE_SSH_KEY }}
-          passphrase: ${{ secrets.VPS_PASSPHRASE }}
-          password: ${{ secrets.VPS_PASSWORD }}
           timeout: 120s
           command_timeout: 15m
           script: |
             set -euo pipefail
-            APP_DIR="${HOME}/app"
-            if [ ! -d "$APP_DIR" ]; then
-              mkdir -p "$APP_DIR"
-              git clone https://github.com/${{ github.repository }}.git "$APP_DIR" || true
-            fi
-            cd "$APP_DIR"
-            export APP_DIR="$APP_DIR"
-            # Temporary fix: move .env.frontend out of the way so git status is clean for the pull
-            if [ -f .env.frontend ]; then mv .env.frontend ../.env.frontend.tmp; fi
-            git pull --ff-only || true
-            if [ -f ../.env.frontend.tmp ]; then mv ../.env.frontend.tmp .env.frontend; fi
-            chmod +x scripts/hostinger/deploy.sh
-            ./scripts/hostinger/deploy.sh backend
+            
+            # Log in to GHCR on the Oracle server to pull the package
+            echo "${{ secrets.GITHUB_TOKEN }}" | sudo docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            
+            # Pull the new backend image
+            sudo docker compose pull test-backend 2>/dev/null || sudo docker-compose pull test-backend 2>/dev/null || sudo docker compose pull backend 2>/dev/null || sudo docker-compose pull backend
+            
+            # Restart only the backend service, leaving the database and redis untouched
+            sudo docker compose up -d test-backend 2>/dev/null || sudo docker-compose up -d test-backend 2>/dev/null || sudo docker compose up -d backend 2>/dev/null || sudo docker-compose up -d backend
+            
+            # Clean up old unused images to save disk space
+            sudo docker image prune -f
