@@ -66,7 +66,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       # ── Deploy to VPS ──
-      - name: Deploy to Hostinger VPS
+      - name: Deploy to Oracle Cloud VPS
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.VPS_HOST }}
@@ -78,7 +78,13 @@ jobs:
           command_timeout: 15m
           script: |
             set -euo pipefail
-            cd /home/cafeqr/app
+            APP_DIR="${HOME}/app"
+            if [ ! -d "$APP_DIR" ]; then
+              mkdir -p "$APP_DIR"
+              git clone https://github.com/${{ github.repository }}.git "$APP_DIR" || true
+            fi
+            cd "$APP_DIR"
+            export APP_DIR="$APP_DIR"
             # Temporary fix: move .env.frontend out of the way so git status is clean for the pull
             if [ -f .env.frontend ]; then mv .env.frontend ../.env.frontend.tmp; fi
             git pull --ff-only || true
