@@ -85,11 +85,13 @@ public class Product extends AuditableEntity {
     private com.restaurant.pos.purchasing.domain.Pricelist defaultPricelist;
 
     @OneToMany(mappedBy = "product", cascade = CascadeType.ALL, orphanRemoval = true)
+    @OrderBy("createdAt ASC")
     @Builder.Default
     @BatchSize(size = 20)
     private List<ProductVariantMapping> variantMappings = new ArrayList<>();
 
     @OneToMany(mappedBy = "product", cascade = CascadeType.ALL, orphanRemoval = true)
+    @OrderBy("createdAt ASC")
     @Builder.Default
     @BatchSize(size = 20)
     private List<VariantPricing> variantPricings = new ArrayList<>();

@@ -253,7 +253,7 @@ public class ProductService {
         VariantGroup group = variantGroupRepository.findById(java.util.Objects.requireNonNull(groupId))
                 .orElseThrow(() -> new ResourceNotFoundException("Variant Group not found"));
         validateOwnership(group.getClientId(), group.getOrgId(), "Variant Group", false);
-        return variantOptionRepository.findByGroup_Id(groupId)
+        return variantOptionRepository.findByGroup_IdOrderByCreatedAtAsc(groupId)
                 .stream()
                 .map(option -> mapVariantOptionToDto(option, groupId))
                 .collect(Collectors.toList());
@@ -479,6 +479,8 @@ public class ProductService {
         List<ProductDetailDto.VariantPricingDto> pricings = product.getVariantPricings() == null
                 ? List.of()
                 : product.getVariantPricings().stream()
+                        .sorted(java.util.Comparator.comparing(
+                                pricing -> pricing.getCreatedAt() != null ? pricing.getCreatedAt() : java.time.LocalDateTime.MIN))
                         .map(pricing -> ProductDetailDto.VariantPricingDto.builder()
                                 .id(pricing.getId())
                                 .overridePrice(pricing.getOverridePrice())
@@ -553,6 +555,8 @@ public class ProductService {
         List<VariantOptionDto> options = group.getOptions() == null
                 ? List.of()
                 : group.getOptions().stream()
+                        .sorted(java.util.Comparator.comparing(
+                                option -> option.getCreatedAt() != null ? option.getCreatedAt() : java.time.LocalDateTime.MIN))
                         .map(option -> mapVariantOptionToDto(option, group.getId()))
                         .collect(Collectors.toList());
 
