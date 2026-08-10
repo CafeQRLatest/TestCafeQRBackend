@@ -16,7 +16,9 @@ jobs:
           timeout: 120s
           command_timeout: 15m
           script: |
-            echo "Fetching the last 300 lines of the backend logs..."
+            echo "Checking status of all containers..."
+            sudo docker ps
             echo "---------------------------------------------------"
-            sudo docker compose logs --tail 300 test-backend 2>/dev/null || sudo docker-compose logs --tail 300 test-backend 2>/dev/null || sudo docker compose logs --tail 300 backend 2>/dev/null || sudo docker-compose logs --tail 300 backend
+            echo "Fetching the last 200 lines of ALL containers..."
+            sudo docker compose logs --tail 200 2>/dev/null || sudo docker-compose logs --tail 200
             echo "---------------------------------------------------"
