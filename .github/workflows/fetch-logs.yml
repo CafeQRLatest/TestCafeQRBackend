@@ -1,0 +1,22 @@
+name: Fetch Backend Logs
+
+on:
+  workflow_dispatch:
+
+jobs:
+  fetch-logs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch logs from Oracle Cloud VM
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.ORACLE_SSH_KEY }}
+          timeout: 120s
+          command_timeout: 15m
+          script: |
+            echo "Fetching the last 300 lines of the backend logs..."
+            echo "---------------------------------------------------"
+            sudo docker compose logs --tail 300 test-backend 2>/dev/null || sudo docker-compose logs --tail 300 test-backend 2>/dev/null || sudo docker compose logs --tail 300 backend 2>/dev/null || sudo docker-compose logs --tail 300 backend
+            echo "---------------------------------------------------"
