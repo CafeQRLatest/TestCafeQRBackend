@@ -1,0 +1,1 @@
+ALTER TABLE products ADD COLUMN is_variable_price BOOLEAN DEFAULT FALSE;
