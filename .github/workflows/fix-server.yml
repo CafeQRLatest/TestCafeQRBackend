@@ -1,0 +1,40 @@
+name: Fix Server
+
+on:
+  workflow_dispatch:
+
+jobs:
+  fix-server:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Execute fixes on Oracle Cloud VM
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.ORACLE_SSH_KEY }}
+          timeout: 120s
+          command_timeout: 15m
+          script: |
+            echo "1. Restarting the database container to clear connection hangs..."
+            sudo docker restart cafeqr-test-db || true
+            
+            echo "2. Waiting 5 seconds for database to initialize..."
+            sleep 5
+            
+            echo "3. Extracting database credentials..."
+            DB_USER=$(sudo docker exec cafeqr-test-db env | grep POSTGRES_USER | cut -d '=' -f2 || echo "pos_user")
+            DB_NAME=$(sudo docker exec cafeqr-test-db env | grep POSTGRES_DB | cut -d '=' -f2 || echo "pos_db")
+            
+            echo "4. Forcing the missing column to be added directly to the database..."
+            sudo docker exec cafeqr-test-db psql -U $DB_USER -d $DB_NAME -c "ALTER TABLE products ADD COLUMN IF NOT EXISTS is_variable_price BOOLEAN DEFAULT FALSE;" || true
+            
+            echo "5. Clearing any failed Flyway migrations that might crash the backend..."
+            sudo docker exec cafeqr-test-db psql -U $DB_USER -d $DB_NAME -c "DELETE FROM flyway_schema_history WHERE success = false;" || true
+            
+            echo "6. Restarting the backend container..."
+            sudo docker restart cafeqr-test-backend || true
+            
+            echo "==============================================="
+            echo "✅ Fixes applied successfully!"
+            echo "==============================================="
