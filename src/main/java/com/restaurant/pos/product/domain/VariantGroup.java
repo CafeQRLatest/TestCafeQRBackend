@@ -48,6 +48,7 @@ public class VariantGroup extends AuditableEntity {
     private UUID orgId;
 
     @OneToMany(mappedBy = "group", cascade = CascadeType.ALL, orphanRemoval = true)
+    @OrderBy("createdAt ASC")
     @Builder.Default
     @BatchSize(size = 20)
     private List<VariantOption> options = new ArrayList<>();
