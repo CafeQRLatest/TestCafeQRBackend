@@ -46,6 +46,12 @@ public class OrderResponseDto {
     @Schema(description = "Point of sale terminal UUID")
     private UUID terminalId;
 
+    @Schema(description = "Point of sale terminal code")
+    private String terminalCode;
+
+    @Schema(description = "Point of sale terminal display name")
+    private String terminalName;
+
     @Schema(description = "Offline synchronization origin")
     private String syncOrigin;
 

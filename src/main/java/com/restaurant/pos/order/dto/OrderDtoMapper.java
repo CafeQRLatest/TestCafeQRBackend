@@ -20,6 +20,7 @@ public class OrderDtoMapper {
     private final com.restaurant.pos.common.context.TimezoneResolver timezoneResolver;
     private final com.restaurant.pos.order.repository.PaymentRepository paymentRepository;
     private final com.restaurant.pos.order.repository.PaymentSplitRepository paymentSplitRepository;
+    private final com.restaurant.pos.client.repository.TerminalRepository terminalRepository;
 
     private java.time.Instant toInstant(java.time.LocalDateTime ldt) {
         if (ldt == null)
@@ -176,6 +177,18 @@ public class OrderDtoMapper {
             }
         }
 
+        String terminalCode = null;
+        String terminalName = null;
+        if (order.getTerminalId() != null) {
+            try {
+                com.restaurant.pos.client.domain.Terminal t = terminalRepository.findById(order.getTerminalId()).orElse(null);
+                if (t != null) {
+                    terminalCode = t.getTerminalCode();
+                    terminalName = t.getName();
+                }
+            } catch (Exception ignored) {}
+        }
+
         return OrderResponseDto.builder()
                 .id(order.getId())
                 .orderNo(order.getOrderNo())
@@ -183,6 +196,11 @@ public class OrderDtoMapper {
                 .orderStatus(order.getOrderStatus())
                 .paymentStatus(order.getPaymentStatus())
                 .orderSource(order.getOrderSource())
+                .orgId(order.getOrgId())
+                .terminalId(order.getTerminalId())
+                .terminalCode(terminalCode)
+                .terminalName(terminalName)
+                .syncOrigin(order.getSyncOrigin())
                 .tableId(order.getTableId())
                 .tableNumber(order.getTableNumber())
                 .warehouseId(order.getWarehouseId())

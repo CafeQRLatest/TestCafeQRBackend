@@ -220,43 +220,24 @@ public class SalesQueryService {
                 "  SELECT o.id, o.total_amount, o.total_tax_amount, o.total_discount_amount, o.grand_total " +
                 "  FROM orders o " +
                 "  " + whereClause + " " +
-                "), " +
-                "line_totals AS ( " +
-                "  SELECT " +
-                "    ol.order_id, " +
-                "    SUM(ol.quantity) AS items_sold, " +
-                "    SUM( " +
-                "      GREATEST( " +
-                "        0, " +
-                "        CASE " +
-                "          WHEN ol.tax_type = 'INCLUSIVE' THEN ol.gross_line_amount / (1 + ol.tax_rate / 100.0) " +
-                "          ELSE ol.gross_line_amount " +
-                "        END - COALESCE(ol.taxable_amount, 0) " +
-                "      ) " +
-                "    ) AS discount " +
-                "  FROM order_lines ol " +
-                "  WHERE ol.order_id IN (SELECT id FROM filtered_orders) AND ol.isactive = 'Y' " +
-                "  GROUP BY ol.order_id " +
-                "), " +
-                "latest_payment AS ( " +
-                "  SELECT DISTINCT ON (p.order_id) " +
-                "    p.order_id, " +
-                "    p.round_off_amount " +
-                "  FROM payments p " +
-                "  WHERE p.order_id IN (SELECT id FROM filtered_orders) " +
-                "  ORDER BY p.order_id, p.created_at DESC " +
                 ") " +
                 "SELECT " +
-                "  COUNT(fo.id) as total_orders, " +
-                "  COALESCE(SUM(fo.total_amount), 0) as total_revenue, " +
-                "  COALESCE(SUM(fo.total_tax_amount), 0) as total_tax, " +
-                "  COALESCE(SUM(COALESCE(lt.discount, fo.total_discount_amount, 0)), 0) as total_discount, " +
-                "  COALESCE(SUM(fo.grand_total), 0) as grand_total, " +
-                "  COALESCE(SUM(lp.round_off_amount), 0) as total_round_off, " +
-                "  COALESCE(SUM(lt.items_sold), 0) as items_sold " +
-                "FROM filtered_orders fo " +
-                "LEFT JOIN line_totals lt ON lt.order_id = fo.id " +
-                "LEFT JOIN latest_payment lp ON lp.order_id = fo.id";
+                "  COUNT(fo.id) AS total_orders, " +
+                "  COALESCE(SUM(fo.total_amount), 0) AS total_revenue, " +
+                "  COALESCE(SUM(fo.total_tax_amount), 0) AS total_tax, " +
+                "  COALESCE(SUM(fo.total_discount_amount), 0) AS total_discount, " +
+                "  COALESCE(SUM(fo.grand_total), 0) AS grand_total, " +
+                "  COALESCE(( " +
+                "    SELECT SUM(p.round_off_amount) " +
+                "    FROM payments p " +
+                "    WHERE p.order_id IN (SELECT id FROM filtered_orders) " +
+                "  ), 0) AS total_round_off, " +
+                "  COALESCE(( " +
+                "    SELECT SUM(ol.quantity) " +
+                "    FROM order_lines ol " +
+                "    WHERE ol.order_id IN (SELECT id FROM filtered_orders) AND ol.isactive = 'Y' " +
+                "  ), 0) AS items_sold " +
+                "FROM filtered_orders fo";
 
         return jdbcTemplate.queryForObject(summarySql, params, (rs, rowNum) -> {
             long totalOrders = rs.getLong("total_orders");
