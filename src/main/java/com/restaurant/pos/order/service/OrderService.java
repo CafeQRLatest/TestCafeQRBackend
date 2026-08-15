@@ -218,12 +218,16 @@ public class OrderService {
             }
         }
         
+        boolean isCreditOrder = order.getCreditCustomerId() != null 
+                || "CREDIT".equalsIgnoreCase(order.getReference()) 
+                || "CREDIT".equalsIgnoreCase(order.getPaymentMethod());
+
         CalculationRequest request = CalculationRequest.builder()
                 .lines(lineRequests)
                 .orderDiscountType(order.getOrderDiscountType())
                 .orderDiscountValue(order.getOrderDiscountValue())
-                .requestedRoundOff(order.getRoundOffAmount())
-                .roundOffMode(order.getRoundOffMode())
+                .requestedRoundOff(isCreditOrder ? BigDecimal.ZERO : order.getRoundOffAmount())
+                .roundOffMode(isCreditOrder ? "DISABLED" : order.getRoundOffMode())
                 .orgId(order.getOrgId())
                 .build();
                 
@@ -2881,12 +2885,9 @@ public class OrderService {
             order.setDiscountSource(com.restaurant.pos.order.domain.DiscountSource.MANUAL);
         }
 
-        if (safeRequest.getRoundOffAmount() != null) {
-            order.setRoundOffAmount(safeRequest.getRoundOffAmount());
-        }
-        if (safeRequest.getRoundOffMode() != null && !safeRequest.getRoundOffMode().isBlank()) {
-            order.setRoundOffMode(safeRequest.getRoundOffMode());
-        }
+        // Credit orders must never have round-off applied
+        order.setRoundOffAmount(BigDecimal.ZERO);
+        order.setRoundOffMode("DISABLED");
 
         recalculateOrderTotals(order);
 
