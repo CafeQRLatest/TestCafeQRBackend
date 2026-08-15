@@ -63,6 +63,15 @@ public class WarehouseCommandService {
 
         UUID orgId = branchContext.requireWriteOrgId(command.getOrgId() != null ? command.getOrgId() : warehouse.getOrgId());
 
+        boolean currentlyDefault = warehouse.isDefault();
+        boolean requestedDefault = command.getIsDefault() != null ? command.isDefault() : warehouse.isDefault();
+
+        if (currentlyDefault && !requestedDefault) {
+            throw new com.restaurant.pos.common.exception.BusinessException(
+                "Cannot remove default status from the current default warehouse. To set a new default, edit another warehouse and mark it as default."
+            );
+        }
+
         warehouse.setName(command.getName() != null ? command.getName() : warehouse.getName());
         warehouse.setCode(command.getCode() != null ? command.getCode() : warehouse.getCode());
         warehouse.setAddress(command.getAddress() != null ? command.getAddress() : warehouse.getAddress());
@@ -72,7 +81,6 @@ public class WarehouseCommandService {
             warehouse.setIsactive(command.getIsactive());
         }
 
-        boolean requestedDefault = command.getIsDefault() != null ? command.isDefault() : warehouse.isDefault();
         return saveWithDefaultLogic(warehouse, requestedDefault, clientId, orgId);
     }
 
