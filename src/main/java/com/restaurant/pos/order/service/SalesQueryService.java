@@ -123,8 +123,7 @@ public class SalesQueryService {
     private String buildWhereClause(SalesQueryCriteria criteria, MapSqlParameterSource params) {
         StringBuilder where = new StringBuilder("WHERE o.client_id = :clientId AND o.order_type = 'SALE' ");
         params.addValue("clientId", criteria.clientId());
-        boolean hasSearchText = criteria.search() != null && !criteria.search().isBlank();
-        if (criteria.orgId() != null && !hasSearchText) {
+        if (criteria.orgId() != null) {
             params.addValue("orgId", criteria.orgId());
             where.append("AND o.org_id = :orgId ");
         } else {
@@ -137,6 +136,7 @@ public class SalesQueryService {
         }
 
         // Status filter mapping
+        boolean hasSearchText = criteria.search() != null && !criteria.search().isBlank();
         String status = criteria.status();
         if (status != null && !status.isBlank() && !(hasSearchText && "COMPLETED_CANCELLED".equalsIgnoreCase(status))) {
             if ("VOID".equalsIgnoreCase(status)) {
@@ -326,7 +326,7 @@ public class SalesQueryService {
         if (!orders.isEmpty()) {
             List<UUID> orderIds = orders.stream().map(order -> order.getId()).toList();
             MapSqlParameterSource linesParams = new MapSqlParameterSource("orderIds", orderIds);
-            String linesSql = "SELECT id, order_id, product_id, variant_id, product_name, category_name, is_packaged_good, quantity, unit_of_measure, uom_precision, unit_price, tax_rate, tax_amount, discount_amount, line_total, gross_line_amount, unit_price_ex_tax, taxable_amount, tax_type " +
+            String linesSql = "SELECT id, order_id, product_id, variant_id, product_name, category_name, is_packaged_good, quantity, unit_of_measure, uom_precision, unit_price, tax_rate, tax_amount, discount_amount, line_total, gross_line_amount, unit_price_ex_tax, taxable_amount, tax_type, description " +
                     "FROM order_lines " +
                     "WHERE order_id IN (:orderIds) AND isactive = 'Y' " +
                     "ORDER BY order_id, created_at, id";
@@ -357,6 +357,7 @@ public class SalesQueryService {
                         .unitPriceExTax((BigDecimal) row.get("unit_price_ex_tax"))
                         .taxableAmount((BigDecimal) row.get("taxable_amount"))
                         .taxType(taxTypeStr != null ? com.restaurant.pos.order.domain.TaxType.valueOf(taxTypeStr) : null)
+                        .description((String) row.get("description"))
                         .build();
 
                 linesByOrderId.computeIfAbsent(orderId, k -> new ArrayList<>()).add(lineDto);

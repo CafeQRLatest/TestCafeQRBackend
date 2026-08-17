@@ -1348,6 +1348,7 @@ public class OrderService {
                         .manualDiscountAmount(line.getManualDiscountAmount())
                         .manualDiscountPercent(line.getManualDiscountPercent())
                         .allocatedOrderDiscount(line.getAllocatedOrderDiscount())
+                        .description(line.getDescription())
                         .build())
                 .toList();
     }
@@ -3508,24 +3509,10 @@ public class OrderService {
     }
 
     private String buildSettlementDescription(OrderSettleRequest request, String paymentMethod) {
-        List<String> parts = new java.util.ArrayList<>();
-        if ("MIXED".equalsIgnoreCase(paymentMethod)) {
-            if (hasExplicitPaymentSplits(request)) {
-                List<String> splitParts = request.getPaymentSplits().stream()
-                        .filter(Objects::nonNull)
-                        .map(split -> normalizePaymentSplitMethod(split.getPaymentMethod()) + ": "
-                                + moneyValue(split.getAmount()))
-                        .collect(Collectors.toList());
-                parts.add(String.join(", ", splitParts));
-            } else {
-                parts.add("Cash: " + moneyValue(request.getCashAmount()));
-                parts.add("Online: " + moneyValue(request.getOnlineAmount()));
-            }
+        if (request != null && request.getDescription() != null && !request.getDescription().isBlank()) {
+            return request.getDescription().trim();
         }
-        if (request.getDescription() != null && !request.getDescription().isBlank()) {
-            parts.add(request.getDescription().trim());
-        }
-        return String.join("; ", parts);
+        return "";
     }
 
     private String appendDescription(String existing, String addition) {

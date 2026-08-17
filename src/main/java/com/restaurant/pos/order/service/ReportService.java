@@ -1057,7 +1057,10 @@ public class ReportService {
     private void voidSaleFinancialChain(Order order, String reason) {
         order.setOrderStatus("CANCELLED");
         order.setPaymentStatus("VOID");
-        order.setDescription("Voided via invoice: " + (reason != null ? reason : "No reason provided"));
+        String voidDesc = "Voided via invoice: " + (reason != null ? reason : "No reason provided");
+        order.setDescription(order.getDescription() != null && !order.getDescription().isBlank()
+                ? order.getDescription() + "\n" + voidDesc
+                : voidDesc);
         orderRepository.save(order);
 
         invoiceRepository.findByOrderId(order.getId()).forEach(linkedInvoice -> {
