@@ -114,7 +114,7 @@ public class AuthService {
         return buildAuthResponse(user, client, ipAddress, userAgent);
     }
 
-    private void seedTenantRoles(UUID clientId, String createdBy) {
+    public void seedTenantRoles(UUID clientId, String createdBy) {
         log.info("Seeding default roles for tenant: {}", clientId);
         Set<Permission> allPermissions = new HashSet<>(permissionRepository.findAll());
         List<Menu> allMenus = menuRepository.findAll();

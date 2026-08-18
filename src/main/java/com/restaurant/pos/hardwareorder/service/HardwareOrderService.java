@@ -1,6 +1,15 @@
 package com.restaurant.pos.hardwareorder.service;
 
+import com.restaurant.pos.auth.domain.RoleEntity;
+import com.restaurant.pos.auth.domain.User;
+import com.restaurant.pos.auth.repository.RoleRepository;
+import com.restaurant.pos.auth.repository.UserRepository;
+import com.restaurant.pos.auth.service.AuthService;
 import com.restaurant.pos.auth.service.EmailService;
+import com.restaurant.pos.client.domain.Client;
+import com.restaurant.pos.client.domain.Organization;
+import com.restaurant.pos.client.repository.ClientRepository;
+import com.restaurant.pos.client.repository.OrganizationRepository;
 import com.restaurant.pos.common.exception.BusinessException;
 import com.restaurant.pos.hardwareorder.domain.HardwareOrder;
 import com.restaurant.pos.hardwareorder.dto.CreateHardwareOrderRequest;
@@ -11,12 +20,15 @@ import com.restaurant.pos.payment.dto.RazorpayOrderResponse;
 import com.restaurant.pos.payment.service.RazorpayService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 
 @Slf4j
 @Service
@@ -26,6 +38,12 @@ public class HardwareOrderService {
     private final HardwareOrderRepository hardwareOrderRepository;
     private final RazorpayService razorpayService;
     private final EmailService emailService;
+    private final UserRepository userRepository;
+    private final ClientRepository clientRepository;
+    private final OrganizationRepository organizationRepository;
+    private final RoleRepository roleRepository;
+    private final AuthService authService;
+    private final PasswordEncoder passwordEncoder;
 
     public Map<String, Object> createPayment(CreateHardwareOrderRequest request) {
         if (request == null || request.getPlanId() == null || request.getPlanId().isBlank()) {
@@ -147,7 +165,10 @@ public class HardwareOrderService {
         HardwareOrder savedOrder = hardwareOrderRepository.save(order);
         log.info("Hardware order {} successfully verified and marked PAID", savedOrder.getRazorpayOrderId());
 
-        // Send notification email asynchronously
+        // Automatically provision or extend the user's POS profile in database
+        provisionOrActivateAccount(savedOrder);
+
+        // Send notification email asynchronously to admin
         notifyAdminOfNewOrder(savedOrder);
 
         Map<String, Object> result = new LinkedHashMap<>();
@@ -155,7 +176,119 @@ public class HardwareOrderService {
         result.put("paymentId", savedOrder.getRazorpayPaymentId());
         result.put("status", "PAID");
         result.put("planName", savedOrder.getPlanName());
+        result.put("email", savedOrder.getCustomerEmail());
         return result;
+    }
+
+    private void provisionOrActivateAccount(HardwareOrder order) {
+        String email = order.getCustomerEmail() != null ? order.getCustomerEmail().trim().toLowerCase() : null;
+        if (email == null || email.isBlank()) {
+            log.warn("Cannot provision account for order {} - missing customer email", order.getRazorpayOrderId());
+            return;
+        }
+
+        LocalDateTime oneYearLater = LocalDateTime.now().plusYears(1);
+
+        Optional<User> existingUserOpt = userRepository.findByEmail(email);
+        if (existingUserOpt.isPresent()) {
+            User user = existingUserOpt.get();
+            log.info("Existing user found for email {}. Extending active subscription by 1 year.", email);
+
+            if (user.getClientId() != null) {
+                clientRepository.findById(user.getClientId()).ifPresent(client -> {
+                    LocalDateTime base = client.getSubscriptionExpiryDate() != null && client.getSubscriptionExpiryDate().isAfter(LocalDateTime.now())
+                            ? client.getSubscriptionExpiryDate().plusYears(1)
+                            : oneYearLater;
+                    client.setSubscriptionStatus("ACTIVE");
+                    client.setSubscriptionExpiryDate(base);
+                    clientRepository.save(client);
+                });
+
+                if (user.getOrgId() != null) {
+                    organizationRepository.findById(user.getOrgId()).ifPresent(org -> {
+                        LocalDateTime base = org.getSubscriptionExpiryDate() != null && org.getSubscriptionExpiryDate().isAfter(LocalDateTime.now())
+                                ? org.getSubscriptionExpiryDate().plusYears(1)
+                                : oneYearLater;
+                        org.setSubscriptionStatus("ACTIVE");
+                        org.setSubscriptionExpiryDate(base);
+                        organizationRepository.save(org);
+                    });
+                }
+            }
+
+            user.setTermsAcceptedVersion("v1.0");
+            user.setTermsAcceptedAt(LocalDateTime.now());
+            userRepository.save(user);
+
+            emailService.sendWelcomeCredentialsEmail(email, order.getCustomerName(), order.getPlanName(), "[Your Existing Account Password]");
+        } else {
+            log.info("Provisioning brand new tenant & user profile for partner: {}", email);
+
+            // 1. Create Tenant (Client)
+            String clientName = order.getCustomerName() != null && !order.getCustomerName().isBlank()
+                    ? order.getCustomerName() + "'s Restaurant"
+                    : "Cafe QR Tenant";
+
+            Client client = Client.builder()
+                    .name(clientName)
+                    .email(email)
+                    .country("IN")
+                    .posType("RESTAURANT")
+                    .subscriptionStatus("ACTIVE")
+                    .subscriptionExpiryDate(oneYearLater)
+                    .isactive("Y")
+                    .build();
+            client.setCreatedBy("ONLINE_CHECKOUT");
+            client = clientRepository.save(client);
+            UUID clientId = client.getId();
+
+            // 2. Create Default Outlet / Org
+            Organization defaultOrg = Organization.builder()
+                    .name("Main Outlet")
+                    .client(client)
+                    .clientId(clientId)
+                    .branchCode("HQ")
+                    .timezone("Asia/Kolkata")
+                    .subscriptionStatus("ACTIVE")
+                    .subscriptionExpiryDate(oneYearLater)
+                    .isactive("Y")
+                    .build();
+            defaultOrg.setCreatedBy("ONLINE_CHECKOUT");
+            defaultOrg = organizationRepository.save(defaultOrg);
+
+            // 3. Seed Tenant Roles
+            authService.seedTenantRoles(clientId, "ONLINE_CHECKOUT");
+
+            // 4. Create Super Admin User
+            RoleEntity superAdminRole = roleRepository.findByNameAndClientId("SUPER_ADMIN", clientId)
+                    .orElseGet(() -> roleRepository.findByName("SUPER_ADMIN")
+                            .orElse(null));
+
+            String rawPassword = "CafeQR@" + (order.getCustomerPhone() != null && order.getCustomerPhone().length() >= 4
+                    ? order.getCustomerPhone().substring(order.getCustomerPhone().length() - 4)
+                    : "2026");
+
+            User newUser = User.builder()
+                    .firstName(order.getCustomerName() != null ? order.getCustomerName() : "Partner")
+                    .email(email)
+                    .phone(order.getCustomerPhone())
+                    .password(passwordEncoder.encode(rawPassword))
+                    .roleEntity(superAdminRole)
+                    .clientId(clientId)
+                    .orgId(defaultOrg.getId())
+                    .termsAcceptedVersion("v1.0")
+                    .termsAcceptedAt(LocalDateTime.now())
+                    .isactive("Y")
+                    .isEnabled(true)
+                    .build();
+            newUser.setCreatedBy("ONLINE_CHECKOUT");
+            userRepository.save(newUser);
+
+            log.info("Successfully registered & activated user: {} (User ID: {}, Client ID: {})", email, newUser.getId(), clientId);
+
+            // Send credentials email
+            emailService.sendWelcomeCredentialsEmail(email, order.getCustomerName(), order.getPlanName(), rawPassword);
+        }
     }
 
     private void notifyAdminOfNewOrder(HardwareOrder order) {
