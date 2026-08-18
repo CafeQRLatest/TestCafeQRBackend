@@ -64,7 +64,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         System.out.println("===> [DEBUG LOG-V3] JWT Filter: Method=" + method + ", Path=" + path + ", Auth=" + (authHeader != null ? "Present" : "null") + ", Cookies=[" + cookiesLog + "]");
 
         // Skip filter for certain paths
-        if (path.contains("/api/v1/auth") || path.contains("/api/v1/debug")) {
+        if (path.contains("/api/v1/auth") || path.contains("/api/v1/debug") || path.contains("/api/v1/public")) {
             System.out.println("===> [DEBUG] JWT Filter: Skipping path: " + path);
             filterChain.doFilter(request, response);
             return;

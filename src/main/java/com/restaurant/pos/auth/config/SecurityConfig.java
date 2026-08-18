@@ -106,12 +106,25 @@ public class SecurityConfig {
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
 
-        for (String origin : allowedOrigins) {
-            if (origin != null && !origin.isBlank()) {
-                configuration.addAllowedOriginPattern(origin.trim());
+        if (allowedOrigins != null) {
+            for (String origin : allowedOrigins) {
+                if (origin != null && !origin.isBlank()) {
+                    configuration.addAllowedOriginPattern(origin.trim());
+                }
             }
         }
-        configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
+
+        // Unconditionally allow all Vercel deployments, Cloudflare pages, and CafeQR domains
+        // to prevent environment variable overrides from causing CORS 403 preflight errors
+        configuration.addAllowedOriginPattern("https://*.vercel.app");
+        configuration.addAllowedOriginPattern("https://*.pages.dev");
+        configuration.addAllowedOriginPattern("https://*.cafeqr.in");
+        configuration.addAllowedOriginPattern("https://cafeqr.in");
+        configuration.addAllowedOriginPattern("https://pos.cafeqr.in");
+        configuration.addAllowedOriginPattern("http://localhost:*");
+        configuration.addAllowedOriginPattern("http://127.0.0.1:*");
+
+        configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"));
         configuration.setAllowedHeaders(Arrays.asList("*"));
         configuration.setExposedHeaders(Arrays.asList("*"));
         configuration.setAllowCredentials(true);
