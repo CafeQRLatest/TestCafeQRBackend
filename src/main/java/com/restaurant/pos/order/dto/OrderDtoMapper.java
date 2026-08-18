@@ -213,6 +213,7 @@ public class OrderDtoMapper {
                 .grandTotal(order.getGrandTotal())
                 .fulfillmentType(order.getFulfillmentType())
                 .description(order.getDescription())
+                .remarks(order.getRemarks() != null ? order.getRemarks() : order.getDescription())
                 .reference(order.getReference())
                 .customers(order.getCustomers())
                 .isCredit(order.getIsCredit())
@@ -383,6 +384,7 @@ public class OrderDtoMapper {
         order.setIsCredit(Boolean.TRUE.equals(request.getIsCredit()));
         order.setCreditCustomerId(request.getCreditCustomerId());
         order.setDescription(request.getDescription());
+        order.setRemarks(request.getRemarks() != null ? request.getRemarks() : request.getDescription());
         order.setReference(request.getReference());
         order.setPaymentMethod(request.getPaymentMethod());
         if (request.getOrderDate() != null) {
@@ -459,6 +461,8 @@ public class OrderDtoMapper {
             existing.setPaymentStatus(request.getPaymentStatus());
         if (request.getDescription() != null)
             existing.setDescription(request.getDescription());
+        if (request.getRemarks() != null)
+            existing.setRemarks(request.getRemarks());
         if (request.getReference() != null)
             existing.setReference(request.getReference());
         if (request.getPaymentMethod() != null)
@@ -526,6 +530,7 @@ public class OrderDtoMapper {
         order.setOrderStatus(request.getOrderStatus());
         order.setPaymentStatus(request.getPaymentStatus());
         order.setDescription(request.getDescription());
+        order.setRemarks(request.getRemarks());
         order.setReference(request.getReference());
         order.setPaymentMethod(request.getPaymentMethod());
         order.setFulfillmentType(request.getFulfillmentType());

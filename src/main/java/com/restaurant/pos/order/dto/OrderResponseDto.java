@@ -91,6 +91,9 @@ public class OrderResponseDto {
     @Schema(description = "Description or general operation notes")
     private String description;
 
+    @Schema(description = "Order remarks or kitchen instructions")
+    private String remarks;
+
     @Schema(description = "Payment reference or code")
     private String reference;
 

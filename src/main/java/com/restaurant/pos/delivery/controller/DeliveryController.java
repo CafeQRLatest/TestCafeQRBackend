@@ -224,6 +224,7 @@ public class DeliveryController {
             String customerPhone  = (String) payload.getOrDefault("customerPhone", "");
             String deliveryAddress= (String) payload.getOrDefault("deliveryAddress", "");
             String note           = (String) payload.getOrDefault("note", "");
+            String remarks        = (String) payload.getOrDefault("remarks", "");
 
             @SuppressWarnings("unchecked")
             List<Map<String, Object>> items = (List<Map<String, Object>>) payload.get("items");
@@ -284,6 +285,7 @@ public class DeliveryController {
                     .orderSource("DELIVERY_WEB")
                     .fulfillmentType(fulfillment)
                     .description(description)
+                    .remarks(remarks)
                     .orderDate(Instant.now())
                     .isactive("Y")
                     .build();
@@ -651,6 +653,7 @@ public class DeliveryController {
         map.put("grandTotal",      order.getGrandTotal());
         map.put("orderDate",       order.getOrderDate());
         map.put("description",     order.getDescription());
+        map.put("remarks",         order.getRemarks());
         map.put("latitude",        order.getLatitude());
         map.put("longitude",       order.getLongitude());
 
