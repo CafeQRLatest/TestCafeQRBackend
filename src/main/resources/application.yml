@@ -111,6 +111,10 @@ app:
   frontend-url: ${FRONTEND_URL:http://localhost:3000}
   otp:
     log-code: ${OTP_LOG_CODE:false}
+  firebase:
+    project-id: ${FIREBASE_PROJECT_ID:}
+    client-email: ${FIREBASE_CLIENT_EMAIL:}
+    private-key: ${FIREBASE_PRIVATE_KEY:}
 
 razorpay:
   key-id: ${RAZORPAY_KEY_ID:}
