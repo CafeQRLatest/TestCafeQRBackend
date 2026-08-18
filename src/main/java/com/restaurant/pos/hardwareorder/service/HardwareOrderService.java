@@ -274,13 +274,13 @@ public class HardwareOrderService {
                     .phone(order.getCustomerPhone())
                     .password(passwordEncoder.encode(rawPassword))
                     .roleEntity(superAdminRole)
-                    .clientId(clientId)
                     .orgId(defaultOrg.getId())
                     .termsAcceptedVersion("v1.0")
                     .termsAcceptedAt(LocalDateTime.now())
                     .isactive("Y")
                     .isEnabled(true)
                     .build();
+            newUser.setClientId(clientId);
             newUser.setCreatedBy("ONLINE_CHECKOUT");
             userRepository.save(newUser);
 
