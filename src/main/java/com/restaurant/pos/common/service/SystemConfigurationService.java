@@ -391,7 +391,7 @@ public class SystemConfigurationService {
                 .customersEnabled(isFeatureEnabled(entity.getClientId(), orgId, ModuleName.CRM, entity.isCustomersEnabled()))
                 .loyaltyEnabled(isFeatureEnabled(entity.getClientId(), orgId, ModuleName.CRM, entity.isLoyaltyEnabled()))
                 .sendToKitchenEnabled(isFeatureEnabled(entity.getClientId(), orgId, ModuleName.KOT, entity.isSendToKitchenEnabled()))
-                .onlineDeliveryEnabled(isFeatureEnabled(entity.getClientId(), orgId, ModuleName.ONLINE_DELIVERY, entity.isOnlineDeliveryEnabled()))
+                .onlineDeliveryEnabled(entity.isOnlineDeliveryEnabled())
                 .allowMultipleCustomersPerOrder(entity.isAllowMultipleCustomersPerOrder())
                 .customerAgeEnabled(entity.isCustomerAgeEnabled())
                 .posProductListingEnabled(entity.isPosProductListingEnabled())
@@ -550,9 +550,6 @@ public class SystemConfigurationService {
         }
         if (dto.isMenuImagesEnabled() && !isModuleActive(clientId, orgId, ModuleName.MENU_IMAGES)) {
             throw new BusinessException("Subscription required: Menu Images module is not active. Please visit the billing center.");
-        }
-        if (dto.isOnlineDeliveryEnabled() && !isModuleActive(clientId, orgId, ModuleName.ONLINE_DELIVERY)) {
-            throw new BusinessException("Subscription required: Online Delivery module is not active. Please visit the billing center.");
         }
     }
 
