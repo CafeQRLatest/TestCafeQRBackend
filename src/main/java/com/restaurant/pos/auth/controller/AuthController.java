@@ -85,6 +85,21 @@ public class AuthController {
         }
     }
 
+    @PostMapping("/accept-terms")
+    public ResponseEntity<ApiResponse<java.util.Map<String, Object>>> acceptTerms(
+            @RequestBody(required = false) com.restaurant.pos.auth.dto.AcceptTermsRequest request,
+            HttpServletRequest servletRequest
+    ) {
+        java.util.UUID userId = com.restaurant.pos.common.util.SecurityUtils.getCurrentUserId();
+        if (userId == null) {
+            return ResponseEntity.status(401).body(ApiResponse.error("User authentication required"));
+        }
+        String ipAddress = servletRequest.getRemoteAddr();
+        String userAgent = servletRequest.getHeader("User-Agent");
+        String version = (request != null && request.getTermsVersion() != null) ? request.getTermsVersion() : "v1.0";
+        return ResponseEntity.ok(ApiResponse.success(service.acceptTerms(userId, version, ipAddress, userAgent)));
+    }
+
     @PostMapping("/logout")
     public ResponseEntity<ApiResponse<String>> logout(
             HttpServletRequest request,
