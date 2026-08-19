@@ -232,6 +232,16 @@ public class DeliveryController {
         validateSubscription(clientId);
 
         UUID orgUuid = parseOrgId((String) payload.get("orgId"));
+        var clientOpt = clientRepository.findById(clientId);
+        if (clientOpt.isEmpty()) {
+            var orgOpt = organizationRepository.findById(clientId);
+            if (orgOpt.isPresent()) {
+                clientId = orgOpt.get().getClientId();
+                if (orgUuid == null) {
+                    orgUuid = orgOpt.get().getId();
+                }
+            }
+        }
         ConfigurationDto config = systemConfigurationService.getConfigurationForClientAndBranch(clientId, orgUuid);
 
         if (!config.isOnlinePaymentEnabled() || config.getRazorpayKeyId() == null || config.getRazorpayKeyId().isBlank()
@@ -286,6 +296,19 @@ public class DeliveryController {
             validateSubscription(clientId);
 
             UUID orgUuid          = parseOrgId((String) payload.get("orgId"));
+            var clientOpt = clientRepository.findById(clientId);
+            if (clientOpt.isEmpty()) {
+                var orgOpt = organizationRepository.findById(clientId);
+                if (orgOpt.isPresent()) {
+                    clientId = orgOpt.get().getClientId();
+                    if (orgUuid == null) {
+                        orgUuid = orgOpt.get().getId();
+                    }
+                }
+            }
+            final UUID effectiveClientId = clientId;
+            final UUID effectiveOrgId = orgUuid;
+
             String fulfillment    = String.valueOf(payload.getOrDefault("fulfillmentType", "DELIVERY")).toUpperCase();
             String customerEmail  = (String) payload.getOrDefault("customerEmail", "");
             String customerName   = (String) payload.getOrDefault("customerName",  "");
@@ -370,7 +393,7 @@ public class DeliveryController {
                     .id(UUID.randomUUID())
                     .orderNo(orderNo)
                     .orderType(OrderType.SALE)
-                    .orderStatus(isOnlinePayment ? "CONFIRMED" : "PENDING")
+                    .orderStatus("PENDING")
                     .paymentStatus(isOnlinePayment ? "PAID" : "PENDING")
                     .orderSource("DELIVERY_WEB")
                     .fulfillmentType(fulfillment)
@@ -440,8 +463,8 @@ public class DeliveryController {
                 int qty = ((Number) cartItem.get("quantity")).intValue();
 
                 Optional<Product> productOpt = productRepository.findWithCategoryById(productId)
-                        .filter(p -> clientId.equals(p.getClientId()))
-                        .filter(p -> orgUuid == null || p.getOrgId() == null || orgUuid.equals(p.getOrgId()))
+                        .filter(p -> effectiveClientId.equals(p.getClientId()))
+                        .filter(p -> effectiveOrgId == null || p.getOrgId() == null || effectiveOrgId.equals(p.getOrgId()))
                         .filter(Product::isActive)
                         .filter(Product::isAvailable);
 
