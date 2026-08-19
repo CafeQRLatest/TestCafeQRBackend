@@ -6,6 +6,7 @@ import com.restaurant.pos.auth.dto.RegisterRequest;
 import com.restaurant.pos.auth.dto.SendOtpRequest;
 import com.restaurant.pos.auth.service.AuthService;
 import com.restaurant.pos.auth.service.EmailService;
+import com.restaurant.pos.auth.service.JwtService;
 import com.restaurant.pos.auth.service.OtpService;
 import com.restaurant.pos.auth.util.AuthCookieUtil;
 import com.restaurant.pos.common.dto.ApiResponse;
@@ -26,6 +27,7 @@ public class AuthController {
     private final EmailService emailService;
     private final OtpService otpService;
     private final AuthCookieUtil cookieUtil;
+    private final JwtService jwtService;
 
     @PostMapping("/send-otp")
     public ResponseEntity<ApiResponse<String>> sendOtp(
