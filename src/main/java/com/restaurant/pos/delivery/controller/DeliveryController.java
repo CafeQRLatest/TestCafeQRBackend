@@ -166,12 +166,19 @@ public class DeliveryController {
                     if (org.getTimezone() != null && !org.getTimezone().isBlank()) {
                         settings.put("timezone", org.getTimezone());
                     }
+                    if (org.getPosType() != null && !org.getPosType().isBlank()) {
+                        settings.put("posType", org.getPosType());
+                    }
                     // Delivery radius and branch coordinates for delivery zone validation
                     settings.put("deliveryRadiusKm", org.getDeliveryRadiusKm());
                     settings.put("branchLatitude", org.getLatitude());
                     settings.put("branchLongitude", org.getLongitude());
                 }
             });
+        }
+
+        if (!settings.containsKey("posType")) {
+            settings.put("posType", client.getPosType() != null ? client.getPosType() : "Restaurant");
         }
 
         return ResponseEntity.ok(ApiResponse.success(settings));
@@ -862,15 +869,34 @@ public class DeliveryController {
 
         Double shopLat = null;
         Double shopLng = null;
+        String posType = null;
+        String branchName = null;
+
         if (order.getOrgId() != null) {
             var orgOpt = organizationRepository.findById(order.getOrgId());
             if (orgOpt.isPresent()) {
-                shopLat = orgOpt.get().getLatitude();
-                shopLng = orgOpt.get().getLongitude();
+                var org = orgOpt.get();
+                shopLat = org.getLatitude();
+                shopLng = org.getLongitude();
+                posType = org.getPosType();
+                branchName = org.getName();
             }
         }
+        if (posType == null && order.getClientId() != null) {
+            var clientOpt = clientRepository.findById(order.getClientId());
+            if (clientOpt.isPresent()) {
+                var client = clientOpt.get();
+                posType = client.getPosType();
+                if (branchName == null) {
+                    branchName = client.getName();
+                }
+            }
+        }
+
         map.put("shopLatitude",    shopLat);
         map.put("shopLongitude",   shopLng);
+        map.put("posType",         posType != null ? posType : "Restaurant");
+        map.put("branchName",      branchName);
 
         if (order.getLines() != null) {
             List<Map<String, Object>> lines = order.getLines().stream().map(l -> {
