@@ -50,6 +50,10 @@ public class Organization extends AuditableEntity {
 
     @Column(columnDefinition = "TEXT")
     private String logoUrl;
+    
+    @Column(name = "banner_url", columnDefinition = "TEXT")
+    private String bannerUrl;
+
     private String googleMapsUrl;
     private String pinCode;
     private Double latitude;

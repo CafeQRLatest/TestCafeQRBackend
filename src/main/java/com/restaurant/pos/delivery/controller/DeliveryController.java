@@ -102,6 +102,7 @@ public class DeliveryController {
         settings.put("clientId",         clientId);
         settings.put("restaurantName",   nvl(client.getName(), "Our Restaurant"));
         settings.put("logoUrl",          client.getLogoUrl());
+        settings.put("bannerUrl",        client.getBannerUrl());
         settings.put("brandColor",       nvl(client.getBrandColor(), "#f97316"));
         settings.put("address",          client.getAddress());
         settings.put("phone",            client.getPhone());
@@ -153,6 +154,9 @@ public class DeliveryController {
                     }
                     if (org.getLogoUrl() != null && !org.getLogoUrl().isBlank()) {
                         settings.put("logoUrl", org.getLogoUrl());
+                    }
+                    if (org.getBannerUrl() != null && !org.getBannerUrl().isBlank()) {
+                        settings.put("bannerUrl", org.getBannerUrl());
                     }
                     if (org.getAddress() != null && !org.getAddress().isBlank()) {
                         settings.put("address", org.getAddress());

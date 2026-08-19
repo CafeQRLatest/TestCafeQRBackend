@@ -56,6 +56,8 @@ public class Client extends AuditableEntity {
     private String currency; 
     @Column(columnDefinition = "TEXT")
     private String logoUrl;
+    @Column(name = "banner_url", columnDefinition = "TEXT")
+    private String bannerUrl;
     private String brandColor; 
     private String timezone;
     

@@ -82,6 +82,7 @@ public class OrganizationService {
         organization.setEmail(details.getEmail());
         organization.setGstin(details.getGstin());
         organization.setLogoUrl(details.getLogoUrl());
+        organization.setBannerUrl(details.getBannerUrl());
         organization.setGoogleMapsUrl(details.getGoogleMapsUrl());
         organization.setPinCode(details.getPinCode());
         organization.setLatitude(details.getLatitude());
