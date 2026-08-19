@@ -251,6 +251,8 @@ public class SystemConfigurationService {
                 .clientId(source.getClientId())
                 .orgId(source.getOrgId())
                 .onlinePaymentEnabled(source.isOnlinePaymentEnabled())
+                .razorpayKeyId(source.getRazorpayKeyId())
+                .razorpayKeySecret(source.getRazorpayKeySecret())
                 .menuImagesEnabled(source.isMenuImagesEnabled())
                 .creditEnabled(source.isCreditEnabled())
                 .creditAllocationMode(normalizeCreditAllocationMode(source.getCreditAllocationMode()))
@@ -380,6 +382,8 @@ public class SystemConfigurationService {
 
         return ConfigurationDto.builder()
                 .onlinePaymentEnabled(entity.isOnlinePaymentEnabled())
+                .razorpayKeyId(entity.getRazorpayKeyId())
+                .razorpayKeySecret(entity.getRazorpayKeySecret())
                 .menuImagesEnabled(isFeatureEnabled(entity.getClientId(), orgId, ModuleName.MENU_IMAGES, entity.isMenuImagesEnabled()))
                 .creditEnabled(isFeatureEnabled(entity.getClientId(), orgId, ModuleName.CREDIT_LEDGER, entity.isCreditEnabled()))
                 .creditAllocationMode(normalizeCreditAllocationMode(entity.getCreditAllocationMode()))
@@ -439,6 +443,10 @@ public class SystemConfigurationService {
 
     private void updateEntityFromDto(SystemConfiguration entity, ConfigurationDto dto) {
         entity.setOnlinePaymentEnabled(dto.isOnlinePaymentEnabled());
+        if (dto.getRazorpayKeyId() != null) entity.setRazorpayKeyId(dto.getRazorpayKeyId().trim());
+        if (dto.getRazorpayKeySecret() != null && !dto.getRazorpayKeySecret().isBlank()) {
+            entity.setRazorpayKeySecret(dto.getRazorpayKeySecret().trim());
+        }
         entity.setMenuImagesEnabled(dto.isMenuImagesEnabled());
         entity.setCreditEnabled(dto.isCreditEnabled());
         entity.setCreditAllocationMode(normalizeCreditAllocationMode(dto.getCreditAllocationMode()));

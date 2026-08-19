@@ -17,6 +17,8 @@ import com.restaurant.pos.product.repository.ProductRepository;
 import com.restaurant.pos.print.service.PrintJobService;
 import com.restaurant.pos.print.domain.PrintJobKind;
 import com.restaurant.pos.push.service.PushNotificationService;
+import com.restaurant.pos.payment.service.RazorpayService;
+import com.restaurant.pos.payment.dto.RazorpayOrderResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
@@ -41,6 +43,7 @@ import java.util.stream.Collectors;
  * Endpoints:
  *   GET  /delivery/restaurant/{clientId}/settings        — brand + restaurant info
  *   GET  /delivery/restaurant/{clientId}/menu            — active menu items
+ *   POST /delivery/payments/create-order                 — create Razorpay order
  *   POST /delivery/orders                                — place a delivery/takeaway order
  *   GET  /delivery/orders/{orderId}                      — track a single order
  *   GET  /delivery/orders?clientId=&email=               — list orders for a customer email
@@ -61,6 +64,7 @@ public class DeliveryController {
     private final SystemConfigurationService systemConfigurationService;
     private final PrintJobService        printJobService;
     private final PushNotificationService pushNotificationService;
+    private final RazorpayService        razorpayService;
 
     // ─────────────────────────────────────────────────────────────────────────
     // 1. GET /delivery/restaurant/{clientId}/settings
@@ -71,14 +75,28 @@ public class DeliveryController {
             @PathVariable UUID clientId,
             @RequestParam(required = false) String orgId) {
 
-        var client = clientRepository.findById(clientId)
-                .orElseThrow(() -> new ResourceNotFoundException("Restaurant not found"));
+        UUID orgUuid = parseOrgId(orgId);
 
-        if (!client.isSubscriptionActive()) {
+        if (!isRestaurantSubscriptionActive(clientId, orgUuid)) {
             throw new BusinessException("Restaurant subscription is inactive.");
         }
 
-        UUID orgUuid = parseOrgId(orgId);
+        var clientOpt = clientRepository.findById(clientId);
+        var client = clientOpt.orElse(null);
+        if (client == null) {
+            var orgOpt = organizationRepository.findById(clientId);
+            if (orgOpt.isPresent()) {
+                UUID actualClientId = orgOpt.get().getClientId();
+                client = clientRepository.findById(actualClientId).orElse(null);
+                if (orgUuid == null) {
+                    orgUuid = orgOpt.get().getId();
+                }
+            }
+        }
+
+        if (client == null) {
+            throw new ResourceNotFoundException("Restaurant not found");
+        }
 
         Map<String, Object> settings = new LinkedHashMap<>();
         settings.put("clientId",         clientId);
@@ -108,6 +126,12 @@ public class DeliveryController {
             settings.put("pricesIncludeTax", config.isPricesIncludeTax());
             settings.put("taxSplitEnabled", config.isTaxSplitEnabled());
             settings.put("currencyDecimalPlaces", config.getCurrencyDecimalPlaces());
+
+            boolean onlinePayActive = config.isOnlinePaymentEnabled()
+                    && config.getRazorpayKeyId() != null
+                    && !config.getRazorpayKeyId().isBlank();
+            settings.put("onlinePaymentEnabled", onlinePayActive);
+            settings.put("razorpayKeyId", config.getRazorpayKeyId());
         } catch (Exception e) {
             log.error("Failed to load system configurations for delivery settings", e);
             settings.put("taxEnabled", false);
@@ -116,6 +140,8 @@ public class DeliveryController {
             settings.put("pricesIncludeTax", false);
             settings.put("taxSplitEnabled", true);
             settings.put("currencyDecimalPlaces", 2);
+            settings.put("onlinePaymentEnabled", false);
+            settings.put("razorpayKeyId", null);
         }
 
         // Branch-wise settings override
@@ -195,23 +221,60 @@ public class DeliveryController {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // 3. POST /delivery/orders
-    // Places a new delivery or takeaway order.
-    //
-    // Expected request body:
-    // {
-    //   "clientId":        "uuid",
-    //   "orgId":           "uuid" | null,
-    //   "customerEmail":   "string",
-    //   "customerName":    "string",
-    //   "customerPhone":   "string",
-    //   "fulfillmentType": "DELIVERY" | "TAKEAWAY",
-    //   "deliveryAddress": "string",
-    //   "note":            "string",
-    //   "items": [
-    //     { "productId": "uuid", "quantity": 2 }
-    //   ]
-    // }
+    // 3. POST /delivery/payments/create-order
+    // Creates a Razorpay Order using the restaurant's own credentials.
+    // ─────────────────────────────────────────────────────────────────────────
+    @PostMapping("/payments/create-order")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> createPaymentOrder(
+            @RequestBody Map<String, Object> payload) {
+
+        UUID clientId = UUID.fromString((String) payload.get("clientId"));
+        validateSubscription(clientId);
+
+        UUID orgUuid = parseOrgId((String) payload.get("orgId"));
+        ConfigurationDto config = systemConfigurationService.getConfigurationForClientAndBranch(clientId, orgUuid);
+
+        if (!config.isOnlinePaymentEnabled() || config.getRazorpayKeyId() == null || config.getRazorpayKeyId().isBlank()
+                || config.getRazorpayKeySecret() == null || config.getRazorpayKeySecret().isBlank()) {
+            throw new BusinessException("Online payment is not configured or enabled for this restaurant.");
+        }
+
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> items = (List<Map<String, Object>>) payload.get("items");
+        if (items == null || items.isEmpty()) {
+            throw new BusinessException("No items provided for payment calculation.");
+        }
+
+        BigDecimal grandTotal = calculateOrderTotal(clientId, orgUuid, items, config);
+
+        Map<String, Object> notes = new LinkedHashMap<>();
+        notes.put("clientId", clientId.toString());
+        if (orgUuid != null) notes.put("orgId", orgUuid.toString());
+        if (payload.get("customerPhone") != null) notes.put("customerPhone", String.valueOf(payload.get("customerPhone")));
+        if (payload.get("customerEmail") != null) notes.put("customerEmail", String.valueOf(payload.get("customerEmail")));
+
+        RazorpayOrderResponse rzpOrder = razorpayService.createOrderWithKeys(
+                config.getRazorpayKeyId(),
+                config.getRazorpayKeySecret(),
+                grandTotal,
+                "INR",
+                "del_" + System.currentTimeMillis(),
+                notes
+        );
+
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("razorpayOrderId", rzpOrder.getOrderId());
+        response.put("keyId",           rzpOrder.getKeyId());
+        response.put("amount",          rzpOrder.getAmount());
+        response.put("currency",        rzpOrder.getCurrency());
+        response.put("grandTotal",      grandTotal);
+
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // 4. POST /delivery/orders
+    // Places a new delivery or takeaway order (supports COD & Online).
     // ─────────────────────────────────────────────────────────────────────────
     @Transactional
     @PostMapping("/orders")
@@ -231,12 +294,37 @@ public class DeliveryController {
             String note           = (String) payload.getOrDefault("note", "");
             String remarks        = (String) payload.getOrDefault("remarks", "");
 
+            String paymentMethod     = String.valueOf(payload.getOrDefault("paymentMethod", "COD")).toUpperCase();
+            String razorpayPaymentId = (String) payload.get("razorpayPaymentId");
+            String razorpayOrderId   = (String) payload.get("razorpayOrderId");
+            String razorpaySignature = (String) payload.get("razorpaySignature");
+
             @SuppressWarnings("unchecked")
             List<Map<String, Object>> items = (List<Map<String, Object>>) payload.get("items");
 
             if (items == null || items.isEmpty()) {
                 return ResponseEntity.badRequest()
                         .body(ApiResponse.success(Map.of("error", "No items in order")));
+            }
+
+            // Load configuration for client & orgId
+            ConfigurationDto config = null;
+            try {
+                config = systemConfigurationService.getConfigurationForClientAndBranch(clientId, orgUuid);
+            } catch (Exception e) {
+                log.warn("[Delivery] Failed to fetch system configuration, using fallback defaults", e);
+            }
+
+            boolean isOnlinePayment = "ONLINE".equals(paymentMethod) || "RAZORPAY".equals(paymentMethod);
+            if (isOnlinePayment) {
+                if (config == null || config.getRazorpayKeySecret() == null || config.getRazorpayKeySecret().isBlank()) {
+                    throw new BusinessException("Payment gateway is not configured for this restaurant.");
+                }
+                boolean valid = razorpayService.verifyPaymentSignatureWithSecret(
+                        razorpayOrderId, razorpayPaymentId, razorpaySignature, config.getRazorpayKeySecret());
+                if (!valid) {
+                    throw new BusinessException("Payment signature verification failed. Order not confirmed.");
+                }
             }
 
             String orderNo = "DEL-" + System.currentTimeMillis();
@@ -271,26 +359,24 @@ public class DeliveryController {
                                 customerLat, customerLng);
                         if (distKm > org.getDeliveryRadiusKm()) {
                             throw new BusinessException(String.format(
-                                    "Your location is %.1f km away. Delivery is only available within %.0f km of the restaurant.",
+                                     "Your location is %.1f km away. Delivery is only available within %.0f km of the restaurant.",
                                     distKm, org.getDeliveryRadiusKm()));
                         }
                     }
                 });
             }
 
-            // FIX 1: clientId and orgId live in BaseEntity and are not reachable via
-            // the Lombok @Builder generated on Order itself. Build without them, then
-            // set via the inherited Lombok setters.
             Order order = Order.builder()
                     .id(UUID.randomUUID())
                     .orderNo(orderNo)
                     .orderType(OrderType.SALE)
-                    .orderStatus("PENDING")
-                    .paymentStatus("PENDING")
+                    .orderStatus(isOnlinePayment ? "CONFIRMED" : "PENDING")
+                    .paymentStatus(isOnlinePayment ? "PAID" : "PENDING")
                     .orderSource("DELIVERY_WEB")
                     .fulfillmentType(fulfillment)
                     .description(description)
                     .remarks(remarks)
+                    .reference(isOnlinePayment ? ("RAZORPAY:" + razorpayPaymentId) : "COD")
                     .orderDate(Instant.now())
                     .isactive("Y")
                     .build();
@@ -299,9 +385,6 @@ public class DeliveryController {
             order.setOrgId(orgUuid);
             order.setLatitude(latitude);
             order.setLongitude(longitude);
-
-            // Load configuration for client & orgId
-            ConfigurationDto config = null;
             try {
                 config = systemConfigurationService.getConfigurationForClientAndBranch(clientId, orgUuid);
             } catch (Exception e) {
@@ -615,9 +698,101 @@ public class DeliveryController {
     // Private helpers
     // ─────────────────────────────────────────────────────────────────────────
 
-    private void validateSubscription(UUID clientId) {
+    private BigDecimal calculateOrderTotal(UUID clientId, UUID orgUuid, List<Map<String, Object>> items, ConfigurationDto config) {
+        boolean gstEnabled = config != null && config.isTaxEnabled();
+        boolean pricesIncludeTax = config != null && config.isPricesIncludeTax();
+
+        BigDecimal baseRate = BigDecimal.ZERO;
+        List<Map<String, Object>> taxRatesList = new ArrayList<>();
+        String defaultTaxId = config != null ? config.getTaxDefaultId() : null;
+
+        if (config != null && config.getTaxRates() != null) {
+            for (Object rateObj : config.getTaxRates()) {
+                if (rateObj instanceof Map) {
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> rateMap = (Map<String, Object>) rateObj;
+                    taxRatesList.add(rateMap);
+                }
+            }
+        }
+
+        if (gstEnabled && !taxRatesList.isEmpty()) {
+            Map<String, Object> defaultRateMap = null;
+            if (defaultTaxId != null) {
+                defaultRateMap = taxRatesList.stream()
+                        .filter(r -> defaultTaxId.equals(String.valueOf(r.get("id"))))
+                        .findFirst().orElse(null);
+            }
+            if (defaultRateMap == null) {
+                defaultRateMap = taxRatesList.get(0);
+            }
+            if (defaultRateMap != null && defaultRateMap.get("value") != null) {
+                try {
+                    baseRate = new BigDecimal(String.valueOf(defaultRateMap.get("value")));
+                } catch (Exception ignored) {}
+            }
+        }
+
+        BigDecimal grandTotal = BigDecimal.ZERO;
+
+        for (Map<String, Object> cartItem : items) {
+            UUID productId = UUID.fromString((String) cartItem.get("productId"));
+            int qty = ((Number) cartItem.get("quantity")).intValue();
+
+            Product p = productRepository.findWithCategoryById(productId)
+                    .filter(prod -> clientId.equals(prod.getClientId()))
+                    .filter(prod -> orgUuid == null || prod.getOrgId() == null || orgUuid.equals(prod.getOrgId()))
+                    .filter(Product::isActive)
+                    .filter(Product::isAvailable)
+                    .orElseThrow(() -> new BusinessException("Invalid or unavailable item: " + productId));
+
+            BigDecimal faceUnit = p.getPrice();
+            BigDecimal quantity = BigDecimal.valueOf(qty);
+
+            boolean isPackaged = p.isPackagedGood();
+            BigDecimal rate = BigDecimal.ZERO;
+            if (gstEnabled) {
+                rate = isPackaged ? (p.getTaxRate() != null ? p.getTaxRate() : baseRate) : baseRate;
+            }
+
+            boolean isInclusive = gstEnabled && (isPackaged || pricesIncludeTax);
+
+            BigDecimal lineTotal;
+            if (isInclusive && rate.compareTo(BigDecimal.ZERO) > 0) {
+                lineTotal = faceUnit.multiply(quantity);
+            } else {
+                BigDecimal taxable = faceUnit.multiply(quantity);
+                BigDecimal tax = taxable.multiply(rate).divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
+                lineTotal = taxable.add(tax);
+            }
+
+            grandTotal = grandTotal.add(lineTotal);
+        }
+
+        return grandTotal.setScale(2, RoundingMode.HALF_UP);
+    }
+
+    private boolean isRestaurantSubscriptionActive(UUID clientId, UUID orgId) {
+        if (orgId != null) {
+            var org = organizationRepository.findById(orgId).orElse(null);
+            if (org != null && org.isSubscriptionActive()) {
+                return true;
+            }
+        }
         var client = clientRepository.findById(clientId).orElse(null);
-        if (client == null || !client.isSubscriptionActive()) {
+        if (client != null && client.isSubscriptionActive()) {
+            return true;
+        }
+        var orgByClient = organizationRepository.findById(clientId).orElse(null);
+        if (orgByClient != null && orgByClient.isSubscriptionActive()) {
+            return true;
+        }
+        return organizationRepository.findAllByClientId(clientId).stream()
+                .anyMatch(com.restaurant.pos.client.domain.Organization::isSubscriptionActive);
+    }
+
+    private void validateSubscription(UUID clientId) {
+        if (!isRestaurantSubscriptionActive(clientId, null)) {
             throw new BusinessException("Restaurant subscription is inactive or not found.");
         }
     }
