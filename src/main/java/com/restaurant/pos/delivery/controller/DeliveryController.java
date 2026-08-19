@@ -176,8 +176,13 @@ public class DeliveryController {
                     item.put("description", p.getDescription());
                     item.put("price",       p.getPrice());
                     item.put("imageUrl",    p.getImageUrl());
+                    item.put("image_url",   p.getImageUrl());
                     item.put("category",    p.getCategory() != null ? p.getCategory().getName() : "Others");
-                    item.put("isVeg",       !p.isPackagedGood());
+                    boolean isVeg = "VEG".equalsIgnoreCase(p.getProductType())
+                            || "Vegetarian".equalsIgnoreCase(p.getProductType())
+                            || (!p.isPackagedGood() && p.getProductType() == null);
+                    item.put("isVeg",       isVeg);
+                    item.put("is_veg",      isVeg);
                     item.put("isAvailable", p.isAvailable());
                     item.put("productType", p.getProductType());
                     item.put("taxRate",     p.getTaxRate());
