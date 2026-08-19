@@ -92,6 +92,32 @@ public class AuthController {
     ) {
         java.util.UUID userId = com.restaurant.pos.common.util.SecurityUtils.getCurrentUserId();
         if (userId == null) {
+            userId = com.restaurant.pos.common.tenant.UserContext.getContext().getUserId();
+        }
+        if (userId == null) {
+            String userIdHeader = servletRequest.getHeader("X-User-ID");
+            if (userIdHeader != null && !userIdHeader.isBlank()) {
+                try {
+                    userId = java.util.UUID.fromString(userIdHeader.trim());
+                } catch (Exception ignored) {}
+            }
+        }
+        if (userId == null) {
+            String authHeader = servletRequest.getHeader("Authorization");
+            if (authHeader != null && authHeader.startsWith("Bearer ")) {
+                try {
+                    String jwt = authHeader.substring(7);
+                    String extractedUserId = jwtService.extractClaim(jwt, claims -> {
+                        Object uid = claims.get("userId");
+                        return uid != null ? uid.toString() : null;
+                    });
+                    if (extractedUserId != null) {
+                        userId = java.util.UUID.fromString(extractedUserId);
+                    }
+                } catch (Exception ignored) {}
+            }
+        }
+        if (userId == null) {
             return ResponseEntity.status(401).body(ApiResponse.error("User authentication required"));
         }
         String ipAddress = servletRequest.getRemoteAddr();
