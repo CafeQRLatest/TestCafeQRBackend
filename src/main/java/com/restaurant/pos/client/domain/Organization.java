@@ -40,6 +40,9 @@ public class Organization extends AuditableEntity {
     private String gstin;
     private String timezone;
     
+    @Column(name = "pos_type", length = 50)
+    private String posType;
+    
     @Builder.Default
     @Column(name = "isactive", length = 1)
     @com.fasterxml.jackson.annotation.JsonProperty("isactive")

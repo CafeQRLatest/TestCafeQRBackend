@@ -63,6 +63,10 @@ public class OrganizationService {
                 .orElseThrow(() -> new ResourceNotFoundException("Client not found for ID: " + clientId));
         organization.setClient(client);
 
+        if (organization.getPosType() == null || organization.getPosType().isBlank()) {
+            organization.setPosType(client.getPosType());
+        }
+
         Organization saved = repository.save(organization);
         seedDefaultPaymentTypes(saved);
         return saved;
@@ -85,6 +89,7 @@ public class OrganizationService {
         organization.setDeliveryRadiusKm(details.getDeliveryRadiusKm());
         organization.setBranchCode(details.getBranchCode());
         organization.setTimezone(details.getTimezone());
+        organization.setPosType(details.getPosType());
         
         if (details.getIsactive() != null) {
             organization.setIsactive(details.getIsactive());
