@@ -108,12 +108,14 @@ public class DeliveryController {
             client = clientRepository.findBySlugIgnoreCase(trimmedHandle).orElse(null);
         }
 
-        // 3. If still null, check if handle directly matches an Organization slug
+        // 3. If still null, check if handle directly matches a uniquely named Organization slug
         if (client == null) {
             List<Organization> orgList = organizationRepository.findAllBySlugIgnoreCase(trimmedHandle);
-            if (!orgList.isEmpty()) {
+            if (orgList.size() == 1) {
                 targetOrg = orgList.get(0);
                 client = clientRepository.findById(targetOrg.getClientId()).orElse(null);
+            } else if (orgList.size() > 1) {
+                log.warn("[CafeQR Resolver] Ambiguous single-segment handle '{}' matches {} organizations across different clients. Scoped handle required.", trimmedHandle, orgList.size());
             }
         }
 
