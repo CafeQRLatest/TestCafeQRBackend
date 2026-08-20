@@ -164,6 +164,24 @@ public class DeliveryController {
         data.put("bannerUrl", client.getBannerUrl());
         data.put("posType", client.getPosType() != null ? client.getPosType() : "Restaurant");
 
+        List<Organization> clientOrgs = organizationRepository.findByClientIdAndIsactive(client.getId(), "Y");
+        if (clientOrgs.isEmpty()) {
+            clientOrgs = organizationRepository.findAllByClientId(client.getId());
+        }
+
+        List<Map<String, Object>> branchesPayload = new ArrayList<>();
+        for (Organization o : clientOrgs) {
+            Map<String, Object> bMap = new LinkedHashMap<>();
+            bMap.put("id", o.getId());
+            bMap.put("name", o.getName());
+            bMap.put("slug", o.getSlug());
+            bMap.put("branchCode", o.getBranchCode());
+            bMap.put("posType", o.getPosType());
+            bMap.put("address", o.getAddress());
+            branchesPayload.add(bMap);
+        }
+        data.put("branches", branchesPayload);
+
         if (targetOrg != null) {
             data.put("orgId", targetOrg.getId());
             data.put("branchSlug", targetOrg.getSlug());
