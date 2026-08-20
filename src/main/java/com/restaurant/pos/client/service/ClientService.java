@@ -57,7 +57,7 @@ public class ClientService {
         if (clientDetails.getSlug() != null && !clientDetails.getSlug().isBlank()) {
             String sanitized = sanitizeSlug(clientDetails.getSlug());
             if (clientRepository.existsBySlugIgnoreCaseAndIdNot(sanitized, id)) {
-                sanitized = sanitized + "-" + id.toString().substring(0, 4);
+                throw new com.restaurant.pos.common.exception.BusinessException("The store handle '" + sanitized + "' is already taken by another business. Please choose a different handle.");
             }
             client.setSlug(sanitized);
         } else if (client.getSlug() == null || client.getSlug().isBlank()) {

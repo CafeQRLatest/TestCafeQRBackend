@@ -85,7 +85,11 @@ public class OrganizationService {
         organization.setOrgCode(details.getOrgCode());
         
         if (details.getSlug() != null && !details.getSlug().isBlank()) {
-            organization.setSlug(ClientService.sanitizeSlug(details.getSlug()));
+            String sanitizedBranchSlug = ClientService.sanitizeSlug(details.getSlug());
+            if (repository.existsByClientIdAndSlugIgnoreCaseAndIdNot(organization.getClientId(), sanitizedBranchSlug, id)) {
+                throw new com.restaurant.pos.common.exception.BusinessException("The branch slug '" + sanitizedBranchSlug + "' is already in use by another branch in your organization. Please choose a different branch slug.");
+            }
+            organization.setSlug(sanitizedBranchSlug);
         } else if (organization.getSlug() == null || organization.getSlug().isBlank()) {
             organization.setSlug(ClientService.sanitizeSlug(details.getName()));
         }
