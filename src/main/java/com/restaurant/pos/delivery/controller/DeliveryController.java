@@ -110,9 +110,9 @@ public class DeliveryController {
 
         // 3. If still null, check if handle directly matches an Organization slug
         if (client == null) {
-            var orgOpt = organizationRepository.findBySlugIgnoreCase(trimmedHandle);
-            if (orgOpt.isPresent()) {
-                targetOrg = orgOpt.get();
+            List<Organization> orgList = organizationRepository.findAllBySlugIgnoreCase(trimmedHandle);
+            if (!orgList.isEmpty()) {
+                targetOrg = orgList.get(0);
                 client = clientRepository.findById(targetOrg.getClientId()).orElse(null);
             }
         }
