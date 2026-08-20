@@ -51,10 +51,16 @@ public class OrganizationService {
         organization.setClientId(clientId);
         organization.setIsactive("Y");
 
-        // Set default orgCode if not provided
+        // Set default orgCode and slug if not provided
+        String rawSlug = ClientService.sanitizeSlug(organization.getName());
+        if (organization.getSlug() == null || organization.getSlug().isBlank()) {
+            organization.setSlug(rawSlug);
+        } else {
+            organization.setSlug(ClientService.sanitizeSlug(organization.getSlug()));
+        }
+
         if (organization.getOrgCode() == null || organization.getOrgCode().isBlank()) {
-            String slug = organization.getName().toLowerCase().replaceAll("[^a-z0-9]", "-");
-            String code = slug + "-" + UUID.randomUUID().toString().substring(0, 4);
+            String code = rawSlug + "-" + UUID.randomUUID().toString().substring(0, 4);
             organization.setOrgCode(code);
             log.info("Generated default orgCode: {}", code);
         }
@@ -77,6 +83,13 @@ public class OrganizationService {
         Organization organization = getOrganizationById(id);
         organization.setName(details.getName());
         organization.setOrgCode(details.getOrgCode());
+        
+        if (details.getSlug() != null && !details.getSlug().isBlank()) {
+            organization.setSlug(ClientService.sanitizeSlug(details.getSlug()));
+        } else if (organization.getSlug() == null || organization.getSlug().isBlank()) {
+            organization.setSlug(ClientService.sanitizeSlug(details.getName()));
+        }
+
         organization.setAddress(details.getAddress());
         organization.setPhone(details.getPhone());
         organization.setEmail(details.getEmail());

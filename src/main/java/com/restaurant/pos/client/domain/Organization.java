@@ -28,6 +28,10 @@ public class Organization extends AuditableEntity {
     private Client client;
 
     private String name;
+    
+    @Column(length = 100)
+    private String slug;
+
     private String orgCode;
     
     @Builder.Default

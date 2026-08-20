@@ -32,6 +32,10 @@ public class Client extends AuditableEntity {
     private UUID id = null; 
 
     private String name;
+    
+    @Column(length = 100, unique = true)
+    private String slug;
+
     private String legalName;
     private String ownerName;
     private String email;

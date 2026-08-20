@@ -1,5 +1,7 @@
 package com.restaurant.pos.delivery.controller;
 
+import com.restaurant.pos.client.domain.Client;
+import com.restaurant.pos.client.domain.Organization;
 import com.restaurant.pos.client.repository.ClientRepository;
 import com.restaurant.pos.client.repository.OrganizationRepository;
 import com.restaurant.pos.common.dto.ApiResponse;
@@ -65,6 +67,122 @@ public class DeliveryController {
     private final PrintJobService        printJobService;
     private final PushNotificationService pushNotificationService;
     private final RazorpayService        razorpayService;
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // 0. GET /delivery/resolve
+    // Public handle/slug & domain resolver for clean, brandable URLs.
+    // E.g. GET /delivery/resolve?handle=arnos-marketing&branch=main-outlet
+    // ─────────────────────────────────────────────────────────────────────────
+    @GetMapping("/resolve")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> resolveSlug(
+            @RequestParam(required = true) String handle,
+            @RequestParam(required = false) String branch) {
+
+        String trimmedHandle = handle != null ? handle.trim() : "";
+        String trimmedBranch = branch != null ? branch.trim() : null;
+
+        Client client = null;
+        Organization targetOrg = null;
+
+        // 1. Try UUID parse for handle
+        UUID possibleUuid = null;
+        try {
+            possibleUuid = UUID.fromString(trimmedHandle);
+        } catch (Exception ignored) { }
+
+        if (possibleUuid != null) {
+            // Check if it's a Client UUID
+            client = clientRepository.findById(possibleUuid).orElse(null);
+            if (client == null) {
+                // Check if it's an Organization UUID
+                var orgOpt = organizationRepository.findById(possibleUuid);
+                if (orgOpt.isPresent()) {
+                    targetOrg = orgOpt.get();
+                    client = clientRepository.findById(targetOrg.getClientId()).orElse(null);
+                }
+            }
+        }
+
+        // 2. If not UUID, look up client by slug
+        if (client == null) {
+            client = clientRepository.findBySlugIgnoreCase(trimmedHandle).orElse(null);
+        }
+
+        // 3. If still null, check if handle directly matches an Organization slug
+        if (client == null) {
+            var orgOpt = organizationRepository.findBySlugIgnoreCase(trimmedHandle);
+            if (orgOpt.isPresent()) {
+                targetOrg = orgOpt.get();
+                client = clientRepository.findById(targetOrg.getClientId()).orElse(null);
+            }
+        }
+
+        if (client == null) {
+            throw new ResourceNotFoundException("Store not found for handle: " + trimmedHandle);
+        }
+
+        // 4. Resolve Branch if targetOrg not already selected
+        if (targetOrg == null && trimmedBranch != null && !trimmedBranch.isBlank()) {
+            // Try branch by UUID
+            try {
+                UUID branchUuid = UUID.fromString(trimmedBranch);
+                targetOrg = organizationRepository.findByIdAndClientId(branchUuid, client.getId()).orElse(null);
+            } catch (Exception ignored) { }
+
+            // Try branch by slug
+            if (targetOrg == null) {
+                targetOrg = organizationRepository.findByClientIdAndSlugIgnoreCase(client.getId(), trimmedBranch).orElse(null);
+            }
+
+            // Try branch by branchCode
+            if (targetOrg == null) {
+                targetOrg = organizationRepository.findByClientIdAndBranchCodeIgnoreCase(client.getId(), trimmedBranch).orElse(null);
+            }
+        }
+
+        // 5. If branch still null, pick first active branch of client (or primary HQ)
+        if (targetOrg == null) {
+            List<Organization> activeOrgs = organizationRepository.findByClientIdAndIsactive(client.getId(), "Y");
+            if (!activeOrgs.isEmpty()) {
+                targetOrg = activeOrgs.get(0);
+            } else {
+                List<Organization> allOrgs = organizationRepository.findAllByClientId(client.getId());
+                if (!allOrgs.isEmpty()) {
+                    targetOrg = allOrgs.get(0);
+                }
+            }
+        }
+
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("clientId", client.getId());
+        data.put("clientSlug", client.getSlug());
+        data.put("restaurantName", client.getName());
+        data.put("brandColor", nvl(client.getBrandColor(), "#f97316"));
+        data.put("logoUrl", client.getLogoUrl());
+        data.put("bannerUrl", client.getBannerUrl());
+        data.put("posType", client.getPosType() != null ? client.getPosType() : "Restaurant");
+
+        if (targetOrg != null) {
+            data.put("orgId", targetOrg.getId());
+            data.put("branchSlug", targetOrg.getSlug());
+            data.put("branchCode", targetOrg.getBranchCode());
+            data.put("branchName", targetOrg.getName());
+            if (targetOrg.getPosType() != null && !targetOrg.getPosType().isBlank()) {
+                data.put("posType", targetOrg.getPosType());
+            }
+            if (targetOrg.getBannerUrl() != null && !targetOrg.getBannerUrl().isBlank()) {
+                data.put("bannerUrl", targetOrg.getBannerUrl());
+            }
+            if (targetOrg.getLogoUrl() != null && !targetOrg.getLogoUrl().isBlank()) {
+                data.put("logoUrl", targetOrg.getLogoUrl());
+            }
+            data.put("canonicalPath", "/" + client.getSlug() + "/" + targetOrg.getSlug());
+        } else {
+            data.put("canonicalPath", "/" + client.getSlug());
+        }
+
+        return ResponseEntity.ok(ApiResponse.success("Resolved successfully", data));
+    }
 
     // ─────────────────────────────────────────────────────────────────────────
     // 1. GET /delivery/restaurant/{clientId}/settings
