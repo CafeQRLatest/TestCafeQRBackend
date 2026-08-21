@@ -362,6 +362,59 @@ public class DeliveryController {
                     item.put("productType", p.getProductType());
                     item.put("taxRate",     p.getTaxRate());
                     item.put("isPackagedGood", p.isPackagedGood());
+
+                    boolean hasVariants = p.getVariantMappings() != null && !p.getVariantMappings().isEmpty();
+                    item.put("hasVariants",  hasVariants);
+                    item.put("has_variants", hasVariants);
+
+                    if (hasVariants) {
+                        List<Map<String, Object>> mappings = p.getVariantMappings().stream().map(m -> {
+                            Map<String, Object> mMap = new LinkedHashMap<>();
+                            mMap.put("id", m.getId());
+                            mMap.put("isRequired", m.isRequired());
+                            if (m.getVariantGroup() != null) {
+                                Map<String, Object> gMap = new LinkedHashMap<>();
+                                gMap.put("id", m.getVariantGroup().getId());
+                                gMap.put("name", m.getVariantGroup().getName());
+                                if (m.getVariantGroup().getOptions() != null) {
+                                    List<Map<String, Object>> opts = m.getVariantGroup().getOptions().stream()
+                                            .filter(o -> o.isActive())
+                                            .map(o -> {
+                                                Map<String, Object> oMap = new LinkedHashMap<>();
+                                                oMap.put("id", o.getId());
+                                                oMap.put("name", o.getName());
+                                                oMap.put("additionalPrice", o.getAdditionalPrice());
+                                                return oMap;
+                                            }).collect(Collectors.toList());
+                                    gMap.put("options", opts);
+                                }
+                                mMap.put("variantGroup", gMap);
+                            }
+                            return mMap;
+                        }).collect(Collectors.toList());
+                        item.put("variantMappings", mappings);
+
+                        if (p.getVariantPricings() != null) {
+                            List<Map<String, Object>> pricings = p.getVariantPricings().stream()
+                                    .filter(pr -> pr.isAvailable())
+                                    .map(pr -> {
+                                        Map<String, Object> prMap = new LinkedHashMap<>();
+                                        prMap.put("id", pr.getId());
+                                        prMap.put("overridePrice", pr.getOverridePrice());
+                                        prMap.put("isAvailable", pr.isAvailable());
+                                        if (pr.getVariantOption() != null) {
+                                            Map<String, Object> voMap = new LinkedHashMap<>();
+                                            voMap.put("id", pr.getVariantOption().getId());
+                                            voMap.put("name", pr.getVariantOption().getName());
+                                            voMap.put("additionalPrice", pr.getVariantOption().getAdditionalPrice());
+                                            prMap.put("variantOption", voMap);
+                                        }
+                                        return prMap;
+                                    }).collect(Collectors.toList());
+                            item.put("variantPricings", pricings);
+                        }
+                    }
+
                     return item;
                 })
                 .collect(Collectors.toList());
@@ -626,6 +679,29 @@ public class DeliveryController {
 
                 Product p = productOpt.get();
                 BigDecimal faceUnit = p.getPrice();
+                String lineProductName = p.getName();
+                if (cartItem.get("variantName") != null && !String.valueOf(cartItem.get("variantName")).isBlank()) {
+                    lineProductName = p.getName() + " (" + String.valueOf(cartItem.get("variantName")).trim() + ")";
+                } else if (cartItem.get("variant_name") != null && !String.valueOf(cartItem.get("variant_name")).isBlank()) {
+                    lineProductName = p.getName() + " (" + String.valueOf(cartItem.get("variant_name")).trim() + ")";
+                }
+                if (cartItem.get("variantPrice") != null) {
+                    try {
+                        faceUnit = new BigDecimal(String.valueOf(cartItem.get("variantPrice")));
+                    } catch (Exception ignored) {}
+                } else if (cartItem.get("price") != null) {
+                    try {
+                        faceUnit = new BigDecimal(String.valueOf(cartItem.get("price")));
+                    } catch (Exception ignored) {}
+                }
+
+                UUID variantUuid = null;
+                if (cartItem.get("variantId") != null) {
+                    try { variantUuid = UUID.fromString(String.valueOf(cartItem.get("variantId"))); } catch (Exception ignored) {}
+                } else if (cartItem.get("variant_id") != null) {
+                    try { variantUuid = UUID.fromString(String.valueOf(cartItem.get("variant_id"))); } catch (Exception ignored) {}
+                }
+
                 BigDecimal quantity = BigDecimal.valueOf(qty);
                 BigDecimal grossLineAmount = faceUnit.multiply(quantity);
 
@@ -691,7 +767,8 @@ public class DeliveryController {
 
                 OrderLine line = OrderLine.builder()
                         .productId(productId)
-                        .productName(p.getName())
+                        .productName(lineProductName)
+                        .variantId(variantUuid)
                         .categoryName(p.getCategory() != null ? p.getCategory().getName() : null)
                         .isPackagedGood(isPackaged)
                         .quantity(quantity)
