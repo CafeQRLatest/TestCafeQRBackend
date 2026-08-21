@@ -73,6 +73,7 @@ public class DeliveryController {
     // Public handle/slug & domain resolver for clean, brandable URLs.
     // E.g. GET /delivery/resolve?handle=arnos-marketing&branch=main-outlet
     // ─────────────────────────────────────────────────────────────────────────
+    @Transactional(readOnly = true)
     @GetMapping("/resolve")
     public ResponseEntity<ApiResponse<Map<String, Object>>> resolveSlug(
             @RequestParam(required = true) String handle,
@@ -208,6 +209,7 @@ public class DeliveryController {
     // 1. GET /delivery/restaurant/{clientId}/settings
     // Returns brand colour, name, logo, contact info, delivery toggle.
     // ─────────────────────────────────────────────────────────────────────────
+    @Transactional(readOnly = true)
     @GetMapping("/restaurant/{clientId}/settings")
     public ResponseEntity<ApiResponse<Map<String, Object>>> getSettings(
             @PathVariable UUID clientId,
@@ -331,6 +333,7 @@ public class DeliveryController {
     // Returns active, available products scoped to clientId.
     // Optional ?orgId= to narrow to a specific branch.
     // ─────────────────────────────────────────────────────────────────────────
+    @Transactional(readOnly = true)
     @GetMapping("/restaurant/{clientId}/menu")
     public ResponseEntity<ApiResponse<List<Map<String, Object>>>> getMenu(
             @PathVariable UUID clientId,
@@ -363,55 +366,68 @@ public class DeliveryController {
                     item.put("taxRate",     p.getTaxRate());
                     item.put("isPackagedGood", p.isPackagedGood());
 
-                    boolean hasVariants = p.getVariantMappings() != null && !p.getVariantMappings().isEmpty();
+                    boolean hasVariants = false;
+                    try {
+                        hasVariants = p.getVariantMappings() != null && !p.getVariantMappings().isEmpty();
+                    } catch (Exception e) {
+                        log.warn("[Delivery] Failed checking variantMappings for product {}: {}", p.getId(), e.getMessage());
+                    }
                     item.put("hasVariants",  hasVariants);
                     item.put("has_variants", hasVariants);
 
                     if (hasVariants) {
-                        List<Map<String, Object>> mappings = p.getVariantMappings().stream().map(m -> {
-                            Map<String, Object> mMap = new LinkedHashMap<>();
-                            mMap.put("id", m.getId());
-                            mMap.put("isRequired", m.isRequired());
-                            if (m.getVariantGroup() != null) {
-                                Map<String, Object> gMap = new LinkedHashMap<>();
-                                gMap.put("id", m.getVariantGroup().getId());
-                                gMap.put("name", m.getVariantGroup().getName());
-                                if (m.getVariantGroup().getOptions() != null) {
-                                    List<Map<String, Object>> opts = m.getVariantGroup().getOptions().stream()
-                                            .filter(o -> o.isActive())
-                                            .map(o -> {
-                                                Map<String, Object> oMap = new LinkedHashMap<>();
-                                                oMap.put("id", o.getId());
-                                                oMap.put("name", o.getName());
-                                                oMap.put("additionalPrice", o.getAdditionalPrice());
-                                                return oMap;
-                                            }).collect(Collectors.toList());
-                                    gMap.put("options", opts);
+                        try {
+                            List<Map<String, Object>> mappings = p.getVariantMappings().stream().map(m -> {
+                                Map<String, Object> mMap = new LinkedHashMap<>();
+                                mMap.put("id", m.getId());
+                                mMap.put("isRequired", m.isRequired());
+                                if (m.getVariantGroup() != null) {
+                                    Map<String, Object> gMap = new LinkedHashMap<>();
+                                    gMap.put("id", m.getVariantGroup().getId());
+                                    gMap.put("name", m.getVariantGroup().getName());
+                                    if (m.getVariantGroup().getOptions() != null) {
+                                        List<Map<String, Object>> opts = m.getVariantGroup().getOptions().stream()
+                                                .filter(o -> o != null && o.isActive())
+                                                .map(o -> {
+                                                    Map<String, Object> oMap = new LinkedHashMap<>();
+                                                    oMap.put("id", o.getId());
+                                                    oMap.put("name", o.getName());
+                                                    oMap.put("additionalPrice", o.getAdditionalPrice());
+                                                    return oMap;
+                                                }).collect(Collectors.toList());
+                                        gMap.put("options", opts);
+                                    }
+                                    mMap.put("variantGroup", gMap);
                                 }
-                                mMap.put("variantGroup", gMap);
-                            }
-                            return mMap;
-                        }).collect(Collectors.toList());
-                        item.put("variantMappings", mappings);
+                                return mMap;
+                            }).collect(Collectors.toList());
+                            item.put("variantMappings", mappings);
+                        } catch (Exception e) {
+                            log.warn("[Delivery] Failed mapping variantMappings for product {}: {}", p.getId(), e.getMessage());
+                        }
 
-                        if (p.getVariantPricings() != null) {
-                            List<Map<String, Object>> pricings = p.getVariantPricings().stream()
-                                    .filter(pr -> pr.isAvailable())
-                                    .map(pr -> {
-                                        Map<String, Object> prMap = new LinkedHashMap<>();
-                                        prMap.put("id", pr.getId());
-                                        prMap.put("overridePrice", pr.getOverridePrice());
-                                        prMap.put("isAvailable", pr.isAvailable());
-                                        if (pr.getVariantOption() != null) {
-                                            Map<String, Object> voMap = new LinkedHashMap<>();
-                                            voMap.put("id", pr.getVariantOption().getId());
-                                            voMap.put("name", pr.getVariantOption().getName());
-                                            voMap.put("additionalPrice", pr.getVariantOption().getAdditionalPrice());
-                                            prMap.put("variantOption", voMap);
-                                        }
-                                        return prMap;
-                                    }).collect(Collectors.toList());
-                            item.put("variantPricings", pricings);
+                        try {
+                            if (p.getVariantPricings() != null) {
+                                List<Map<String, Object>> pricings = p.getVariantPricings().stream()
+                                        .filter(pr -> pr != null && pr.isAvailable())
+                                        .map(pr -> {
+                                            Map<String, Object> prMap = new LinkedHashMap<>();
+                                            prMap.put("id", pr.getId());
+                                            prMap.put("overridePrice", pr.getOverridePrice());
+                                            prMap.put("isAvailable", pr.isAvailable());
+                                            if (pr.getVariantOption() != null) {
+                                                Map<String, Object> voMap = new LinkedHashMap<>();
+                                                voMap.put("id", pr.getVariantOption().getId());
+                                                voMap.put("name", pr.getVariantOption().getName());
+                                                voMap.put("additionalPrice", pr.getVariantOption().getAdditionalPrice());
+                                                prMap.put("variantOption", voMap);
+                                            }
+                                            return prMap;
+                                        }).collect(Collectors.toList());
+                                item.put("variantPricings", pricings);
+                            }
+                        } catch (Exception e) {
+                            log.warn("[Delivery] Failed mapping variantPricings for product {}: {}", p.getId(), e.getMessage());
                         }
                     }
 
