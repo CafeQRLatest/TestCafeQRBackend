@@ -114,13 +114,17 @@ public class SecurityConfig {
             }
         }
 
-        // Unconditionally allow all Vercel deployments, Cloudflare pages, and CafeQR domains
+        // Unconditionally allow all Vercel deployments, Cloudflare pages, CafeQR domains, and Razorpay callbacks
         // to prevent environment variable overrides from causing CORS 403 preflight errors
         configuration.addAllowedOriginPattern("https://*.vercel.app");
         configuration.addAllowedOriginPattern("https://*.pages.dev");
         configuration.addAllowedOriginPattern("https://*.cafeqr.in");
         configuration.addAllowedOriginPattern("https://cafeqr.in");
         configuration.addAllowedOriginPattern("https://pos.cafeqr.in");
+        configuration.addAllowedOriginPattern("https://*.razorpay.com");
+        configuration.addAllowedOriginPattern("https://razorpay.com");
+        configuration.addAllowedOriginPattern("capacitor://localhost");
+        configuration.addAllowedOriginPattern("https://localhost");
         configuration.addAllowedOriginPattern("http://localhost:*");
         configuration.addAllowedOriginPattern("http://127.0.0.1:*");
 
