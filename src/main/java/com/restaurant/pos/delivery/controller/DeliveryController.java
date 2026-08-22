@@ -1012,6 +1012,15 @@ public class DeliveryController {
                     .orElseThrow(() -> new BusinessException("Invalid or unavailable item: " + productId));
 
             BigDecimal faceUnit = p.getPrice();
+            if (cartItem.get("variantPrice") != null) {
+                try {
+                    faceUnit = new BigDecimal(String.valueOf(cartItem.get("variantPrice")));
+                } catch (Exception ignored) {}
+            } else if (cartItem.get("price") != null) {
+                try {
+                    faceUnit = new BigDecimal(String.valueOf(cartItem.get("price")));
+                } catch (Exception ignored) {}
+            }
             BigDecimal quantity = BigDecimal.valueOf(qty);
 
             boolean isPackaged = p.isPackagedGood();
