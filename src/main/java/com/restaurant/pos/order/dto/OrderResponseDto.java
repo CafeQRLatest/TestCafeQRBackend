@@ -131,6 +131,12 @@ public class OrderResponseDto {
     @Schema(description = "Round-off adjustment applied at settlement")
     private BigDecimal roundOffAmount;
 
+    @Schema(description = "Loyalty points redeemed on this order")
+    private Integer redeemPoints;
+
+    @Schema(description = "Monetary discount value of loyalty points redeemed")
+    private BigDecimal loyaltyAmount;
+
     @Schema(description = "Order discount type (PERCENT, AMOUNT)")
     private String orderDiscountType;
 

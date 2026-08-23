@@ -1,13 +1,14 @@
-package com.restaurant.pos.delivery.controller;
+package com.restaurant.pos.delivery.api;
 
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+
 import java.io.IOException;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
-import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 @RestController
@@ -34,6 +35,14 @@ public class OrderStatusSseController {
         return emitter;
     }
 
+    public static void publishStatusUpdate(UUID orderId, Object status) {
+        if (status == null) {
+            publishStatusUpdate(orderId, (String) null);
+        } else {
+            publishStatusUpdate(orderId, status.toString());
+        }
+    }
+
     public static void publishStatusUpdate(UUID orderId, String status) {
         if (orderId == null) return;
         List<SseEmitter> list = emitters.get(orderId);
@@ -41,7 +50,7 @@ public class OrderStatusSseController {
             List<SseEmitter> deadEmitters = new ArrayList<>();
             for (SseEmitter emitter : list) {
                 try {
-                    emitter.send(SseEmitter.event().name("status-update").data(status));
+                    emitter.send(SseEmitter.event().name("status-update").data(status != null ? status : ""));
                 } catch (Exception e) {
                     deadEmitters.add(emitter);
                 }

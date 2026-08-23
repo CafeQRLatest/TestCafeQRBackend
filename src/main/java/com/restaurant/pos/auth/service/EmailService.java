@@ -88,7 +88,14 @@ public class EmailService {
                 """.formatted(otp);
 
         logOtpForDebugging(toEmail, otp);
-        sendPlainTextEmail(toEmail, "Your CafeQR verification code", body, "OTP email");
+        try {
+            sendPlainTextEmail(toEmail, "Your CafeQR verification code", body, "OTP email");
+        } catch (Exception e) {
+            log.warn("SMTP email delivery failed for {}: {}. OTP code logged for verification.", toEmail, e.getMessage());
+            if (!logOtpCode) {
+                throw e;
+            }
+        }
     }
 
     public void sendWelcomeCredentialsEmail(String toEmail, String name, String planName, String password) {
