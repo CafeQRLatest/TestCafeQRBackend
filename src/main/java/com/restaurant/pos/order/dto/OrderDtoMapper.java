@@ -232,6 +232,7 @@ public class OrderDtoMapper {
                 .remarks(order.getRemarks() != null ? order.getRemarks() : order.getDescription())
                 .reference(order.getReference())
                 .customers(order.getCustomers())
+                .customerId(order.getCustomerId() != null ? order.getCustomerId() : (order.getCustomers() != null && !order.getCustomers().isEmpty() ? order.getCustomers().get(0).getId() : null))
                 .isCredit(order.getIsCredit())
                 .isReceived(order.getIsReceived())
                 .creditCustomerId(order.getCreditCustomerId())

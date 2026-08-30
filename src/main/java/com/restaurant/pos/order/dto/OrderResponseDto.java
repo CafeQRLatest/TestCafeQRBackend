@@ -104,8 +104,14 @@ public class OrderResponseDto {
     @Schema(description = "Whether this order was completed as a credit sale")
     private Boolean isCredit;
 
+    @Schema(description = "Customer UUID linked to the order")
+    private UUID customerId;
+
     @Schema(description = "Credit customer UUID linked to the credit sale workflow")
     private UUID creditCustomerId;
+
+    @Schema(description = "Customer current loyalty points balance")
+    private Integer customerLoyaltyPoints;
 
     @Schema(description = "Associated invoice document number")
     private String invoiceNo;
