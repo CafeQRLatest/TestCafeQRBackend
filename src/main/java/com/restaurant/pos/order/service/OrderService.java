@@ -2867,6 +2867,13 @@ public class OrderService {
             order.setDiscountSource(com.restaurant.pos.order.domain.DiscountSource.MANUAL);
         }
 
+        if (safeRequest.getLoyaltyAmount() != null) {
+            order.setLoyaltyAmount(safeRequest.getLoyaltyAmount());
+        }
+        if (safeRequest.getRedeemPoints() != null) {
+            order.setRedeemPoints(safeRequest.getRedeemPoints());
+        }
+
         if (safeRequest.getRoundOffAmount() != null) {
             order.setRoundOffAmount(safeRequest.getRoundOffAmount());
         }

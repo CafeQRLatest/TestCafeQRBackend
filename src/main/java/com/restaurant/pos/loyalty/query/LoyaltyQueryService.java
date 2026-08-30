@@ -32,6 +32,7 @@ public class LoyaltyQueryService {
     private final LoyaltyProgramRepository programRepository;
     private final CustomerLoyaltyRepository accountRepository;
     private final LoyaltyTransactionRepository transactionRepository;
+    private final com.restaurant.pos.purchasing.repository.CustomerRepository customerRepository;
     private final LoyaltyDtoMapper mapper;
 
     @Transactional(readOnly = true)
@@ -63,14 +64,38 @@ public class LoyaltyQueryService {
                         .orElseGet(() -> accountRepository.findByCustomerIdAndClientId(customerId, clientId).orElse(null))
                 : accountRepository.findByCustomerIdAndClientId(customerId, clientId).orElse(null);
 
+        com.restaurant.pos.purchasing.domain.Customer customer = customerRepository.findById(customerId).orElse(null);
+
+        List<LoyaltyProgram> programs = (orgId != null)
+                ? programRepository.findByClientIdAndOrgIdOrderByPriorityDescNameAsc(clientId, orgId)
+                : programRepository.findByClientIdAndOrgIdIsNullOrderByPriorityDescNameAsc(clientId);
+
+        LoyaltyProgram defaultProg = programs.stream().filter(LoyaltyProgram::isDefault).findFirst()
+                .orElseGet(() -> programs.isEmpty() ? null : programs.get(0));
+
         if (account == null) {
-            throw new BusinessException("No loyalty account found for customer.");
+            int customerPoints = (customer != null && customer.getLoyaltyPoints() != null) ? customer.getLoyaltyPoints() : 0;
+            return CustomerLoyaltyDto.builder()
+                    .customerId(customerId)
+                    .customerName(customer != null ? customer.getName() : null)
+                    .customerPhone(customer != null ? customer.getPhone() : null)
+                    .programId(defaultProg != null ? defaultProg.getId() : null)
+                    .programName(defaultProg != null ? defaultProg.getName() : null)
+                    .currentPoints(customerPoints)
+                    .lifetimeEarned(customerPoints)
+                    .lifetimeRedeemed(0)
+                    .build();
         }
 
         LoyaltyProgram prog = account.getProgramId() != null
-                ? programRepository.findById(account.getProgramId()).orElse(null) : null;
+                ? programRepository.findById(account.getProgramId()).orElse(defaultProg)
+                : defaultProg;
 
-        return mapper.toCustomerLoyaltyDto(account, prog);
+        CustomerLoyaltyDto dto = mapper.toCustomerLoyaltyDto(account, prog);
+        if (customer != null && customer.getLoyaltyPoints() != null && customer.getLoyaltyPoints() > dto.getCurrentPoints()) {
+            dto.setCurrentPoints(customer.getLoyaltyPoints());
+        }
+        return dto;
     }
 
     @Transactional(readOnly = true)
