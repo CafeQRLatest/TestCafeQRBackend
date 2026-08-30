@@ -35,6 +35,7 @@ public class ConfigurationDto {
     private boolean posProductListingEnabled;
     private boolean discountEnabled;
     private boolean purchaseEnabled;
+    private boolean barcodeScannerEnabled;
     @Builder.Default
     private String defaultBillingUiMode = "standard";
 

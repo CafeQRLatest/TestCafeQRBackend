@@ -226,6 +226,7 @@ public class SystemConfigurationService {
                 .posProductListingEnabled(true)
                 .discountEnabled(true)
                 .purchaseEnabled(true)
+                .barcodeScannerEnabled(false)
                 .defaultBillingUiMode("standard")
                 .offlineSyncEnabled(false)
                 .offlineSyncInterval(60)
@@ -269,6 +270,7 @@ public class SystemConfigurationService {
                 .customerAgeEnabled(source.isCustomerAgeEnabled())
                 .posProductListingEnabled(source.isPosProductListingEnabled())
                 .discountEnabled(source.isDiscountEnabled())
+                .barcodeScannerEnabled(source.isBarcodeScannerEnabled())
                 .defaultBillingUiMode(source.getDefaultBillingUiMode())
                 .offlineSyncEnabled(source.isOfflineSyncEnabled())
                 .offlineSyncInterval(source.getOfflineSyncInterval())
@@ -400,6 +402,7 @@ public class SystemConfigurationService {
                 .customerAgeEnabled(entity.isCustomerAgeEnabled())
                 .posProductListingEnabled(entity.isPosProductListingEnabled())
                 .discountEnabled(entity.isDiscountEnabled())
+                .barcodeScannerEnabled(entity.isBarcodeScannerEnabled())
                 .defaultBillingUiMode(entity.getDefaultBillingUiMode())
                 .offlineSyncEnabled(entity.isOfflineSyncEnabled())
                 .offlineSyncInterval(entity.getOfflineSyncInterval())
@@ -463,6 +466,7 @@ public class SystemConfigurationService {
         entity.setCustomerAgeEnabled(dto.isCustomerAgeEnabled());
         entity.setPosProductListingEnabled(dto.isPosProductListingEnabled());
         entity.setDiscountEnabled(dto.isDiscountEnabled());
+        entity.setBarcodeScannerEnabled(dto.isBarcodeScannerEnabled());
         if (dto.getDefaultBillingUiMode() != null) entity.setDefaultBillingUiMode(dto.getDefaultBillingUiMode());
         entity.setOfflineSyncEnabled(dto.isOfflineSyncEnabled());
         entity.setOfflineSyncInterval(dto.getOfflineSyncInterval());

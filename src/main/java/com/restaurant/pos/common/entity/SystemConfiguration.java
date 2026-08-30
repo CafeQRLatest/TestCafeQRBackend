@@ -54,6 +54,7 @@ public class SystemConfiguration {
     private boolean posProductListingEnabled;
     private boolean discountEnabled;
     private boolean purchaseEnabled;
+    private boolean barcodeScannerEnabled;
     @Column(name = "default_billing_ui_mode", length = 20)
     @Builder.Default
     private String defaultBillingUiMode = "standard";
