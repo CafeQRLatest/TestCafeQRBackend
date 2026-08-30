@@ -36,6 +36,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -249,7 +250,7 @@ public class CreditCommandService {
                 .creditCustomerId(customer.getId())
                 .orderId(linkedCreditOrder != null ? linkedCreditOrder.getId() : null)
                 .invoiceId(invoiceId)
-                .paymentDate(LocalDateTime.now())
+                .paymentDate(LocalDateTime.now(ZoneOffset.UTC))
                 .paymentMethod(paymentMethod)
                 .amountPaid(amount)
                 .roundOffAmount(roundOffAmount)
@@ -306,7 +307,7 @@ public class CreditCommandService {
                 .creditCustomerId(vendor.getId())
                 .orderId(linkedOrder != null ? linkedOrder.getId() : null)
                 .invoiceId(invoiceId)
-                .paymentDate(LocalDateTime.now())
+                .paymentDate(LocalDateTime.now(ZoneOffset.UTC))
                 .paymentMethod(paymentMethod)
                 .amountPaid(amount)
                 .referenceNo(referenceNo)
