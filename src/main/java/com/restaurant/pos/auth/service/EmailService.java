@@ -313,7 +313,7 @@ public class EmailService {
             return;
         }
 
-        log.warn("OTP debug logging is enabled. Disable OTP_LOG_CODE in production.");
+        log.info("[OTP DEBUG] ===> TO: {} | CODE: {}", toEmail, otp);
         System.out.println("\n[OTP DEBUG] ------------------------------------------------");
         System.out.println("[OTP DEBUG] TO: " + toEmail);
         System.out.println("[OTP DEBUG] CODE: " + otp);

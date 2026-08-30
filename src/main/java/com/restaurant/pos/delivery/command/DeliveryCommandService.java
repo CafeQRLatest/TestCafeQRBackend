@@ -1,5 +1,6 @@
 package com.restaurant.pos.delivery.command;
 
+import com.restaurant.pos.accounting.service.AccountingPostingService;
 import com.restaurant.pos.client.domain.Client;
 import com.restaurant.pos.client.domain.Organization;
 import com.restaurant.pos.client.repository.ClientRepository;
@@ -8,11 +9,13 @@ import com.restaurant.pos.common.dto.ConfigurationDto;
 import com.restaurant.pos.common.exception.BusinessException;
 import com.restaurant.pos.common.service.SystemConfigurationService;
 import com.restaurant.pos.delivery.event.DeliveryOrderPlacedEvent;
+import com.restaurant.pos.invoice.domain.Invoice;
 import com.restaurant.pos.order.domain.Order;
 import com.restaurant.pos.order.domain.OrderLine;
 import com.restaurant.pos.order.domain.OrderType;
 import com.restaurant.pos.order.domain.TaxType;
 import com.restaurant.pos.order.repository.OrderRepository;
+import com.restaurant.pos.order.service.OrderService;
 import com.restaurant.pos.payment.dto.RazorpayOrderResponse;
 import com.restaurant.pos.payment.service.RazorpayService;
 import com.restaurant.pos.print.domain.PrintJobKind;
@@ -45,6 +48,8 @@ public class DeliveryCommandService {
     private final PushNotificationService pushNotificationService;
     private final RazorpayService razorpayService;
     private final ApplicationEventPublisher eventPublisher;
+    private final OrderService orderService;
+    private final AccountingPostingService accountingPostingService;
 
     @Transactional
     public Map<String, Object> createPaymentOrder(CreateDeliveryPaymentCommand command) {
@@ -379,6 +384,27 @@ public class DeliveryCommandService {
             Order saved = orderRepository.save(order);
             log.info("[DeliveryCommandService] Order placed: {} (orderNo={}) for client={} org={}",
                     saved.getId(), saved.getOrderNo(), clientId, orgUuid);
+
+            // ── Auto-settle online-paid delivery orders ──
+            if (isOnlinePayment) {
+                try {
+                    saved.setOrderStatus("COMPLETED");
+                    saved.setPaymentStatus("PAID");
+                    saved = orderRepository.save(saved);
+
+                    Invoice invoice = orderService.generateInvoice(saved);
+                    if (invoice != null) {
+                        invoice.setStatus("PAID");
+                        invoice.setAmountDue(BigDecimal.ZERO);
+                    }
+                    orderService.generatePayment(saved, "ONLINE", null,
+                            saved.getGrandTotal(), "Auto-settled: Delivery online payment (RAZORPAY:" + razorpayPaymentId + ")");
+                    accountingPostingService.postSaleCogs(saved);
+                    log.info("[DeliveryCommandService] Online-paid order auto-settled: {} invoice+payment created", saved.getId());
+                } catch (Exception ex) {
+                    log.error("[DeliveryCommandService] Failed to auto-settle online-paid order {}", saved.getId(), ex);
+                }
+            }
 
             try {
                 pushNotificationService.sendNewOrderPush(saved);

@@ -121,6 +121,7 @@ public class DeliveryQueryService {
         for (Organization o : clientOrgs) {
             Map<String, Object> bMap = new LinkedHashMap<>();
             bMap.put("id", o.getId());
+            bMap.put("orgToken", com.restaurant.pos.common.util.TokenEncryptionUtil.encryptOrgId(o.getId()));
             bMap.put("name", o.getName());
             bMap.put("slug", o.getSlug());
             bMap.put("branchCode", o.getBranchCode());
@@ -132,6 +133,7 @@ public class DeliveryQueryService {
 
         if (targetOrg != null) {
             data.put("orgId", targetOrg.getId());
+            data.put("orgToken", com.restaurant.pos.common.util.TokenEncryptionUtil.encryptOrgId(targetOrg.getId()));
             data.put("branchSlug", targetOrg.getSlug());
             data.put("branchCode", targetOrg.getBranchCode());
             data.put("branchName", targetOrg.getName());
@@ -445,11 +447,7 @@ public class DeliveryQueryService {
         if (orgIdStr == null || orgIdStr.isBlank() || "null".equalsIgnoreCase(orgIdStr)) {
             return null;
         }
-        try {
-            return UUID.fromString(orgIdStr.trim());
-        } catch (Exception e) {
-            return null;
-        }
+        return com.restaurant.pos.common.util.TokenEncryptionUtil.decryptOrgId(orgIdStr);
     }
 
     private String nvl(String val, String fallback) {
