@@ -396,12 +396,17 @@ public class DeliveryQueryService {
 
     @Transactional(readOnly = true)
     public List<Map<String, Object>> listOrders(UUID clientId, String email) {
+        String cleanEmail = email != null ? email.trim().toLowerCase() : "";
         List<Order> orders = orderRepository.findByClientIdAndOrderStatusInOrderByCreatedAtDesc(
                         clientId,
-                        List.of("CONFIRMED", "PREPARING", "OUT_FOR_DELIVERY", "DELIVERED", "COMPLETED", "CANCELLED"))
+                        List.of("PENDING", "PLACED", "CONFIRMED", "PREPARING", "OUT_FOR_DELIVERY", "DELIVERED", "BILLED", "PAID", "COMPLETED", "CANCELLED"))
                 .stream()
-                .filter(o -> "DELIVERY_WEB".equals(o.getOrderSource()))
-                .filter(o -> o.getDescription() != null && o.getDescription().contains(email))
+                .filter(o -> "DELIVERY_WEB".equalsIgnoreCase(o.getOrderSource()) || "DELIVERY".equalsIgnoreCase(o.getFulfillmentType()))
+                .filter(o -> {
+                    if (cleanEmail.isBlank()) return true;
+                    String desc = o.getDescription() != null ? o.getDescription().toLowerCase() : "";
+                    return desc.contains(cleanEmail);
+                })
                 .sorted(Comparator.comparing(Order::getOrderDate, Comparator.nullsLast(Comparator.reverseOrder())))
                 .collect(Collectors.toList());
 
