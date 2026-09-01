@@ -406,7 +406,7 @@ public class SystemConfigurationService {
                 .customerAgeEnabled(entity.isCustomerAgeEnabled())
                 .posProductListingEnabled(entity.isPosProductListingEnabled())
                 .discountEnabled(entity.isDiscountEnabled())
-                .barcodeScannerEnabled(entity.isBarcodeScannerEnabled())
+                .barcodeScannerEnabled(isFeatureEnabled(entity.getClientId(), orgId, ModuleName.BARCODE_SCANNER, entity.isBarcodeScannerEnabled()))
                 .takeawayAutoPrintKotOnSettle(entity.isTakeawayAutoPrintKotOnSettle())
                 .takeawayHideKitchenMode(entity.isTakeawayHideKitchenMode())
                 .defaultBillingUiMode(entity.getDefaultBillingUiMode())
@@ -570,6 +570,9 @@ public class SystemConfigurationService {
         }
         if (dto.isMenuImagesEnabled() && !isModuleActive(clientId, orgId, ModuleName.MENU_IMAGES)) {
             throw new BusinessException("Subscription required: Menu Images module is not active. Please visit the billing center.");
+        }
+        if (dto.isBarcodeScannerEnabled() && !isModuleActive(clientId, orgId, ModuleName.BARCODE_SCANNER)) {
+            throw new BusinessException("Subscription required: Barcode Scanner Module is not active. Please visit the billing center.");
         }
     }
 
