@@ -800,6 +800,12 @@ public class OrderService {
         if (order.getOrderType() != null && order.getOrderType() != OrderType.SALE)
             return;
 
+        // If this is a standalone credit customer order, hydrate directly without touching master customer table
+        if (order.getCreditCustomerId() != null && order.getCustomerId() == null) {
+            hydrateOrderCustomers(order);
+            return;
+        }
+
         UUID clientId = order.getClientId();
         UUID orgId = order.getOrgId();
         List<CustomerSelection> selections = customerSelections(order);
@@ -819,6 +825,12 @@ public class OrderService {
             return;
         if (order.getId() == null) {
             throw new IllegalStateException("Order id is required before linking customers");
+        }
+
+        // If this is a standalone credit customer order, skip linking to master customers table
+        if (order.getCreditCustomerId() != null && order.getCustomerId() == null) {
+            hydrateOrderCustomers(order);
+            return;
         }
 
         UUID clientId = order.getClientId();
@@ -1161,10 +1173,26 @@ public class OrderService {
             boolean primary = isPrimaryForOrder(customer, order.getId()) || i == 0;
             customers.add(toOrderCustomerDto(customer, primary));
         }
+        if (customers.isEmpty() && order.getCreditCustomerId() != null) {
+            creditCustomerRepository.findById(order.getCreditCustomerId())
+                    .ifPresent(cc -> {
+                        OrderCustomerDto dto = OrderCustomerDto.builder()
+                                .id(cc.getLinkedCustomerId() != null ? cc.getLinkedCustomerId() : cc.getId())
+                                .name(cc.getName())
+                                .phone(cc.getPhone())
+                                .primary(true)
+                                .build();
+                        customers.add(dto);
+                        order.setCustomerName(cc.getName());
+                        order.setCustomerPhone(cc.getPhone());
+                    });
+        }
         customers.sort((a, b) -> Boolean.compare(!a.isPrimary(), !b.isPrimary()));
         order.setCustomers(customers);
         customers.stream().filter(OrderCustomerDto::isPrimary).findFirst().ifPresent(primary -> {
-            order.setCustomerId(primary.getId());
+            if (order.getCreditCustomerId() == null) {
+                order.setCustomerId(primary.getId());
+            }
             order.setCustomerName(primary.getName());
             order.setCustomerPhone(primary.getPhone());
         });
@@ -1237,7 +1265,22 @@ public class OrderService {
             }
         }
 
-        // 3. Hydrate each order
+        // 3. Fetch direct credit customers in ONE query if not already fetched
+        List<UUID> creditCustomerIds = orders.stream()
+                .map(Order::getCreditCustomerId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+
+        Map<UUID, CreditCustomer> directCreditCustomerMap = new java.util.HashMap<>();
+        if (!creditCustomerIds.isEmpty()) {
+            List<CreditCustomer> creditCustomers = creditCustomerRepository.findAllById(creditCustomerIds);
+            for (CreditCustomer cc : creditCustomers) {
+                directCreditCustomerMap.put(cc.getId(), cc);
+            }
+        }
+
+        // 4. Hydrate each order
         for (Order order : orders) {
             if (order.getId() == null) {
                 continue;
@@ -1264,10 +1307,26 @@ public class OrderService {
                 boolean primary = isPrimaryForOrder(customer, order.getId()) || i == 0;
                 customers.add(toOrderCustomerDto(customer, primary));
             }
+            if (customers.isEmpty() && order.getCreditCustomerId() != null) {
+                CreditCustomer cc = directCreditCustomerMap.get(order.getCreditCustomerId());
+                if (cc != null) {
+                    OrderCustomerDto dto = OrderCustomerDto.builder()
+                            .id(cc.getLinkedCustomerId() != null ? cc.getLinkedCustomerId() : cc.getId())
+                            .name(cc.getName())
+                            .phone(cc.getPhone())
+                            .primary(true)
+                            .build();
+                    customers.add(dto);
+                    order.setCustomerName(cc.getName());
+                    order.setCustomerPhone(cc.getPhone());
+                }
+            }
             customers.sort((a, b) -> Boolean.compare(!a.isPrimary(), !b.isPrimary()));
             order.setCustomers(customers);
             customers.stream().filter(OrderCustomerDto::isPrimary).findFirst().ifPresent(primary -> {
-                order.setCustomerId(primary.getId());
+                if (order.getCreditCustomerId() == null) {
+                    order.setCustomerId(primary.getId());
+                }
                 order.setCustomerName(primary.getName());
                 order.setCustomerPhone(primary.getPhone());
             });
@@ -1282,11 +1341,31 @@ public class OrderService {
     }
 
     private OrderSummaryDto toOrderSummary(Order hydrated) {
-        List<OrderCustomerDto> customers = hydrated.getCustomers() == null ? List.of() : hydrated.getCustomers();
+        List<OrderCustomerDto> customers = hydrated.getCustomers() == null ? new ArrayList<>() : new ArrayList<>(hydrated.getCustomers());
         OrderCustomerDto primaryCustomer = customers.stream()
                 .filter(OrderCustomerDto::isPrimary)
                 .findFirst()
                 .orElse(customers.isEmpty() ? null : customers.get(0));
+
+        String custName = primaryCustomer != null ? primaryCustomer.getName() : hydrated.getCustomerName();
+        String custPhone = primaryCustomer != null ? primaryCustomer.getPhone() : hydrated.getCustomerPhone();
+
+        if ((custName == null || custName.isBlank()) && hydrated.getCreditCustomerId() != null) {
+            CreditCustomer cc = creditCustomerRepository.findById(hydrated.getCreditCustomerId()).orElse(null);
+            if (cc != null) {
+                custName = cc.getName();
+                custPhone = cc.getPhone();
+                if (customers.isEmpty()) {
+                    OrderCustomerDto dto = OrderCustomerDto.builder()
+                            .id(cc.getLinkedCustomerId() != null ? cc.getLinkedCustomerId() : cc.getId())
+                            .name(cc.getName())
+                            .phone(cc.getPhone())
+                            .primary(true)
+                            .build();
+                    customers.add(dto);
+                }
+            }
+        }
 
         return OrderSummaryDto.builder()
                 .id(hydrated.getId())
@@ -1298,8 +1377,8 @@ public class OrderService {
                 .tableId(hydrated.getTableId())
                 .tableNumber(hydrated.getTableNumber())
                 .customerId(primaryCustomer != null ? primaryCustomer.getId() : hydrated.getCustomerId())
-                .customerName(primaryCustomer != null ? primaryCustomer.getName() : hydrated.getCustomerName())
-                .customerPhone(primaryCustomer != null ? primaryCustomer.getPhone() : hydrated.getCustomerPhone())
+                .customerName(custName)
+                .customerPhone(custPhone)
                 .isCredit(hydrated.getIsCredit())
                 .creditCustomerId(hydrated.getCreditCustomerId())
                 .customers(customers)
