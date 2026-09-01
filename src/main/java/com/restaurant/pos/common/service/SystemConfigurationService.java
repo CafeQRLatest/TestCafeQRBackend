@@ -200,8 +200,24 @@ public class SystemConfigurationService {
      */
     private SystemConfiguration resolveConfiguration(UUID clientId, UUID orgId) {
         if (orgId != null) {
-            return repository.findFirstByClientIdAndOrgId(clientId, orgId)
-                    .orElseGet(() -> getOrCreateTenantConfiguration(clientId));
+            Optional<SystemConfiguration> branchOpt = repository.findFirstByClientIdAndOrgId(clientId, orgId);
+            if (branchOpt.isPresent()) {
+                SystemConfiguration branchConfig = branchOpt.get();
+                SystemConfiguration tenantConfig = getOrCreateTenantConfiguration(clientId);
+                // Inherit Razorpay credentials from tenant settings if not set on branch
+                if ((branchConfig.getRazorpayKeyId() == null || branchConfig.getRazorpayKeyId().isBlank())
+                        && tenantConfig.getRazorpayKeyId() != null && !tenantConfig.getRazorpayKeyId().isBlank()) {
+                    branchConfig.setRazorpayKeyId(tenantConfig.getRazorpayKeyId());
+                }
+                if ((branchConfig.getRazorpayKeySecret() == null || branchConfig.getRazorpayKeySecret().isBlank())
+                        && tenantConfig.getRazorpayKeySecret() != null && !tenantConfig.getRazorpayKeySecret().isBlank()) {
+                    branchConfig.setRazorpayKeySecret(tenantConfig.getRazorpayKeySecret());
+                }
+                if (!branchConfig.isOnlinePaymentEnabled() && tenantConfig.isOnlinePaymentEnabled()) {
+                    branchConfig.setOnlinePaymentEnabled(true);
+                }
+                return branchConfig;
+            }
         }
         return getOrCreateTenantConfiguration(clientId);
     }

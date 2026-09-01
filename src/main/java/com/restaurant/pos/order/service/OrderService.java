@@ -883,12 +883,10 @@ public class OrderService {
         if (!"ACTIVE".equalsIgnoreCase(creditCustomer.getStatus())) {
             throw new BusinessException("Credit customer is suspended");
         }
-        if (creditCustomer.getLinkedCustomerId() == null) {
-            throw new BusinessException("Credit customer is not linked to a customer record");
-        }
-
         order.setCreditCustomerId(creditCustomer.getId());
-        order.setCustomerId(creditCustomer.getLinkedCustomerId());
+        if (creditCustomer.getLinkedCustomerId() != null) {
+            order.setCustomerId(creditCustomer.getLinkedCustomerId());
+        }
         order.setCustomerName(creditCustomer.getName());
         order.setCustomerPhone(creditCustomer.getPhone());
         if (completingAsCredit) {
@@ -1035,11 +1033,12 @@ public class OrderService {
 
         if (order.getCustomerId() != null) {
             addCustomerSelection(selections, new CustomerSelection(order.getCustomerId(), null, null));
-        }
-        if ((order.getCustomerName() != null && !order.getCustomerName().isBlank())
-                || (order.getCustomerPhone() != null && !order.getCustomerPhone().isBlank())) {
-            addCustomerSelection(selections,
-                    new CustomerSelection(null, order.getCustomerName(), order.getCustomerPhone()));
+        } else if (order.getCreditCustomerId() == null) {
+            if ((order.getCustomerName() != null && !order.getCustomerName().isBlank())
+                    || (order.getCustomerPhone() != null && !order.getCustomerPhone().isBlank())) {
+                addCustomerSelection(selections,
+                        new CustomerSelection(null, order.getCustomerName(), order.getCustomerPhone()));
+            }
         }
         return selections.values().stream()
                 .filter(selection -> selection.id() != null

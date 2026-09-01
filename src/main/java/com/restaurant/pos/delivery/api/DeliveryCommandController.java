@@ -22,12 +22,21 @@ import java.util.UUID;
  */
 @Slf4j
 @RestController
-@RequestMapping("/api/v1/delivery")
+@RequestMapping({"/api/v1/delivery", "/api/delivery"})
 @RequiredArgsConstructor
 @Tag(name = "Delivery Commands", description = "Public state mutation endpoints for CafeQR delivery customer interface.")
 public class DeliveryCommandController {
 
     private final DeliveryCommandService commandService;
+
+    @PostMapping("/customer/profile")
+    @Operation(summary = "Save Customer Profile", description = "Updates ERP customer profile details.")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> saveCustomerProfile(
+            @RequestBody Map<String, Object> payload) {
+        log.info("Saving customer profile payload: {}", payload.keySet());
+        Map<String, Object> result = commandService.saveCustomerProfile(payload);
+        return ResponseEntity.ok(ApiResponse.success(result));
+    }
 
     @PostMapping("/payments/create-order")
     @Operation(summary = "Create Razorpay Payment Order", description = "Generates a Razorpay order ID using client credentials.")

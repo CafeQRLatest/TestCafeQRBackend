@@ -50,6 +50,7 @@ public class DeliveryCommandService {
     private final ApplicationEventPublisher eventPublisher;
     private final OrderService orderService;
     private final AccountingPostingService accountingPostingService;
+    private final com.restaurant.pos.purchasing.repository.CustomerRepository customerRepository;
 
     @Transactional
     public Map<String, Object> createPaymentOrder(CreateDeliveryPaymentCommand command) {
@@ -249,7 +250,11 @@ public class DeliveryCommandService {
             BigDecimal grandTotal = BigDecimal.ZERO;
 
             for (Map<String, Object> cartItem : items) {
-                UUID productId = UUID.fromString((String) cartItem.get("productId"));
+                String rawProdId = String.valueOf(cartItem.get("productId"));
+                if (rawProdId.contains("_var_")) {
+                    rawProdId = rawProdId.substring(0, rawProdId.indexOf("_var_"));
+                }
+                UUID productId = UUID.fromString(rawProdId);
                 int qty = ((Number) cartItem.get("quantity")).intValue();
 
                 Optional<Product> productOpt = productRepository.findWithCategoryById(productId)
@@ -420,6 +425,60 @@ public class DeliveryCommandService {
                 }
             }
 
+            // ── Auto-create or link Customer in ERP ──
+            if (customerEmail != null && !customerEmail.isBlank()) {
+                try {
+                    String normEmail = customerEmail.trim().toLowerCase();
+                    var custOpt = customerRepository.findByEmailAndClientId(normEmail, effectiveClientId);
+                    com.restaurant.pos.purchasing.domain.Customer customer;
+                    if (custOpt.isPresent()) {
+                        customer = custOpt.get();
+                        boolean custChanged = false;
+                        if ((customer.getName() == null || customer.getName().isBlank() || "Guest".equalsIgnoreCase(customer.getName()))
+                                && customerName != null && !customerName.isBlank()) {
+                            customer.setName(customerName.trim());
+                            custChanged = true;
+                        }
+                        if ((customer.getPhone() == null || customer.getPhone().isBlank())
+                                && customerPhone != null && !customerPhone.isBlank()) {
+                            customer.setPhone(normalizePhone(customerPhone));
+                            custChanged = true;
+                        }
+                        if ((customer.getAddress() == null || customer.getAddress().isBlank())
+                                && deliveryAddress != null && !deliveryAddress.isBlank()) {
+                            customer.setAddress(deliveryAddress.trim());
+                            custChanged = true;
+                        }
+                    } else {
+                        customer = com.restaurant.pos.purchasing.domain.Customer.builder()
+                                .name((customerName != null && !customerName.isBlank()) ? customerName.trim() : normEmail.split("@")[0])
+                                .email(normEmail)
+                                .phone(normalizePhone(customerPhone))
+                                .address(deliveryAddress != null && !deliveryAddress.isBlank() ? deliveryAddress.trim() : null)
+                                .customerCategory("REGULAR")
+                                .isactive("Y")
+                                .build();
+                        customer.setClientId(effectiveClientId);
+                        customer.setOrgId(null);
+                    }
+
+                    if (customer.getOrderLinks() == null) {
+                        customer.setOrderLinks(new ArrayList<>());
+                    }
+                    customer.getOrderLinks().add(com.restaurant.pos.purchasing.domain.Customer.OrderLink.builder()
+                            .orderId(saved.getId())
+                            .isPrimary(true)
+                            .attachedAt(Instant.now().toString())
+                            .build());
+
+                    customer = customerRepository.save(customer);
+                    saved.setCustomerId(customer.getId());
+                    saved = orderRepository.save(saved);
+                } catch (Exception ex) {
+                    log.warn("[DeliveryCommandService] Failed to sync customer link for order {}", saved.getId(), ex);
+                }
+            }
+
             // Publish Domain Event
             eventPublisher.publishEvent(new DeliveryOrderPlacedEvent(this, saved));
 
@@ -436,6 +495,93 @@ public class DeliveryCommandService {
             log.error("[DeliveryCommandService] Failed to place order: {}", ex.getMessage(), ex);
             throw ex;
         }
+    }
+
+    @Transactional
+    public Map<String, Object> saveCustomerProfile(Map<String, Object> payload) {
+        String email = (String) payload.get("email");
+        if (email == null || email.isBlank()) {
+            throw new BusinessException("Customer email is required");
+        }
+        String clientIdStr = String.valueOf(payload.get("clientId"));
+        UUID clientId = UUID.fromString(clientIdStr);
+        UUID effectiveClientId = clientId;
+        var clientOpt = clientRepository.findById(clientId);
+        if (clientOpt.isEmpty()) {
+            var orgOpt = organizationRepository.findById(clientId);
+            if (orgOpt.isPresent()) {
+                effectiveClientId = orgOpt.get().getClientId();
+            }
+        }
+
+        String normalizedEmail = email.trim().toLowerCase();
+        String fullName = payload.get("fullName") != null ? String.valueOf(payload.get("fullName")).trim() : null;
+        if (fullName == null && payload.get("name") != null) {
+            fullName = String.valueOf(payload.get("name")).trim();
+        }
+        String phone = payload.get("phone") != null ? normalizePhone(String.valueOf(payload.get("phone"))) : null;
+
+        String address = payload.get("address") != null ? String.valueOf(payload.get("address")).trim() : "";
+        String landmark = payload.get("landmark") != null ? String.valueOf(payload.get("landmark")).trim() : "";
+        String city = payload.get("city") != null ? String.valueOf(payload.get("city")).trim() : "";
+        String pincode = payload.get("pincode") != null ? String.valueOf(payload.get("pincode")).trim() : "";
+
+        StringBuilder fullAddress = new StringBuilder();
+        if (!address.isBlank()) fullAddress.append(address);
+        if (!landmark.isBlank()) {
+            if (fullAddress.length() > 0) fullAddress.append(", ");
+            fullAddress.append("Near ").append(landmark);
+        }
+        if (!city.isBlank()) {
+            if (fullAddress.length() > 0) fullAddress.append(", ");
+            fullAddress.append(city);
+        }
+        if (!pincode.isBlank()) {
+            if (fullAddress.length() > 0) fullAddress.append(" - ");
+            fullAddress.append(pincode);
+        }
+
+        var customerOpt = customerRepository.findByEmailAndClientId(normalizedEmail, effectiveClientId);
+        com.restaurant.pos.purchasing.domain.Customer customer;
+        if (customerOpt.isPresent()) {
+            customer = customerOpt.get();
+            if (fullName != null && !fullName.isBlank()) {
+                customer.setName(fullName);
+            }
+            if (phone != null && !phone.isBlank()) {
+                customer.setPhone(phone);
+            }
+            if (fullAddress.length() > 0) {
+                customer.setAddress(fullAddress.toString());
+            }
+        } else {
+            customer = com.restaurant.pos.purchasing.domain.Customer.builder()
+                    .name((fullName != null && !fullName.isBlank()) ? fullName : normalizedEmail.split("@")[0])
+                    .email(normalizedEmail)
+                    .phone(phone)
+                    .address(fullAddress.length() > 0 ? fullAddress.toString() : null)
+                    .customerCategory("REGULAR")
+                    .isactive("Y")
+                    .build();
+            customer.setClientId(effectiveClientId);
+            customer.setOrgId(null);
+        }
+
+        customer = customerRepository.save(customer);
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("customerId", customer.getId());
+        result.put("email", customer.getEmail());
+        result.put("name", customer.getName());
+        result.put("phone", customer.getPhone());
+        result.put("address", customer.getAddress());
+        return result;
+    }
+
+    private String normalizePhone(String phone) {
+        if (phone == null) return null;
+        String normalized = phone.trim().replaceAll("[\\s()\\-]", "");
+        return normalized.isBlank() ? null : normalized;
     }
 
     private void validateSubscription(UUID clientId) {
@@ -515,7 +661,11 @@ public class DeliveryCommandService {
 
         BigDecimal grandTotal = BigDecimal.ZERO;
         for (Map<String, Object> cartItem : items) {
-            UUID productId = UUID.fromString((String) cartItem.get("productId"));
+            String rawProdId = String.valueOf(cartItem.get("productId"));
+            if (rawProdId.contains("_var_")) {
+                rawProdId = rawProdId.substring(0, rawProdId.indexOf("_var_"));
+            }
+            UUID productId = UUID.fromString(rawProdId);
             int qty = ((Number) cartItem.get("quantity")).intValue();
 
             Optional<Product> productOpt = productRepository.findWithCategoryById(productId)

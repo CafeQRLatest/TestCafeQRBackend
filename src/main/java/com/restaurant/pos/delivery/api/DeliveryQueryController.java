@@ -20,12 +20,22 @@ import java.util.UUID;
  */
 @Slf4j
 @RestController
-@RequestMapping("/api/delivery")
+@RequestMapping({"/api/v1/delivery", "/api/delivery"})
 @RequiredArgsConstructor
 @Tag(name = "Delivery Queries", description = "Public read endpoints for CafeQR delivery customer interface.")
 public class DeliveryQueryController {
 
     private final DeliveryQueryService queryService;
+
+    @GetMapping("/customer/profile")
+    @Operation(summary = "Get Customer Profile", description = "Returns customer profile from ERP.")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getCustomerProfile(
+            @RequestParam UUID clientId,
+            @RequestParam String email) {
+        log.info("Fetching ERP customer profile for email={} clientId={}", email, clientId);
+        Map<String, Object> profile = queryService.getCustomerProfile(clientId, email);
+        return ResponseEntity.ok(ApiResponse.success(profile));
+    }
 
     @GetMapping("/resolve")
     @Operation(summary = "Resolve Store Handle", description = "Public handle/slug & domain resolver for clean, brandable URLs.")

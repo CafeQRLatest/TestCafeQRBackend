@@ -33,6 +33,36 @@ public class DeliveryQueryService {
     private final OrderRepository orderRepository;
     private final SystemConfigurationService systemConfigurationService;
     private final DeliveryDtoMapper dtoMapper;
+    private final com.restaurant.pos.purchasing.repository.CustomerRepository customerRepository;
+
+    @Transactional(readOnly = true)
+    public Map<String, Object> getCustomerProfile(UUID clientId, String email) {
+        if (clientId == null || email == null || email.isBlank()) {
+            return Collections.emptyMap();
+        }
+        UUID effectiveClientId = clientId;
+        var clientOpt = clientRepository.findById(clientId);
+        if (clientOpt.isEmpty()) {
+            var orgOpt = organizationRepository.findById(clientId);
+            if (orgOpt.isPresent()) {
+                effectiveClientId = orgOpt.get().getClientId();
+            }
+        }
+        String normalizedEmail = email.trim().toLowerCase();
+        var customerOpt = customerRepository.findByEmailAndClientId(normalizedEmail, effectiveClientId);
+        if (customerOpt.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        com.restaurant.pos.purchasing.domain.Customer c = customerOpt.get();
+        Map<String, Object> profile = new LinkedHashMap<>();
+        profile.put("customerId", c.getId());
+        profile.put("email", c.getEmail());
+        profile.put("fullName", c.getName());
+        profile.put("name", c.getName());
+        profile.put("phone", c.getPhone() != null ? c.getPhone() : "");
+        profile.put("address", c.getAddress() != null ? c.getAddress() : "");
+        return profile;
+    }
 
     @Transactional(readOnly = true)
     public Map<String, Object> resolveSlug(String handle, String branch) {
