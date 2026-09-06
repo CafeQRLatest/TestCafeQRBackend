@@ -5,6 +5,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.UUID;
 
@@ -18,4 +19,5 @@ public class PayrollRunDto {
     private LocalDate startDate;
     private LocalDate endDate;
     private String status;
+    private BigDecimal totalAmount;
 }

@@ -177,12 +177,21 @@ public class PayrollEngineService {
     }
 
     private PayrollRunDto mapToRunDto(PayrollRun entity) {
+        UUID clientId = TenantContext.getCurrentTenant();
+        UUID orgId = TenantContext.getCurrentOrg();
+        
+        List<SalarySlip> slips = salarySlipRepository.findByPayrollRunIdAndClientIdAndOrgId(entity.getId(), clientId, orgId);
+        BigDecimal totalAmount = slips.stream()
+                .map(s -> s.getNetPay() != null ? s.getNetPay() : BigDecimal.ZERO)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
         return PayrollRunDto.builder()
                 .id(entity.getId())
                 .name(entity.getName())
                 .startDate(entity.getStartDate())
                 .endDate(entity.getEndDate())
                 .status(entity.getStatus())
+                .totalAmount(totalAmount)
                 .build();
     }
     
