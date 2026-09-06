@@ -48,6 +48,7 @@ public class EmployeeService {
     public EmployeeDto createEmployee(EmployeeDto dto) {
         Employee employee = new Employee();
         mapToEntity(dto, employee);
+        employee.setActive(true);
         Employee saved = employeeRepository.save(employee);
         return mapToDto(saved);
     }
