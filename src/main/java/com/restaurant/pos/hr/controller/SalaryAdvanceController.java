@@ -1,0 +1,40 @@
+package com.restaurant.pos.hr.controller;
+
+import com.restaurant.pos.hr.dto.SalaryAdvanceDto;
+import com.restaurant.pos.hr.service.SalaryAdvanceService;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+import java.util.UUID;
+
+@RestController
+@RequestMapping("/api/v1/hr/advances")
+@RequiredArgsConstructor
+public class SalaryAdvanceController {
+
+    private final SalaryAdvanceService salaryAdvanceService;
+
+    @GetMapping
+    public ResponseEntity<List<SalaryAdvanceDto>> getAllAdvances() {
+        return ResponseEntity.ok(salaryAdvanceService.getAllAdvances());
+    }
+    
+    @GetMapping("/employee/{employeeId}")
+    public ResponseEntity<List<SalaryAdvanceDto>> getAdvancesByEmployee(@PathVariable UUID employeeId) {
+        return ResponseEntity.ok(salaryAdvanceService.getAdvancesByEmployee(employeeId));
+    }
+
+    @PostMapping
+    public ResponseEntity<SalaryAdvanceDto> createAdvance(@RequestBody SalaryAdvanceDto dto) {
+        return ResponseEntity.ok(salaryAdvanceService.createAdvance(dto));
+    }
+
+    @PutMapping("/{id}/status")
+    public ResponseEntity<SalaryAdvanceDto> updateAdvanceStatus(
+            @PathVariable UUID id,
+            @RequestParam String status) {
+        return ResponseEntity.ok(salaryAdvanceService.updateAdvanceStatus(id, status));
+    }
+}
