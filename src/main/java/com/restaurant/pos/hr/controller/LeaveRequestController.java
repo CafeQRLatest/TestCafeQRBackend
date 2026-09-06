@@ -4,6 +4,7 @@ import com.restaurant.pos.hr.dto.LeaveRequestDto;
 import com.restaurant.pos.hr.service.LeaveRequestService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -12,6 +13,7 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/v1/hr/leaves")
 @RequiredArgsConstructor
+@PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
 public class LeaveRequestController {
 
     private final LeaveRequestService leaveRequestService;

@@ -75,4 +75,11 @@ public class Employee extends BaseEntity {
 
     @Column(name = "is_active")
     private boolean isActive = true;
+
+    // Statutory Info
+    @Column(name = "tax_id")
+    private String taxId;
+
+    @Column(name = "national_id")
+    private String nationalId;
 }

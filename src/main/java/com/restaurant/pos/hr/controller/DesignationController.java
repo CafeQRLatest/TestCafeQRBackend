@@ -4,6 +4,7 @@ import com.restaurant.pos.hr.dto.DesignationDto;
 import com.restaurant.pos.hr.service.DesignationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -12,6 +13,7 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/v1/hr/designations")
 @RequiredArgsConstructor
+@PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
 public class DesignationController {
 
     private final DesignationService designationService;

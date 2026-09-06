@@ -24,7 +24,7 @@ public class PayrollEngineService {
     private final PayrollRunRepository payrollRunRepository;
     private final SalarySlipRepository salarySlipRepository;
     private final EmployeeRepository employeeRepository;
-    private final SalaryComponentRepository salaryComponentRepository;
+    private final EmployeeSalaryComponentRepository employeeSalaryComponentRepository;
     private final AttendanceRepository attendanceRepository;
     private final LeaveRequestRepository leaveRequestRepository;
     private final SalaryAdvanceRepository salaryAdvanceRepository;
@@ -54,9 +54,6 @@ public class PayrollEngineService {
         List<Employee> employees = employeeRepository.findByClientIdAndOrgId(clientId, orgId)
                 .stream().filter(Employee::isActive).collect(Collectors.toList());
 
-        // 2. Fetch all active salary components
-        List<SalaryComponent> components = salaryComponentRepository.findActiveComponents(clientId, orgId);
-
         for (Employee emp : employees) {
             SalarySlip slip = new SalarySlip();
             slip.setEmployee(emp);
@@ -66,9 +63,19 @@ public class PayrollEngineService {
             List<Attendance> attendances = attendanceRepository.findByEmployeeIdAndDateRangeAndClientIdAndOrgId(
                     emp.getId(), run.getStartDate(), run.getEndDate(), clientId, orgId);
             
-            BigDecimal totalHours = attendances.stream()
-                    .map(Attendance::getTotalHoursWorked)
+            BigDecimal normalHours = attendances.stream()
+                    .map(a -> {
+                        BigDecimal total = a.getTotalHoursWorked() != null ? a.getTotalHoursWorked() : BigDecimal.ZERO;
+                        BigDecimal ot = a.getOvertimeHours() != null ? a.getOvertimeHours() : BigDecimal.ZERO;
+                        return total.subtract(ot);
+                    })
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
+                    
+            BigDecimal overtimeHours = attendances.stream()
+                    .map(a -> a.getOvertimeHours() != null ? a.getOvertimeHours() : BigDecimal.ZERO)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+                    
+            BigDecimal totalHours = normalHours.add(overtimeHours);
             slip.setTotalWorkedHours(totalHours);
 
             // 4. Aggregate Unpaid Leaves
@@ -84,7 +91,9 @@ public class PayrollEngineService {
             // 5. Calculate Base Pay
             BigDecimal grossPay = BigDecimal.ZERO;
             if ("HOURLY".equals(emp.getEmploymentType())) {
-                grossPay = emp.getHourlyRate().multiply(totalHours);
+                BigDecimal normalPay = emp.getHourlyRate().multiply(normalHours);
+                BigDecimal overtimePay = emp.getHourlyRate().multiply(new BigDecimal("1.5")).multiply(overtimeHours);
+                grossPay = normalPay.add(overtimePay);
             } else {
                 // Monthly salaried - subtract unpaid leaves
                 BigDecimal dailyRate = emp.getBaseSalary().divide(new BigDecimal("30"), 2, RoundingMode.HALF_UP);
@@ -92,15 +101,21 @@ public class PayrollEngineService {
                 grossPay = emp.getBaseSalary().subtract(deductionForLeaves);
             }
 
-            // 6. Apply Rules Engine (Components)
+            // 6. Apply Rules Engine (Employee Specific Components)
             BigDecimal totalDeductions = BigDecimal.ZERO;
-            for (SalaryComponent comp : components) {
+            List<EmployeeSalaryComponent> empComponents = employeeSalaryComponentRepository.findActiveByEmployeeId(emp.getId());
+            
+            for (EmployeeSalaryComponent empComp : empComponents) {
+                SalaryComponent comp = empComp.getSalaryComponent();
                 BigDecimal compAmount = BigDecimal.ZERO;
+                
                 if ("FIXED".equals(comp.getAmountType())) {
-                    compAmount = comp.getDefaultAmount();
+                    compAmount = empComp.getOverrideAmount() != null ? empComp.getOverrideAmount() : comp.getDefaultAmount();
+                    if (compAmount == null) compAmount = BigDecimal.ZERO;
                 } else if ("PERCENTAGE".equals(comp.getAmountType())) {
-                    // Calculate % of Gross Pay for now
-                    compAmount = grossPay.multiply(comp.getPercentage()).divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP);
+                    BigDecimal percentage = empComp.getOverridePercentage() != null ? empComp.getOverridePercentage() : comp.getPercentage();
+                    if (percentage == null) percentage = BigDecimal.ZERO;
+                    compAmount = grossPay.multiply(percentage).divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP);
                 }
 
                 if ("EARNING".equals(comp.getType())) {
