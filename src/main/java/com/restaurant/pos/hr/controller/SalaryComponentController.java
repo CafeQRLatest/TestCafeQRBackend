@@ -32,4 +32,10 @@ public class SalaryComponentController {
     public ResponseEntity<SalaryComponentDto> updateComponent(@PathVariable UUID id, @RequestBody SalaryComponentDto dto) {
         return ResponseEntity.ok(salaryComponentService.updateComponent(id, dto));
     }
+
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> deleteComponent(@PathVariable UUID id) {
+        salaryComponentService.deleteComponent(id);
+        return ResponseEntity.noContent().build();
+    }
 }

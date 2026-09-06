@@ -67,6 +67,17 @@ public class SalaryComponentService {
         return mapToDto(saved);
     }
 
+    @Transactional
+    public void deleteComponent(UUID id) {
+        UUID clientId = TenantContext.getCurrentTenant();
+        UUID orgId = TenantContext.getCurrentOrg();
+        
+        SalaryComponent component = salaryComponentRepository.findByIdAndClientIdAndOrgIdOrGlobal(id, clientId, orgId)
+                .orElseThrow(() -> new RuntimeException("SalaryComponent not found"));
+                
+        salaryComponentRepository.delete(component);
+    }
+
     private SalaryComponentDto mapToDto(SalaryComponent entity) {
         return SalaryComponentDto.builder()
                 .id(entity.getId())
