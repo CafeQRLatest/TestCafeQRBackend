@@ -13,12 +13,12 @@ import java.util.UUID;
 @Repository
 public interface EmployeeRepository extends JpaRepository<Employee, UUID> {
     
-    @Query("SELECT e FROM Employee e WHERE e.clientId = :clientId AND (:orgId IS NULL OR e.orgId = :orgId)")
+    @Query("SELECT e FROM Employee e WHERE e.clientId = :clientId AND (:orgId IS NULL OR e.orgId = :orgId OR e.orgId IS NULL)")
     List<Employee> findByClientIdAndOrgId(@Param("clientId") UUID clientId, @Param("orgId") UUID orgId);
 
-    @Query("SELECT e FROM Employee e WHERE e.id = :id AND e.clientId = :clientId AND (:orgId IS NULL OR e.orgId = :orgId)")
+    @Query("SELECT e FROM Employee e WHERE e.id = :id AND e.clientId = :clientId AND (:orgId IS NULL OR e.orgId = :orgId OR e.orgId IS NULL)")
     Optional<Employee> findByIdAndClientIdAndOrgId(@Param("id") UUID id, @Param("clientId") UUID clientId, @Param("orgId") UUID orgId);
 
-    @Query("SELECT e FROM Employee e WHERE e.userId = :userId AND e.clientId = :clientId AND (:orgId IS NULL OR e.orgId = :orgId)")
+    @Query("SELECT e FROM Employee e WHERE e.userId = :userId AND e.clientId = :clientId AND (:orgId IS NULL OR e.orgId = :orgId OR e.orgId IS NULL)")
     Optional<Employee> findByUserIdAndClientIdAndOrgId(@Param("userId") UUID userId, @Param("clientId") UUID clientId, @Param("orgId") UUID orgId);
 }
