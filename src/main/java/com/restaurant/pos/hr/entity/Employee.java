@@ -6,6 +6,9 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+import org.hibernate.annotations.NotFound;
+import org.hibernate.annotations.NotFoundAction;
+
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.UUID;
@@ -43,10 +46,12 @@ public class Employee extends BaseEntity {
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "department_id")
+    @NotFound(action = NotFoundAction.IGNORE)
     private Department department;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "designation_id")
+    @NotFound(action = NotFoundAction.IGNORE)
     private Designation designation;
 
     // Optional link to POS User account

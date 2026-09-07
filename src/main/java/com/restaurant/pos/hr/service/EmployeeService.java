@@ -134,13 +134,23 @@ public class EmployeeService {
                 .build();
                 
         if (entity.getDepartment() != null) {
-            dto.setDepartmentId(entity.getDepartment().getId());
-            dto.setDepartmentName(entity.getDepartment().getName());
+            try {
+                dto.setDepartmentId(entity.getDepartment().getId());
+                dto.setDepartmentName(entity.getDepartment().getName());
+            } catch (Exception ignored) {
+                dto.setDepartmentId(null);
+                dto.setDepartmentName(null);
+            }
         }
         
         if (entity.getDesignation() != null) {
-            dto.setDesignationId(entity.getDesignation().getId());
-            dto.setDesignationName(entity.getDesignation().getName());
+            try {
+                dto.setDesignationId(entity.getDesignation().getId());
+                dto.setDesignationName(entity.getDesignation().getName());
+            } catch (Exception ignored) {
+                dto.setDesignationId(null);
+                dto.setDesignationName(null);
+            }
         }
         
         return dto;
