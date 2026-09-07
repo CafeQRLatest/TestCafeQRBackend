@@ -92,6 +92,7 @@ public class EmployeeService {
         employee.setBankName(dto.getBankName());
         employee.setBankAccountNumber(dto.getBankAccountNumber());
         employee.setBankRoutingNumber(dto.getBankRoutingNumber());
+        employee.setPinCode(dto.getPinCode());
         employee.setActive(dto.isActive());
 
         if (dto.getDepartmentId() != null) {
@@ -128,6 +129,7 @@ public class EmployeeService {
                 .bankName(entity.getBankName())
                 .bankAccountNumber(entity.getBankAccountNumber())
                 .bankRoutingNumber(entity.getBankRoutingNumber())
+                .pinCode(entity.getPinCode())
                 .isActive(entity.isActive())
                 .build();
                 

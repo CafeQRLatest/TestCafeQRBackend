@@ -40,6 +40,8 @@ public class EmployeeDto {
     private String bankAccountNumber;
     private String bankRoutingNumber;
 
+    private String pinCode;
+
     @JsonProperty("isActive")
     private boolean isActive;
 }

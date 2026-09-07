@@ -82,4 +82,7 @@ public class Employee extends BaseEntity {
 
     @Column(name = "national_id")
     private String nationalId;
+
+    @Column(name = "pin_code")
+    private String pinCode;
 }
