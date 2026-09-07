@@ -398,4 +398,38 @@ class PayrollEngineServiceTest {
         assertThat(slips.get(0).getNetPay()).isEqualByComparingTo("2200.00");
         verify(salarySlipRepository).findByPayrollRunIdAndClientIdAndOrgId(runId, clientId, orgId);
     }
+
+    @Test
+    void initiatePayrollRun_MultiMonthPeriod_ScalesBaseSalaryProportionally() {
+        Employee emp = new Employee();
+        emp.setFirstName("Vikky");
+        emp.setLastName("J");
+        emp.setEmploymentType("SALARIED");
+        emp.setBaseSalary(new BigDecimal("1200.00")); // Monthly salary = $1200
+        emp.setActive(true);
+
+        // Date range for 2 months (Sept 1 to Oct 31 = 61 days)
+        PayrollRunDto runDto = PayrollRunDto.builder()
+                .name("Sep oct")
+                .startDate(LocalDate.of(2026, 9, 1))
+                .endDate(LocalDate.of(2026, 10, 31))
+                .build();
+
+        when(employeeRepository.findByClientIdAndOrgId(clientId, orgId)).thenReturn(List.of(emp));
+        when(attendanceRepository.findByEmployeeIdAndDateRangeAndClientIdAndOrgId(eq(emp.getId()), any(), any(), eq(clientId), eq(orgId)))
+                .thenReturn(List.of());
+        when(leaveRequestRepository.findApprovedByEmployeeIdAndDateRange(eq(emp.getId()), any(), any(), eq(clientId), eq(orgId)))
+                .thenReturn(List.of());
+        when(employeeSalaryComponentRepository.findActiveByEmployeeId(emp.getId())).thenReturn(List.of());
+        when(salaryAdvanceRepository.findActiveAdvancesByEmployeeId(emp.getId(), clientId, orgId)).thenReturn(List.of());
+
+        payrollEngineService.initiatePayrollRun(runDto);
+
+        ArgumentCaptor<SalarySlip> slipCaptor = ArgumentCaptor.forClass(SalarySlip.class);
+        verify(salarySlipRepository).save(slipCaptor.capture());
+        SalarySlip savedSlip = slipCaptor.getValue();
+
+        // 61 days at $40/day = $2440.00 gross pay (full 2-month period)
+        assertThat(savedSlip.getGrossPay()).isEqualByComparingTo("2440.00");
+    }
 }

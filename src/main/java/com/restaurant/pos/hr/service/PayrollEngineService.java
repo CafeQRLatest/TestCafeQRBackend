@@ -50,6 +50,13 @@ public class PayrollEngineService {
         UUID clientId = TenantContext.getCurrentTenant();
         UUID orgId = TenantContext.getCurrentOrg();
 
+        // Calculate period duration in days and months factor
+        long daysInPeriod = java.time.temporal.ChronoUnit.DAYS.between(run.getStartDate(), run.getEndDate()) + 1;
+        if (daysInPeriod <= 0) daysInPeriod = 1;
+        
+        // Months factor (30 days = 1.0 month)
+        BigDecimal monthsInPeriod = new BigDecimal(daysInPeriod).divide(new BigDecimal("30"), 4, RoundingMode.HALF_UP);
+
         // 1. Fetch all active employees
         List<Employee> employees = employeeRepository.findByClientIdAndOrgId(clientId, orgId)
                 .stream().filter(Employee::isActive).collect(Collectors.toList());
@@ -95,10 +102,11 @@ public class PayrollEngineService {
                 BigDecimal overtimePay = emp.getHourlyRate().multiply(new BigDecimal("1.5")).multiply(overtimeHours);
                 grossPay = normalPay.add(overtimePay);
             } else {
-                // Monthly salaried - subtract unpaid leaves
-                BigDecimal dailyRate = emp.getBaseSalary().divide(new BigDecimal("30"), 2, RoundingMode.HALF_UP);
-                BigDecimal deductionForLeaves = dailyRate.multiply(BigDecimal.valueOf(unpaidLeaveDays));
-                grossPay = emp.getBaseSalary().subtract(deductionForLeaves);
+                // Monthly salaried - calculate base pay proportional to the date range (daysInPeriod / 30)
+                BigDecimal dailyRate = emp.getBaseSalary().divide(new BigDecimal("30"), 4, RoundingMode.HALF_UP);
+                BigDecimal basePayForPeriod = dailyRate.multiply(new BigDecimal(daysInPeriod)).setScale(2, RoundingMode.HALF_UP);
+                BigDecimal deductionForLeaves = dailyRate.multiply(BigDecimal.valueOf(unpaidLeaveDays)).setScale(2, RoundingMode.HALF_UP);
+                grossPay = basePayForPeriod.subtract(deductionForLeaves);
             }
 
             // 6. Apply Rules Engine (Employee Specific Components)
@@ -110,8 +118,9 @@ public class PayrollEngineService {
                 BigDecimal compAmount = BigDecimal.ZERO;
                 
                 if ("FIXED".equals(comp.getAmountType())) {
-                    compAmount = empComp.getOverrideAmount() != null ? empComp.getOverrideAmount() : comp.getDefaultAmount();
-                    if (compAmount == null) compAmount = BigDecimal.ZERO;
+                    BigDecimal fixedBase = empComp.getOverrideAmount() != null ? empComp.getOverrideAmount() : comp.getDefaultAmount();
+                    if (fixedBase == null) fixedBase = BigDecimal.ZERO;
+                    compAmount = fixedBase.multiply(monthsInPeriod).setScale(2, RoundingMode.HALF_UP);
                 } else if ("PERCENTAGE".equals(comp.getAmountType())) {
                     BigDecimal percentage = empComp.getOverridePercentage() != null ? empComp.getOverridePercentage() : comp.getPercentage();
                     if (percentage == null) percentage = BigDecimal.ZERO;
@@ -128,7 +137,8 @@ public class PayrollEngineService {
             // 7. Deduct Salary Advances
             List<SalaryAdvance> advances = salaryAdvanceRepository.findActiveAdvancesByEmployeeId(emp.getId(), clientId, orgId);
             for (SalaryAdvance advance : advances) {
-                BigDecimal toDeduct = advance.getMonthlyInstallmentAmount();
+                BigDecimal monthlyInstallment = advance.getMonthlyInstallmentAmount();
+                BigDecimal toDeduct = monthlyInstallment.multiply(monthsInPeriod).setScale(2, RoundingMode.HALF_UP);
                 if (toDeduct.compareTo(advance.getRemainingBalance()) > 0) {
                     toDeduct = advance.getRemainingBalance();
                 }
@@ -136,7 +146,8 @@ public class PayrollEngineService {
                 
                 // Update advance balance
                 advance.setRemainingBalance(advance.getRemainingBalance().subtract(toDeduct));
-                if (advance.getRemainingBalance().compareTo(BigDecimal.ZERO) == 0) {
+                if (advance.getRemainingBalance().compareTo(BigDecimal.ZERO) <= 0) {
+                    advance.setRemainingBalance(BigDecimal.ZERO);
                     advance.setStatus("PAID");
                 }
                 salaryAdvanceRepository.save(advance);
