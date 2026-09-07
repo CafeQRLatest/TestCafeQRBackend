@@ -24,4 +24,7 @@ public interface AttendanceRepository extends JpaRepository<Attendance, UUID> {
     
     @Query("SELECT a FROM Attendance a WHERE a.employee.id = :employeeId AND a.attendanceDate BETWEEN :startDate AND :endDate AND a.clientId = :clientId AND a.orgId = :orgId")
     List<Attendance> findByEmployeeIdAndDateRangeAndClientIdAndOrgId(UUID employeeId, LocalDate startDate, LocalDate endDate, UUID clientId, UUID orgId);
+
+    @Query("SELECT a FROM Attendance a WHERE a.clientId = :clientId AND a.orgId = :orgId AND a.attendanceDate BETWEEN :startDate AND :endDate ORDER BY a.attendanceDate DESC, a.clockInTime DESC")
+    List<Attendance> findAllByDateRangeAndClientIdAndOrgId(LocalDate startDate, LocalDate endDate, UUID clientId, UUID orgId);
 }

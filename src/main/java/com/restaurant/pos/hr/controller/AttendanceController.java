@@ -20,6 +20,19 @@ public class AttendanceController {
 
     private final AttendanceService attendanceService;
 
+    @GetMapping
+    public ResponseEntity<List<AttendanceDto>> getAllAttendance(
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate) {
+        return ResponseEntity.ok(attendanceService.getAllAttendanceRecords(startDate, endDate));
+    }
+
+    @PostMapping("/clock-in")
+    public ResponseEntity<AttendanceDto> clockInBody(@RequestBody AttendanceDto dto) {
+        String method = dto.getPunchMethod() != null ? dto.getPunchMethod() : "MANUAL";
+        return ResponseEntity.ok(attendanceService.clockIn(dto.getEmployeeId(), method));
+    }
+
     @PostMapping("/clock-in/{employeeId}")
     public ResponseEntity<AttendanceDto> clockIn(
             @PathVariable UUID employeeId,
@@ -27,9 +40,33 @@ public class AttendanceController {
         return ResponseEntity.ok(attendanceService.clockIn(employeeId, punchMethod));
     }
 
+    @PostMapping("/clock-out")
+    public ResponseEntity<AttendanceDto> clockOutBody(@RequestBody AttendanceDto dto) {
+        return ResponseEntity.ok(attendanceService.clockOut(dto.getEmployeeId()));
+    }
+
     @PostMapping("/clock-out/{employeeId}")
     public ResponseEntity<AttendanceDto> clockOut(@PathVariable UUID employeeId) {
         return ResponseEntity.ok(attendanceService.clockOut(employeeId));
+    }
+
+    @PostMapping("/manual")
+    public ResponseEntity<AttendanceDto> createManualAttendance(@RequestBody AttendanceDto dto) {
+        return ResponseEntity.ok(attendanceService.saveManualAttendance(dto));
+    }
+
+    @PutMapping("/{id}")
+    public ResponseEntity<AttendanceDto> updateAttendance(
+            @PathVariable UUID id,
+            @RequestBody AttendanceDto dto) {
+        dto.setId(id);
+        return ResponseEntity.ok(attendanceService.saveManualAttendance(dto));
+    }
+
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> deleteAttendance(@PathVariable UUID id) {
+        attendanceService.deleteAttendanceRecord(id);
+        return ResponseEntity.noContent().build();
     }
 
     @GetMapping("/employee/{employeeId}")

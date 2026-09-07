@@ -94,6 +94,20 @@ public class AttendanceService {
     }
 
     @Transactional(readOnly = true)
+    public List<AttendanceDto> getAllAttendanceRecords(LocalDate startDate, LocalDate endDate) {
+        UUID clientId = TenantContext.getCurrentTenant();
+        UUID orgId = TenantContext.getCurrentOrg();
+
+        LocalDate start = (startDate != null) ? startDate : LocalDate.now().minusDays(30);
+        LocalDate end = (endDate != null) ? endDate : LocalDate.now();
+
+        return attendanceRepository.findAllByDateRangeAndClientIdAndOrgId(start, end, clientId, orgId)
+                .stream()
+                .map(this::mapToDto)
+                .collect(Collectors.toList());
+    }
+
+    @Transactional(readOnly = true)
     public List<AttendanceDto> getAttendanceByEmployeeAndDateRange(UUID employeeId, LocalDate startDate, LocalDate endDate) {
         UUID clientId = TenantContext.getCurrentTenant();
         UUID orgId = TenantContext.getCurrentOrg();
@@ -102,6 +116,46 @@ public class AttendanceService {
                 .stream()
                 .map(this::mapToDto)
                 .collect(Collectors.toList());
+    }
+
+    @Transactional
+    public AttendanceDto saveManualAttendance(AttendanceDto dto) {
+        UUID clientId = TenantContext.getCurrentTenant();
+        UUID orgId = TenantContext.getCurrentOrg();
+
+        Attendance attendance;
+        if (dto.getId() != null) {
+            attendance = attendanceRepository.findByIdAndClientIdAndOrgId(dto.getId(), clientId, orgId)
+                    .orElseThrow(() -> new RuntimeException("Attendance record not found"));
+        } else {
+            attendance = new Attendance();
+        }
+
+        Employee employee = employeeRepository.findByIdAndClientIdAndOrgId(dto.getEmployeeId(), clientId, orgId)
+                .orElseThrow(() -> new RuntimeException("Employee not found"));
+
+        attendance.setEmployee(employee);
+        attendance.setAttendanceDate(dto.getAttendanceDate() != null ? dto.getAttendanceDate() : LocalDate.now());
+        attendance.setClockInTime(dto.getClockInTime());
+        attendance.setClockOutTime(dto.getClockOutTime());
+        attendance.setStatus(dto.getStatus() != null ? dto.getStatus() : "PRESENT");
+        attendance.setPunchMethod(dto.getPunchMethod() != null ? dto.getPunchMethod() : "MANUAL");
+
+        calculateHours(attendance);
+
+        Attendance saved = attendanceRepository.save(attendance);
+        return mapToDto(saved);
+    }
+
+    @Transactional
+    public void deleteAttendanceRecord(UUID id) {
+        UUID clientId = TenantContext.getCurrentTenant();
+        UUID orgId = TenantContext.getCurrentOrg();
+
+        Attendance attendance = attendanceRepository.findByIdAndClientIdAndOrgId(id, clientId, orgId)
+                .orElseThrow(() -> new RuntimeException("Attendance record not found"));
+
+        attendanceRepository.delete(attendance);
     }
 
     private AttendanceDto mapToDto(Attendance entity) {
