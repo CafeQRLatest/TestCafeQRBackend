@@ -28,6 +28,7 @@ public class PayrollEngineService {
     private final AttendanceRepository attendanceRepository;
     private final LeaveRequestRepository leaveRequestRepository;
     private final SalaryAdvanceRepository salaryAdvanceRepository;
+    private final HrSettingsService hrSettingsService;
 
     @Transactional
     public PayrollRunDto initiatePayrollRun(PayrollRunDto dto) {
@@ -98,8 +99,19 @@ public class PayrollEngineService {
             // 5. Calculate Base Pay
             BigDecimal grossPay = BigDecimal.ZERO;
             if ("HOURLY".equals(emp.getEmploymentType())) {
+                BigDecimal otMultiplier = new BigDecimal("1.50");
+                try {
+                    if (hrSettingsService != null && hrSettingsService.getSettings() != null) {
+                        BigDecimal customMult = hrSettingsService.getSettings().getOvertimeMultiplier();
+                        if (customMult != null && customMult.compareTo(BigDecimal.ONE) >= 0) {
+                            otMultiplier = customMult;
+                        }
+                    }
+                } catch (Exception ignored) {
+                }
+
                 BigDecimal normalPay = emp.getHourlyRate().multiply(normalHours);
-                BigDecimal overtimePay = emp.getHourlyRate().multiply(new BigDecimal("1.5")).multiply(overtimeHours);
+                BigDecimal overtimePay = emp.getHourlyRate().multiply(otMultiplier).multiply(overtimeHours);
                 grossPay = normalPay.add(overtimePay);
             } else {
                 // Monthly salaried - calculate base pay proportional to the date range (daysInPeriod / 30)

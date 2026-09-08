@@ -29,6 +29,7 @@ class PayrollEngineServiceTest {
     private AttendanceRepository attendanceRepository;
     private LeaveRequestRepository leaveRequestRepository;
     private SalaryAdvanceRepository salaryAdvanceRepository;
+    private HrSettingsService hrSettingsService;
 
     private PayrollEngineService payrollEngineService;
 
@@ -44,6 +45,7 @@ class PayrollEngineServiceTest {
         attendanceRepository = mock(AttendanceRepository.class);
         leaveRequestRepository = mock(LeaveRequestRepository.class);
         salaryAdvanceRepository = mock(SalaryAdvanceRepository.class);
+        hrSettingsService = mock(HrSettingsService.class);
 
         payrollEngineService = new PayrollEngineService(
                 payrollRunRepository,
@@ -52,7 +54,8 @@ class PayrollEngineServiceTest {
                 employeeSalaryComponentRepository,
                 attendanceRepository,
                 leaveRequestRepository,
-                salaryAdvanceRepository
+                salaryAdvanceRepository,
+                hrSettingsService
         );
 
         clientId = UUID.randomUUID();

@@ -28,8 +28,9 @@ public class AttendanceService {
     private final AttendanceRepository attendanceRepository;
     private final EmployeeRepository employeeRepository;
     private final TimezoneResolver timezoneResolver;
+    private final HrSettingsService hrSettingsService;
 
-    private static final BigDecimal STANDARD_HOURS_PER_DAY = new BigDecimal("8.00");
+    private static final BigDecimal DEFAULT_STANDARD_HOURS_PER_DAY = new BigDecimal("8.00");
 
     @Transactional
     public AttendanceDto clockIn(UUID employeeId, String punchMethod) {
@@ -92,9 +93,20 @@ public class AttendanceService {
             BigDecimal totalHours = BigDecimal.valueOf(hours).setScale(2, RoundingMode.HALF_UP);
             
             attendance.setTotalHoursWorked(totalHours);
+
+            BigDecimal threshold = DEFAULT_STANDARD_HOURS_PER_DAY;
+            try {
+                if (hrSettingsService != null && hrSettingsService.getSettings() != null) {
+                    BigDecimal customHours = hrSettingsService.getSettings().getStandardHoursPerDay();
+                    if (customHours != null && customHours.compareTo(BigDecimal.ZERO) > 0) {
+                        threshold = customHours;
+                    }
+                }
+            } catch (Exception ignored) {
+            }
             
-            if (totalHours.compareTo(STANDARD_HOURS_PER_DAY) > 0) {
-                attendance.setOvertimeHours(totalHours.subtract(STANDARD_HOURS_PER_DAY));
+            if (totalHours.compareTo(threshold) > 0) {
+                attendance.setOvertimeHours(totalHours.subtract(threshold));
             } else {
                 attendance.setOvertimeHours(BigDecimal.ZERO);
             }
