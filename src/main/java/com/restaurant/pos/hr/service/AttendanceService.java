@@ -44,13 +44,14 @@ public class AttendanceService {
             throw new RuntimeException("Inactive employees cannot clock in.");
         }
 
+        // Check if employee currently has an active open shift
+        List<Attendance> activeShifts = attendanceRepository.findActiveAttendanceByEmployeeIdAndClientIdAndOrgId(employeeId, clientId, orgId);
+        if (!activeShifts.isEmpty()) {
+            Attendance openShift = activeShifts.get(0);
+            throw new RuntimeException("Employee is already clocked in (shift started on " + openShift.getAttendanceDate() + "). Please clock out first.");
+        }
+
         LocalDate today = LocalDate.now(zoneId);
-        
-        // Check if already clocked in today
-        attendanceRepository.findByEmployeeIdAndDateAndClientIdAndOrgId(employeeId, today, clientId, orgId)
-                .ifPresent(a -> {
-                    throw new RuntimeException("Employee already clocked in today");
-                });
 
         Attendance attendance = new Attendance();
         attendance.setEmployee(employee);
@@ -68,15 +69,13 @@ public class AttendanceService {
         UUID clientId = TenantContext.getCurrentTenant();
         UUID orgId = TenantContext.getCurrentOrg();
         ZoneId zoneId = timezoneResolver.resolveTimezone(clientId, orgId);
-        LocalDate today = LocalDate.now(zoneId);
         
-        Attendance attendance = attendanceRepository.findByEmployeeIdAndDateAndClientIdAndOrgId(employeeId, today, clientId, orgId)
-                .orElseThrow(() -> new RuntimeException("No clock-in record found for today"));
-
-        if (attendance.getClockOutTime() != null) {
-            throw new RuntimeException("Employee already clocked out today");
+        List<Attendance> activeShifts = attendanceRepository.findActiveAttendanceByEmployeeIdAndClientIdAndOrgId(employeeId, clientId, orgId);
+        if (activeShifts.isEmpty()) {
+            throw new RuntimeException("No active clock-in session found for employee.");
         }
 
+        Attendance attendance = activeShifts.get(0);
         attendance.setClockOutTime(LocalDateTime.now(zoneId));
         
         // Calculate hours and overtime using math similar to payroll-ddd
@@ -139,13 +138,6 @@ public class AttendanceService {
             attendance = attendanceRepository.findByIdAndClientIdAndOrgId(dto.getId(), clientId, orgId)
                     .orElseThrow(() -> new RuntimeException("Attendance record not found"));
         } else {
-            // Preventing duplicate active shifts for the same employee
-            if (dto.getClockOutTime() == null) {
-                List<Attendance> activeShifts = attendanceRepository.findActiveAttendanceByEmployeeIdAndClientIdAndOrgId(dto.getEmployeeId(), clientId, orgId);
-                if (!activeShifts.isEmpty()) {
-                    throw new RuntimeException("Employee already has an active clock-in without clock-out.");
-                }
-            }
             attendance = new Attendance();
         }
 
