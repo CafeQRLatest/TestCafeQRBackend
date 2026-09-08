@@ -1,5 +1,6 @@
 package com.restaurant.pos.hr.service;
 
+import com.restaurant.pos.common.context.TimezoneResolver;
 import com.restaurant.pos.common.tenant.TenantContext;
 import com.restaurant.pos.hr.dto.AttendanceDto;
 import com.restaurant.pos.hr.entity.Attendance;
@@ -15,6 +16,7 @@ import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -25,6 +27,7 @@ public class AttendanceService {
 
     private final AttendanceRepository attendanceRepository;
     private final EmployeeRepository employeeRepository;
+    private final TimezoneResolver timezoneResolver;
 
     private static final BigDecimal STANDARD_HOURS_PER_DAY = new BigDecimal("8.00");
 
@@ -32,11 +35,12 @@ public class AttendanceService {
     public AttendanceDto clockIn(UUID employeeId, String punchMethod) {
         UUID clientId = TenantContext.getCurrentTenant();
         UUID orgId = TenantContext.getCurrentOrg();
+        ZoneId zoneId = timezoneResolver.resolveTimezone(clientId, orgId);
         
         Employee employee = employeeRepository.findByIdAndClientIdAndOrgId(employeeId, clientId, orgId)
                 .orElseThrow(() -> new RuntimeException("Employee not found"));
 
-        LocalDate today = LocalDate.now();
+        LocalDate today = LocalDate.now(zoneId);
         
         // Check if already clocked in today
         attendanceRepository.findByEmployeeIdAndDateAndClientIdAndOrgId(employeeId, today, clientId, orgId)
@@ -47,7 +51,7 @@ public class AttendanceService {
         Attendance attendance = new Attendance();
         attendance.setEmployee(employee);
         attendance.setAttendanceDate(today);
-        attendance.setClockInTime(LocalDateTime.now());
+        attendance.setClockInTime(LocalDateTime.now(zoneId));
         attendance.setPunchMethod(punchMethod);
         attendance.setStatus("PRESENT");
         
@@ -59,7 +63,8 @@ public class AttendanceService {
     public AttendanceDto clockOut(UUID employeeId) {
         UUID clientId = TenantContext.getCurrentTenant();
         UUID orgId = TenantContext.getCurrentOrg();
-        LocalDate today = LocalDate.now();
+        ZoneId zoneId = timezoneResolver.resolveTimezone(clientId, orgId);
+        LocalDate today = LocalDate.now(zoneId);
         
         Attendance attendance = attendanceRepository.findByEmployeeIdAndDateAndClientIdAndOrgId(employeeId, today, clientId, orgId)
                 .orElseThrow(() -> new RuntimeException("No clock-in record found for today"));
@@ -68,7 +73,7 @@ public class AttendanceService {
             throw new RuntimeException("Employee already clocked out today");
         }
 
-        attendance.setClockOutTime(LocalDateTime.now());
+        attendance.setClockOutTime(LocalDateTime.now(zoneId));
         
         // Calculate hours and overtime using math similar to payroll-ddd
         calculateHours(attendance);
@@ -97,9 +102,10 @@ public class AttendanceService {
     public List<AttendanceDto> getAllAttendanceRecords(LocalDate startDate, LocalDate endDate) {
         UUID clientId = TenantContext.getCurrentTenant();
         UUID orgId = TenantContext.getCurrentOrg();
+        ZoneId zoneId = timezoneResolver.resolveTimezone(clientId, orgId);
 
-        LocalDate start = (startDate != null) ? startDate : LocalDate.now().minusDays(30);
-        LocalDate end = (endDate != null) ? endDate : LocalDate.now();
+        LocalDate start = (startDate != null) ? startDate : LocalDate.now(zoneId).minusDays(30);
+        LocalDate end = (endDate != null) ? endDate : LocalDate.now(zoneId);
 
         return attendanceRepository.findAllByDateRangeAndClientIdAndOrgId(start, end, clientId, orgId)
                 .stream()
@@ -122,6 +128,7 @@ public class AttendanceService {
     public AttendanceDto saveManualAttendance(AttendanceDto dto) {
         UUID clientId = TenantContext.getCurrentTenant();
         UUID orgId = TenantContext.getCurrentOrg();
+        ZoneId zoneId = timezoneResolver.resolveTimezone(clientId, orgId);
 
         Attendance attendance;
         if (dto.getId() != null) {
@@ -135,7 +142,7 @@ public class AttendanceService {
                 .orElseThrow(() -> new RuntimeException("Employee not found"));
 
         attendance.setEmployee(employee);
-        attendance.setAttendanceDate(dto.getAttendanceDate() != null ? dto.getAttendanceDate() : LocalDate.now());
+        attendance.setAttendanceDate(dto.getAttendanceDate() != null ? dto.getAttendanceDate() : LocalDate.now(zoneId));
         attendance.setClockInTime(dto.getClockInTime());
         attendance.setClockOutTime(dto.getClockOutTime());
         attendance.setStatus(dto.getStatus() != null ? dto.getStatus() : "PRESENT");
