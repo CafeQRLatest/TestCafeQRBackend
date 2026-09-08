@@ -40,6 +40,10 @@ public class AttendanceService {
         Employee employee = employeeRepository.findByIdAndClientIdAndOrgId(employeeId, clientId, orgId)
                 .orElseThrow(() -> new RuntimeException("Employee not found"));
 
+        if (!employee.isActive()) {
+            throw new RuntimeException("Inactive employees cannot clock in.");
+        }
+
         LocalDate today = LocalDate.now(zoneId);
         
         // Check if already clocked in today
