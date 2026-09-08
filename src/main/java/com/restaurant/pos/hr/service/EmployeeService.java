@@ -46,6 +46,7 @@ public class EmployeeService {
 
     @Transactional
     public EmployeeDto createEmployee(EmployeeDto dto) {
+        validateUniqueness(dto, null);
         Employee employee = new Employee();
         mapToEntity(dto, employee);
         employee.setActive(true);
@@ -61,9 +62,48 @@ public class EmployeeService {
         Employee employee = employeeRepository.findByIdAndClientIdAndOrgId(id, clientId, orgId)
                 .orElseThrow(() -> new RuntimeException("Employee not found"));
                 
+        validateUniqueness(dto, id);
+
         mapToEntity(dto, employee);
         Employee saved = employeeRepository.save(employee);
         return mapToDto(saved);
+    }
+
+    private void validateUniqueness(EmployeeDto dto, UUID currentId) {
+        UUID clientId = TenantContext.getCurrentTenant();
+        UUID orgId = TenantContext.getCurrentOrg();
+
+        if (dto.getFirstName() == null || dto.getFirstName().trim().isEmpty()) {
+            throw new RuntimeException("First name is required.");
+        }
+
+        if (dto.getLastName() == null || dto.getLastName().trim().isEmpty()) {
+            throw new RuntimeException("Last name is required.");
+        }
+
+        if (dto.getPinCode() != null && !dto.getPinCode().isBlank()) {
+            String cleanPin = dto.getPinCode().trim();
+            if (!cleanPin.matches("\\d{4}")) {
+                throw new RuntimeException("Kiosk PIN must be exactly 4 numeric digits.");
+            }
+            if (employeeRepository.existsByPinCodeAndClientIdAndOrgId(cleanPin, clientId, orgId, currentId)) {
+                throw new RuntimeException("The PIN code '" + cleanPin + "' is already assigned to another employee.");
+            }
+        }
+
+        if (dto.getEmail() != null && !dto.getEmail().isBlank()) {
+            if (employeeRepository.existsByEmailAndClientId(dto.getEmail().trim(), clientId, currentId)) {
+                throw new RuntimeException("An employee with email '" + dto.getEmail().trim() + "' already exists.");
+            }
+        }
+
+        if (dto.getBaseSalary() != null && dto.getBaseSalary().compareTo(java.math.BigDecimal.ZERO) < 0) {
+            throw new RuntimeException("Base salary cannot be negative.");
+        }
+
+        if (dto.getHourlyRate() != null && dto.getHourlyRate().compareTo(java.math.BigDecimal.ZERO) < 0) {
+            throw new RuntimeException("Hourly rate cannot be negative.");
+        }
     }
 
     @Transactional

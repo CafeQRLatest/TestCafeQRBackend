@@ -139,6 +139,13 @@ public class AttendanceService {
             attendance = attendanceRepository.findByIdAndClientIdAndOrgId(dto.getId(), clientId, orgId)
                     .orElseThrow(() -> new RuntimeException("Attendance record not found"));
         } else {
+            // Preventing duplicate active shifts for the same employee
+            if (dto.getClockOutTime() == null) {
+                List<Attendance> activeShifts = attendanceRepository.findActiveAttendanceByEmployeeIdAndClientIdAndOrgId(dto.getEmployeeId(), clientId, orgId);
+                if (!activeShifts.isEmpty()) {
+                    throw new RuntimeException("Employee already has an active clock-in without clock-out.");
+                }
+            }
             attendance = new Attendance();
         }
 

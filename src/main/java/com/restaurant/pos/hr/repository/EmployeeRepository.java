@@ -21,4 +21,10 @@ public interface EmployeeRepository extends JpaRepository<Employee, UUID> {
 
     @Query("SELECT e FROM Employee e WHERE e.userId = :userId AND e.clientId = :clientId AND (:orgId IS NULL OR e.orgId = :orgId OR e.orgId IS NULL)")
     Optional<Employee> findByUserIdAndClientIdAndOrgId(@Param("userId") UUID userId, @Param("clientId") UUID clientId, @Param("orgId") UUID orgId);
+
+    @Query("SELECT COUNT(e) > 0 FROM Employee e WHERE e.clientId = :clientId AND LOWER(e.email) = LOWER(:email) AND (:id IS NULL OR e.id != :id)")
+    boolean existsByEmailAndClientId(@Param("email") String email, @Param("clientId") UUID clientId, @Param("id") UUID id);
+
+    @Query("SELECT COUNT(e) > 0 FROM Employee e WHERE e.clientId = :clientId AND (:orgId IS NULL OR e.orgId = :orgId) AND e.pinCode = :pinCode AND (:id IS NULL OR e.id != :id)")
+    boolean existsByPinCodeAndClientIdAndOrgId(@Param("pinCode") String pinCode, @Param("clientId") UUID clientId, @Param("orgId") UUID orgId, @Param("id") UUID id);
 }
