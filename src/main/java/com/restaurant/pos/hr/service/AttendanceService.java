@@ -154,12 +154,33 @@ public class AttendanceService {
 
         attendance.setEmployee(employee);
         attendance.setAttendanceDate(dto.getAttendanceDate() != null ? dto.getAttendanceDate() : LocalDate.now(zoneId));
-        attendance.setClockInTime(dto.getClockInTime());
-        attendance.setClockOutTime(dto.getClockOutTime());
         attendance.setStatus(dto.getStatus() != null ? dto.getStatus() : "PRESENT");
         attendance.setPunchMethod(dto.getPunchMethod() != null ? dto.getPunchMethod() : "MANUAL");
 
-        calculateHours(attendance);
+        if ("ABSENT".equalsIgnoreCase(attendance.getStatus())) {
+            attendance.setClockInTime(null);
+            attendance.setClockOutTime(null);
+            attendance.setTotalHoursWorked(BigDecimal.ZERO);
+            attendance.setOvertimeHours(BigDecimal.ZERO);
+        } else {
+            LocalDateTime clockIn = dto.getClockInTime();
+            if (clockIn != null && attendance.getAttendanceDate() != null) {
+                // Ensure date component of clockInTime matches attendanceDate
+                clockIn = LocalDateTime.of(attendance.getAttendanceDate(), clockIn.toLocalTime());
+            }
+            attendance.setClockInTime(clockIn);
+
+            LocalDateTime clockOut = dto.getClockOutTime();
+            if (clockOut != null && attendance.getAttendanceDate() != null) {
+                // Ensure clockOut is on or after clockIn
+                clockOut = LocalDateTime.of(attendance.getAttendanceDate(), clockOut.toLocalTime());
+                if (clockIn != null && clockOut.isBefore(clockIn)) {
+                    clockOut = clockOut.plusDays(1); // Shift crossed midnight
+                }
+            }
+            attendance.setClockOutTime(clockOut);
+            calculateHours(attendance);
+        }
 
         Attendance saved = attendanceRepository.save(attendance);
         return mapToDto(saved);
