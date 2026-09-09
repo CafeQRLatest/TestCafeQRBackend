@@ -72,8 +72,8 @@ public class DepartmentService {
         
         Department department = departmentRepository.findByIdAndClientIdAndOrgId(id, clientId, orgId)
                 .orElseThrow(() -> new RuntimeException("Department not found"));
-                
-        departmentRepository.delete(department);
+                department.setActive(false);
+        departmentRepository.save(department);
     }
 
     private DepartmentDto mapToDto(Department entity) {

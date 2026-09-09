@@ -72,8 +72,8 @@ public class DesignationService {
         
         Designation designation = designationRepository.findByIdAndClientIdAndOrgId(id, clientId, orgId)
                 .orElseThrow(() -> new RuntimeException("Designation not found"));
-                
-        designationRepository.delete(designation);
+                designation.setActive(false);
+        designationRepository.save(designation);
     }
 
     private DesignationDto mapToDto(Designation entity) {
