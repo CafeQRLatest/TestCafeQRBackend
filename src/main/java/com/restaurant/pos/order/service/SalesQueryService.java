@@ -2,6 +2,7 @@ package com.restaurant.pos.order.service;
 
 import com.restaurant.pos.client.repository.TerminalRepository;
 import com.restaurant.pos.common.exception.BusinessException;
+import com.restaurant.pos.common.service.BranchContextService;
 import com.restaurant.pos.common.tenant.TenantContext;
 import com.restaurant.pos.common.util.SecurityUtils;
 import com.restaurant.pos.order.dto.OrderCustomerDto;
@@ -35,6 +36,7 @@ public class SalesQueryService {
 
     private final NamedParameterJdbcTemplate jdbcTemplate;
     private final TerminalRepository terminalRepository;
+    private final BranchContextService branchContext;
 
     @Transactional(readOnly = true, timeout = 10)
     public SalesDashboardResponse getDashboard(SalesDashboardQuery query) {
@@ -42,7 +44,7 @@ public class SalesQueryService {
 
         UUID orgId;
         if (SecurityUtils.isSuperAdmin()) {
-            orgId = query.getOrgId();
+            orgId = query.getOrgId() != null ? query.getOrgId() : branchContext.getReadOrgId(null);
         } else {
             orgId = TenantContext.getCurrentOrg();
         }
