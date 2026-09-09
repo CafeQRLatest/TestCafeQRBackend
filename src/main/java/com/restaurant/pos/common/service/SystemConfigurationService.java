@@ -239,10 +239,10 @@ public class SystemConfigurationService {
                 .qrOrderingEnabled(true)
                 .sendToKitchenEnabled(true)
                 .customerAgeEnabled(false)
-                .posProductListingEnabled(true)
                 .discountEnabled(true)
                 .purchaseEnabled(true)
                 .barcodeScannerEnabled(false)
+                .payrollEnabled(true)
                 .takeawayAutoPrintKotOnSettle(false)
                 .takeawayHideKitchenMode(false)
                 .dineInAutoPrintKotOnSettle(false)
@@ -291,6 +291,7 @@ public class SystemConfigurationService {
                 .posProductListingEnabled(source.isPosProductListingEnabled())
                 .discountEnabled(source.isDiscountEnabled())
                 .barcodeScannerEnabled(source.isBarcodeScannerEnabled())
+                .payrollEnabled(source.isPayrollEnabled())
                 .takeawayAutoPrintKotOnSettle(source.isTakeawayAutoPrintKotOnSettle())
                 .takeawayHideKitchenMode(source.isTakeawayHideKitchenMode())
                 .dineInAutoPrintKotOnSettle(source.isDineInAutoPrintKotOnSettle())
@@ -427,6 +428,7 @@ public class SystemConfigurationService {
                 .posProductListingEnabled(entity.isPosProductListingEnabled())
                 .discountEnabled(entity.isDiscountEnabled())
                 .barcodeScannerEnabled(isFeatureEnabled(entity.getClientId(), orgId, ModuleName.BARCODE_SCANNER, entity.isBarcodeScannerEnabled()))
+                .payrollEnabled(entity.isPayrollEnabled())
                 .takeawayAutoPrintKotOnSettle(entity.isTakeawayAutoPrintKotOnSettle())
                 .takeawayHideKitchenMode(entity.isTakeawayHideKitchenMode())
                 .dineInAutoPrintKotOnSettle(entity.isDineInAutoPrintKotOnSettle())
@@ -495,6 +497,7 @@ public class SystemConfigurationService {
         entity.setPosProductListingEnabled(dto.isPosProductListingEnabled());
         entity.setDiscountEnabled(dto.isDiscountEnabled());
         entity.setBarcodeScannerEnabled(dto.isBarcodeScannerEnabled());
+        entity.setPayrollEnabled(dto.isPayrollEnabled());
         entity.setTakeawayAutoPrintKotOnSettle(dto.isTakeawayAutoPrintKotOnSettle());
         entity.setTakeawayHideKitchenMode(dto.isTakeawayHideKitchenMode());
         entity.setDineInAutoPrintKotOnSettle(dto.isDineInAutoPrintKotOnSettle());
