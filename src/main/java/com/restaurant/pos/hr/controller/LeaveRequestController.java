@@ -39,4 +39,17 @@ public class LeaveRequestController {
             @RequestParam String status) {
         return ResponseEntity.ok(leaveRequestService.updateLeaveStatus(id, status));
     }
+
+    @PutMapping("/{id}")
+    public ResponseEntity<LeaveRequestDto> updateLeaveRequest(
+            @PathVariable UUID id,
+            @RequestBody LeaveRequestDto dto) {
+        return ResponseEntity.ok(leaveRequestService.updateLeaveRequest(id, dto));
+    }
+
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> deleteLeaveRequest(@PathVariable UUID id) {
+        leaveRequestService.deleteLeaveRequest(id);
+        return ResponseEntity.noContent().build();
+    }
 }

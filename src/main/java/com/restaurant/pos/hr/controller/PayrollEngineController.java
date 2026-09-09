@@ -33,4 +33,10 @@ public class PayrollEngineController {
     public ResponseEntity<List<SalarySlipDto>> getSlipsForRun(@PathVariable UUID runId) {
         return ResponseEntity.ok(payrollEngineService.getSlipsForRun(runId));
     }
+
+    @DeleteMapping("/runs/{runId}")
+    public ResponseEntity<Void> deletePayrollRun(@PathVariable UUID runId) {
+        payrollEngineService.deletePayrollRun(runId);
+        return ResponseEntity.noContent().build();
+    }
 }

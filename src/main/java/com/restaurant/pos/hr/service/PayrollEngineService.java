@@ -199,6 +199,20 @@ public class PayrollEngineService {
                 .collect(Collectors.toList());
     }
 
+    @Transactional
+    public void deletePayrollRun(UUID payrollRunId) {
+        UUID clientId = TenantContext.getCurrentTenant();
+        UUID orgId = TenantContext.getCurrentOrg();
+
+        PayrollRun run = payrollRunRepository.findByIdAndClientIdAndOrgId(payrollRunId, clientId, orgId)
+                .orElseThrow(() -> new RuntimeException("PayrollRun not found"));
+
+        List<SalarySlip> slips = salarySlipRepository.findByPayrollRunIdAndClientIdAndOrgId(payrollRunId, clientId, orgId);
+        salarySlipRepository.deleteAll(slips);
+
+        payrollRunRepository.delete(run);
+    }
+
     private PayrollRunDto mapToRunDto(PayrollRun entity) {
         UUID clientId = TenantContext.getCurrentTenant();
         UUID orgId = TenantContext.getCurrentOrg();

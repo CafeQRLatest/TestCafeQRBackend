@@ -39,4 +39,17 @@ public class SalaryAdvanceController {
             @RequestParam String status) {
         return ResponseEntity.ok(salaryAdvanceService.updateAdvanceStatus(id, status));
     }
+
+    @PutMapping("/{id}")
+    public ResponseEntity<SalaryAdvanceDto> updateAdvance(
+            @PathVariable UUID id,
+            @RequestBody SalaryAdvanceDto dto) {
+        return ResponseEntity.ok(salaryAdvanceService.updateAdvance(id, dto));
+    }
+
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> deleteAdvance(@PathVariable UUID id) {
+        salaryAdvanceService.deleteAdvance(id);
+        return ResponseEntity.noContent().build();
+    }
 }

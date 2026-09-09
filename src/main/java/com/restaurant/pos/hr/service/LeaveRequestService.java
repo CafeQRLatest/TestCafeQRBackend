@@ -75,6 +75,42 @@ public class LeaveRequestService {
         return mapToDto(saved);
     }
 
+    @Transactional
+    public LeaveRequestDto updateLeaveRequest(UUID id, LeaveRequestDto dto) {
+        UUID clientId = TenantContext.getCurrentTenant();
+        UUID orgId = TenantContext.getCurrentOrg();
+        
+        LeaveRequest leave = leaveRequestRepository.findByIdAndClientIdAndOrgId(id, clientId, orgId)
+                .orElseThrow(() -> new RuntimeException("LeaveRequest not found"));
+
+        if (dto.getEmployeeId() != null) {
+            Employee employee = employeeRepository.findByIdAndClientIdAndOrgId(dto.getEmployeeId(), clientId, orgId)
+                    .orElseThrow(() -> new RuntimeException("Employee not found"));
+            leave.setEmployee(employee);
+        }
+
+        if (dto.getLeaveType() != null) leave.setLeaveType(dto.getLeaveType());
+        if (dto.getStartDate() != null) leave.setStartDate(dto.getStartDate());
+        if (dto.getEndDate() != null) leave.setEndDate(dto.getEndDate());
+        if (dto.getTotalDays() != null) leave.setTotalDays(dto.getTotalDays());
+        if (dto.getReason() != null) leave.setReason(dto.getReason());
+        if (dto.getStatus() != null) leave.setStatus(dto.getStatus());
+
+        LeaveRequest saved = leaveRequestRepository.save(leave);
+        return mapToDto(saved);
+    }
+
+    @Transactional
+    public void deleteLeaveRequest(UUID id) {
+        UUID clientId = TenantContext.getCurrentTenant();
+        UUID orgId = TenantContext.getCurrentOrg();
+        
+        LeaveRequest leave = leaveRequestRepository.findByIdAndClientIdAndOrgId(id, clientId, orgId)
+                .orElseThrow(() -> new RuntimeException("LeaveRequest not found"));
+                
+        leaveRequestRepository.delete(leave);
+    }
+
     private LeaveRequestDto mapToDto(LeaveRequest entity) {
         return LeaveRequestDto.builder()
                 .id(entity.getId())

@@ -75,6 +75,42 @@ public class SalaryAdvanceService {
         return mapToDto(saved);
     }
 
+    @Transactional
+    public SalaryAdvanceDto updateAdvance(UUID id, SalaryAdvanceDto dto) {
+        UUID clientId = TenantContext.getCurrentTenant();
+        UUID orgId = TenantContext.getCurrentOrg();
+        
+        SalaryAdvance advance = salaryAdvanceRepository.findByIdAndClientIdAndOrgId(id, clientId, orgId)
+                .orElseThrow(() -> new RuntimeException("SalaryAdvance not found"));
+
+        if (dto.getEmployeeId() != null) {
+            Employee employee = employeeRepository.findByIdAndClientIdAndOrgId(dto.getEmployeeId(), clientId, orgId)
+                    .orElseThrow(() -> new RuntimeException("Employee not found"));
+            advance.setEmployee(employee);
+        }
+
+        if (dto.getAdvanceDate() != null) advance.setAdvanceDate(dto.getAdvanceDate());
+        if (dto.getTotalAmount() != null) advance.setTotalAmount(dto.getTotalAmount());
+        if (dto.getMonthlyInstallmentAmount() != null) advance.setMonthlyInstallmentAmount(dto.getMonthlyInstallmentAmount());
+        if (dto.getRemainingBalance() != null) advance.setRemainingBalance(dto.getRemainingBalance());
+        if (dto.getReason() != null) advance.setReason(dto.getReason());
+        if (dto.getStatus() != null) advance.setStatus(dto.getStatus());
+
+        SalaryAdvance saved = salaryAdvanceRepository.save(advance);
+        return mapToDto(saved);
+    }
+
+    @Transactional
+    public void deleteAdvance(UUID id) {
+        UUID clientId = TenantContext.getCurrentTenant();
+        UUID orgId = TenantContext.getCurrentOrg();
+        
+        SalaryAdvance advance = salaryAdvanceRepository.findByIdAndClientIdAndOrgId(id, clientId, orgId)
+                .orElseThrow(() -> new RuntimeException("SalaryAdvance not found"));
+                
+        salaryAdvanceRepository.delete(advance);
+    }
+
     private SalaryAdvanceDto mapToDto(SalaryAdvance entity) {
         return SalaryAdvanceDto.builder()
                 .id(entity.getId())

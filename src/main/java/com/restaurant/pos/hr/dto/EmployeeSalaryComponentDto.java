@@ -13,22 +13,18 @@ import java.util.UUID;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class SalaryComponentDto {
+public class EmployeeSalaryComponentDto {
     private UUID id;
-    private String name;
-    private String type; // EARNING or DEDUCTION
-
-    @JsonProperty("isTaxApplicable")
-    private boolean isTaxApplicable;
-
-    @JsonProperty("dependsOnAttendance")
-    private boolean dependsOnAttendance;
-
+    private UUID employeeId;
+    private UUID salaryComponentId;
+    private String componentName;
+    private String componentType; // EARNING or DEDUCTION
     private String amountType; // FIXED or PERCENTAGE
     private BigDecimal defaultAmount;
     private BigDecimal percentage;
-    private String percentageOfComponent;
-
+    private BigDecimal overrideAmount;
+    private BigDecimal overridePercentage;
+    
     @Builder.Default
     @JsonProperty("isActive")
     private boolean isActive = true;
