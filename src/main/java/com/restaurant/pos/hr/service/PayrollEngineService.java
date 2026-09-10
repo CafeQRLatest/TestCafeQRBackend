@@ -145,6 +145,7 @@ public class PayrollEngineService {
 
             // 5. Calculate Base Pay
             BigDecimal grossPay = BigDecimal.ZERO;
+            BigDecimal unpaidLeaveDeductionAmount = BigDecimal.ZERO;
             if ("HOURLY".equals(emp.getEmploymentType())) {
                 BigDecimal otMultiplier = new BigDecimal("1.50");
                 try {
@@ -164,12 +165,12 @@ public class PayrollEngineService {
                 // Monthly salaried - calculate base pay proportional to the date range (daysInPeriod / 30)
                 BigDecimal dailyRate = emp.getBaseSalary().divide(new BigDecimal("30"), 4, RoundingMode.HALF_UP);
                 BigDecimal basePayForPeriod = dailyRate.multiply(new BigDecimal(daysInPeriod)).setScale(2, RoundingMode.HALF_UP);
-                BigDecimal deductionForLeaves = dailyRate.multiply(BigDecimal.valueOf(unpaidLeaveDays)).setScale(2, RoundingMode.HALF_UP);
-                grossPay = basePayForPeriod.subtract(deductionForLeaves);
+                unpaidLeaveDeductionAmount = dailyRate.multiply(BigDecimal.valueOf(unpaidLeaveDays)).setScale(2, RoundingMode.HALF_UP);
+                grossPay = basePayForPeriod; // Exception-Based Pay: Gross pay is full, unpaid leave is a deduction
             }
 
             // 6. Apply Rules Engine (Employee Specific Components)
-            BigDecimal totalDeductions = BigDecimal.ZERO;
+            BigDecimal totalDeductions = BigDecimal.ZERO.add(unpaidLeaveDeductionAmount);
             List<EmployeeSalaryComponent> empComponents = employeeSalaryComponentRepository.findActiveByEmployeeId(emp.getId());
             
             for (EmployeeSalaryComponent empComp : empComponents) {
