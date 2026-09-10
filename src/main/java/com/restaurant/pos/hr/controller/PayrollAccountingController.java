@@ -17,8 +17,10 @@ public class PayrollAccountingController {
     private final PayrollAccountingService payrollAccountingService;
 
     @PostMapping("/sync/{payrollRunId}")
-    public ResponseEntity<Void> syncPayrollToAccounting(@PathVariable UUID payrollRunId) {
-        payrollAccountingService.syncPayrollToAccounting(payrollRunId);
+    public ResponseEntity<Void> syncPayrollToAccounting(
+            @PathVariable UUID payrollRunId,
+            @RequestParam(required = false) String paymentMethod) {
+        payrollAccountingService.syncPayrollToAccounting(payrollRunId, paymentMethod);
         return ResponseEntity.ok().build();
     }
 }

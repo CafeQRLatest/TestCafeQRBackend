@@ -5,6 +5,8 @@ import com.restaurant.pos.hr.dto.PayrollRunDto;
 import com.restaurant.pos.hr.dto.SalarySlipDto;
 import com.restaurant.pos.hr.entity.*;
 import com.restaurant.pos.hr.repository.*;
+import com.restaurant.pos.expense.domain.Expense;
+import com.restaurant.pos.expense.repository.ExpenseRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -29,6 +31,7 @@ public class PayrollEngineService {
     private final LeaveRequestRepository leaveRequestRepository;
     private final SalaryAdvanceRepository salaryAdvanceRepository;
     private final HrSettingsService hrSettingsService;
+    private final ExpenseRepository expenseRepository;
 
     @Transactional
     public PayrollRunDto initiatePayrollRun(PayrollRunDto dto) {
@@ -257,6 +260,12 @@ public class PayrollEngineService {
 
         List<SalarySlip> slips = salarySlipRepository.findByPayrollRunIdAndClientIdAndOrgId(payrollRunId, clientId, orgId);
         salarySlipRepository.deleteAll(slips);
+        
+        String expenseNo = "PR-" + run.getId().toString().substring(0, 8).toUpperCase();
+        List<Expense> expenses = expenseRepository.findByClientIdAndOrgIdAndExpenseNo(clientId, orgId, expenseNo);
+        if (!expenses.isEmpty()) {
+            expenseRepository.deleteAll(expenses);
+        }
 
         payrollRunRepository.delete(run);
     }

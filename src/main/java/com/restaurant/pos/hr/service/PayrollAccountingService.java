@@ -3,6 +3,8 @@ package com.restaurant.pos.hr.service;
 import com.restaurant.pos.common.tenant.TenantContext;
 import com.restaurant.pos.expense.domain.Expense;
 import com.restaurant.pos.expense.repository.ExpenseRepository;
+import com.restaurant.pos.category.domain.ExpenseCategory;
+import com.restaurant.pos.category.repository.ExpenseCategoryRepository;
 import com.restaurant.pos.hr.entity.PayrollRun;
 import com.restaurant.pos.hr.entity.SalarySlip;
 import com.restaurant.pos.hr.repository.PayrollRunRepository;
@@ -23,9 +25,10 @@ public class PayrollAccountingService {
     private final ExpenseRepository expenseRepository;
     private final PayrollRunRepository payrollRunRepository;
     private final SalarySlipRepository salarySlipRepository;
+    private final ExpenseCategoryRepository expenseCategoryRepository;
 
     @Transactional
-    public void syncPayrollToAccounting(UUID payrollRunId) {
+    public void syncPayrollToAccounting(UUID payrollRunId, String paymentMethod) {
         UUID clientId = TenantContext.getCurrentTenant();
         UUID orgId = TenantContext.getCurrentOrg();
         
@@ -45,13 +48,25 @@ public class PayrollAccountingService {
                 .map(SalarySlip::getGrossPay)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
+        ExpenseCategory category = expenseCategoryRepository.findByNameIgnoreCaseAndClientIdAndOrgId("Payroll", clientId, orgId)
+                .orElseGet(() -> {
+                    ExpenseCategory newCategory = ExpenseCategory.builder()
+                            .name("Payroll")
+                            .sortOrder(99)
+                            .build();
+                    newCategory.setClientId(clientId);
+                    newCategory.setOrgId(orgId);
+                    return expenseCategoryRepository.save(newCategory);
+                });
+
         // Create an Expense record in the main Cafe QR Accounting module
         Expense expense = Expense.builder()
                 .expenseNo("PR-" + run.getId().toString().substring(0, 8).toUpperCase())
                 .expenseDate(Instant.now())
+                .categoryId(category.getId())
                 .amount(totalPayrollExpense)
                 .description("Payroll Disbursement for: " + run.getName())
-                .paymentMethod("BANK_TRANSFER")
+                .paymentMethod(paymentMethod != null && !paymentMethod.trim().isEmpty() ? paymentMethod.toUpperCase() : "BANK_TRANSFER")
                 .docStatus("COMPLETED")
                 .paymentStatus("PAID")
                 .build();
