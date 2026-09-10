@@ -31,4 +31,7 @@ public interface AttendanceRepository extends JpaRepository<Attendance, UUID> {
 
     @Query("SELECT a FROM Attendance a WHERE a.employee.id = :employeeId AND a.clockOutTime IS NULL AND a.clientId = :clientId AND (:orgId IS NULL OR a.orgId = :orgId)")
     List<Attendance> findActiveAttendanceByEmployeeIdAndClientIdAndOrgId(@Param("employeeId") UUID employeeId, @Param("clientId") UUID clientId, @Param("orgId") UUID orgId);
+
+    @Query("SELECT a FROM Attendance a WHERE a.employee.id = :employeeId AND a.attendanceDate BETWEEN :startDate AND :endDate AND a.status != 'ABSENT' AND a.clientId = :clientId AND (:orgId IS NULL OR a.orgId = :orgId)")
+    List<Attendance> findPresentByEmployeeIdAndDateRange(@Param("employeeId") UUID employeeId, @Param("startDate") LocalDate startDate, @Param("endDate") LocalDate endDate, @Param("clientId") UUID clientId, @Param("orgId") UUID orgId);
 }

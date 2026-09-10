@@ -25,4 +25,7 @@ public interface LeaveRequestRepository extends JpaRepository<LeaveRequest, UUID
     
     @Query("SELECT l FROM LeaveRequest l WHERE l.employee.id = :employeeId AND l.status = 'APPROVED' AND l.startDate <= :endDate AND l.endDate >= :startDate AND l.clientId = :clientId AND (:orgId IS NULL OR l.orgId = :orgId)")
     List<LeaveRequest> findApprovedByEmployeeIdAndDateRange(@Param("employeeId") UUID employeeId, @Param("startDate") LocalDate startDate, @Param("endDate") LocalDate endDate, @Param("clientId") UUID clientId, @Param("orgId") UUID orgId);
+
+    @Query("SELECT l FROM LeaveRequest l WHERE l.employee.id = :employeeId AND l.status = 'APPROVED' AND l.startDate <= :date AND l.endDate >= :date AND l.clientId = :clientId AND (:orgId IS NULL OR l.orgId = :orgId)")
+    List<LeaveRequest> findApprovedByEmployeeIdAndDate(@Param("employeeId") UUID employeeId, @Param("date") LocalDate date, @Param("clientId") UUID clientId, @Param("orgId") UUID orgId);
 }

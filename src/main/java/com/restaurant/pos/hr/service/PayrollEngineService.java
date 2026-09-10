@@ -93,6 +93,34 @@ public class PayrollEngineService {
                     .sum();
             slip.setTotalUnpaidLeaveDays(unpaidLeaveDays);
 
+            // Safety net: for Hourly employees, exclude attendance on unpaid leave dates
+            if ("HOURLY".equals(emp.getEmploymentType()) && unpaidLeaveDays > 0) {
+                java.util.Set<LocalDate> unpaidLeaveDates = new java.util.HashSet<>();
+                for (LeaveRequest lr : leaves) {
+                    if ("UNPAID".equals(lr.getLeaveType())) {
+                        LocalDate d = lr.getStartDate();
+                        while (!d.isAfter(lr.getEndDate())) {
+                            unpaidLeaveDates.add(d);
+                            d = d.plusDays(1);
+                        }
+                    }
+                }
+                List<Attendance> filtered = attendances.stream()
+                        .filter(a -> !unpaidLeaveDates.contains(a.getAttendanceDate()))
+                        .collect(Collectors.toList());
+                // Recalculate hours from filtered list only
+                normalHours = filtered.stream()
+                        .map(a -> {
+                            BigDecimal total = a.getTotalHoursWorked() != null ? a.getTotalHoursWorked() : BigDecimal.ZERO;
+                            BigDecimal ot = a.getOvertimeHours() != null ? a.getOvertimeHours() : BigDecimal.ZERO;
+                            return total.subtract(ot);
+                        })
+                        .reduce(BigDecimal.ZERO, BigDecimal::add);
+                overtimeHours = filtered.stream()
+                        .map(a -> a.getOvertimeHours() != null ? a.getOvertimeHours() : BigDecimal.ZERO)
+                        .reduce(BigDecimal.ZERO, BigDecimal::add);
+            }
+
             if ("HOURLY".equals(emp.getEmploymentType())) {
                 int paidLeaveDays = leaves.stream()
                         .filter(l -> "PAID".equals(l.getLeaveType()) || "SICK".equals(l.getLeaveType()))

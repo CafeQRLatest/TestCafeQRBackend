@@ -2,8 +2,10 @@ package com.restaurant.pos.hr.service;
 
 import com.restaurant.pos.common.tenant.TenantContext;
 import com.restaurant.pos.hr.dto.LeaveRequestDto;
+import com.restaurant.pos.hr.entity.Attendance;
 import com.restaurant.pos.hr.entity.Employee;
 import com.restaurant.pos.hr.entity.LeaveRequest;
+import com.restaurant.pos.hr.repository.AttendanceRepository;
 import com.restaurant.pos.hr.repository.EmployeeRepository;
 import com.restaurant.pos.hr.repository.LeaveRequestRepository;
 import lombok.RequiredArgsConstructor;
@@ -20,6 +22,7 @@ public class LeaveRequestService {
 
     private final LeaveRequestRepository leaveRequestRepository;
     private final EmployeeRepository employeeRepository;
+    private final AttendanceRepository attendanceRepository;
 
     @Transactional(readOnly = true)
     public List<LeaveRequestDto> getAllLeaveRequests() {
@@ -69,7 +72,21 @@ public class LeaveRequestService {
         
         LeaveRequest leave = leaveRequestRepository.findByIdAndClientIdAndOrgId(id, clientId, orgId)
                 .orElseThrow(() -> new RuntimeException("LeaveRequest not found"));
-                
+
+        // Block approval if attendance records exist on the leave dates
+        if ("APPROVED".equalsIgnoreCase(status)) {
+            List<Attendance> conflicting = attendanceRepository.findPresentByEmployeeIdAndDateRange(
+                    leave.getEmployee().getId(), leave.getStartDate(), leave.getEndDate(), clientId, orgId);
+            if (!conflicting.isEmpty()) {
+                String dates = conflicting.stream()
+                        .map(a -> a.getAttendanceDate().toString())
+                        .distinct()
+                        .collect(java.util.stream.Collectors.joining(", "));
+                throw new RuntimeException("Cannot approve leave: Employee has attendance records on: "
+                        + dates + ". Remove those attendance entries first.");
+            }
+        }
+
         leave.setStatus(status);
         LeaveRequest saved = leaveRequestRepository.save(leave);
         return mapToDto(saved);

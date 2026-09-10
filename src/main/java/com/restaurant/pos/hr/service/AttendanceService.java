@@ -5,8 +5,10 @@ import com.restaurant.pos.common.tenant.TenantContext;
 import com.restaurant.pos.hr.dto.AttendanceDto;
 import com.restaurant.pos.hr.entity.Attendance;
 import com.restaurant.pos.hr.entity.Employee;
+import com.restaurant.pos.hr.entity.LeaveRequest;
 import com.restaurant.pos.hr.repository.AttendanceRepository;
 import com.restaurant.pos.hr.repository.EmployeeRepository;
+import com.restaurant.pos.hr.repository.LeaveRequestRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -27,6 +29,7 @@ public class AttendanceService {
 
     private final AttendanceRepository attendanceRepository;
     private final EmployeeRepository employeeRepository;
+    private final LeaveRequestRepository leaveRequestRepository;
     private final TimezoneResolver timezoneResolver;
     private final HrSettingsService hrSettingsService;
 
@@ -53,6 +56,16 @@ public class AttendanceService {
         }
 
         LocalDate today = LocalDate.now(zoneId);
+
+        // Block clock-in if employee has an approved leave today
+        List<LeaveRequest> approvedLeaves = leaveRequestRepository.findApprovedByEmployeeIdAndDate(
+                employeeId, today, clientId, orgId);
+        if (!approvedLeaves.isEmpty()) {
+            LeaveRequest leave = approvedLeaves.get(0);
+            throw new RuntimeException("Cannot clock in: Employee has an approved "
+                    + leave.getLeaveType() + " leave from " + leave.getStartDate()
+                    + " to " + leave.getEndDate() + ". Cancel the leave first.");
+        }
 
         Attendance attendance = new Attendance();
         attendance.setEmployee(employee);
@@ -167,6 +180,15 @@ public class AttendanceService {
             attendance.setTotalHoursWorked(BigDecimal.ZERO);
             attendance.setOvertimeHours(BigDecimal.ZERO);
         } else {
+            // Block manual attendance if employee has an approved leave on that date
+            List<LeaveRequest> approvedLeaves = leaveRequestRepository.findApprovedByEmployeeIdAndDate(
+                    dto.getEmployeeId(), attendance.getAttendanceDate(), clientId, orgId);
+            if (!approvedLeaves.isEmpty()) {
+                LeaveRequest leave = approvedLeaves.get(0);
+                throw new RuntimeException("Cannot create attendance: Employee has an approved "
+                        + leave.getLeaveType() + " leave from " + leave.getStartDate()
+                        + " to " + leave.getEndDate() + ". Cancel the leave first.");
+            }
             LocalDateTime clockIn = dto.getClockInTime();
             if (clockIn != null && attendance.getAttendanceDate() != null) {
                 // Ensure date component of clockInTime matches attendanceDate
