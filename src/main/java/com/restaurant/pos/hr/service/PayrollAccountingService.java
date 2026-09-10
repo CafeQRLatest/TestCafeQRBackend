@@ -32,6 +32,9 @@ public class PayrollAccountingService {
         PayrollRun run = payrollRunRepository.findByIdAndClientIdAndOrgId(payrollRunId, clientId, orgId)
                 .orElseThrow(() -> new RuntimeException("PayrollRun not found"));
 
+        if ("PAID".equals(run.getStatus())) {
+            throw new RuntimeException("This payroll run has already been synced to accounting.");
+        }
         if (!"COMPLETED".equals(run.getStatus())) {
             throw new RuntimeException("Payroll Run must be completed before accounting sync");
         }
