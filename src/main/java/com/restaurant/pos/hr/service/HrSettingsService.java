@@ -21,6 +21,7 @@ public class HrSettingsService {
     private static final BigDecimal DEFAULT_OVERTIME_MULTIPLIER = new BigDecimal("1.50");
     private static final BigDecimal DEFAULT_WEEKLY_THRESHOLD = new BigDecimal("40.00");
     private static final String DEFAULT_OVERTIME_MODE = "DAILY";
+    private static final Integer DEFAULT_SHIFT_DAY_BOUNDARY_HOUR = 4;
 
     @Transactional(readOnly = true)
     public HrSettingsDto getSettings() {
@@ -34,6 +35,7 @@ public class HrSettingsService {
                         .overtimeMultiplier(DEFAULT_OVERTIME_MULTIPLIER)
                         .weeklyOvertimeThreshold(DEFAULT_WEEKLY_THRESHOLD)
                         .overtimeMode(DEFAULT_OVERTIME_MODE)
+                        .shiftDayBoundaryHour(DEFAULT_SHIFT_DAY_BOUNDARY_HOUR)
                         .build());
     }
 
@@ -48,6 +50,7 @@ public class HrSettingsService {
                         .overtimeMultiplier(DEFAULT_OVERTIME_MULTIPLIER)
                         .weeklyOvertimeThreshold(DEFAULT_WEEKLY_THRESHOLD)
                         .overtimeMode(DEFAULT_OVERTIME_MODE)
+                        .shiftDayBoundaryHour(DEFAULT_SHIFT_DAY_BOUNDARY_HOUR)
                         .build());
     }
 
@@ -88,6 +91,12 @@ public class HrSettingsService {
             settings.setOvertimeMode(DEFAULT_OVERTIME_MODE);
         }
 
+        if (dto.getShiftDayBoundaryHour() != null && dto.getShiftDayBoundaryHour() >= 0 && dto.getShiftDayBoundaryHour() <= 23) {
+            settings.setShiftDayBoundaryHour(dto.getShiftDayBoundaryHour());
+        } else if (settings.getShiftDayBoundaryHour() == null) {
+            settings.setShiftDayBoundaryHour(DEFAULT_SHIFT_DAY_BOUNDARY_HOUR);
+        }
+
         HrSettings saved = hrSettingsRepository.save(settings);
         return mapToDto(saved);
     }
@@ -99,6 +108,7 @@ public class HrSettingsService {
                 .overtimeMultiplier(entity.getOvertimeMultiplier() != null ? entity.getOvertimeMultiplier() : DEFAULT_OVERTIME_MULTIPLIER)
                 .weeklyOvertimeThreshold(entity.getWeeklyOvertimeThreshold() != null ? entity.getWeeklyOvertimeThreshold() : DEFAULT_WEEKLY_THRESHOLD)
                 .overtimeMode(entity.getOvertimeMode() != null ? entity.getOvertimeMode() : DEFAULT_OVERTIME_MODE)
+                .shiftDayBoundaryHour(entity.getShiftDayBoundaryHour() != null ? entity.getShiftDayBoundaryHour() : DEFAULT_SHIFT_DAY_BOUNDARY_HOUR)
                 .build();
     }
 }

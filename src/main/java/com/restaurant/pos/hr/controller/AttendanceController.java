@@ -76,4 +76,10 @@ public class AttendanceController {
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate) {
         return ResponseEntity.ok(attendanceService.getAttendanceByEmployeeAndDateRange(employeeId, startDate, endDate));
     }
+
+    @GetMapping("/status/{employeeId}")
+    public ResponseEntity<java.util.Map<String, String>> getEmployeeStatus(@PathVariable UUID employeeId) {
+        String status = attendanceService.getEmployeeCurrentStatus(employeeId);
+        return ResponseEntity.ok(java.util.Map.of("status", status));
+    }
 }

@@ -39,4 +39,8 @@ public class HrSettings extends BaseEntity {
     @Column(name = "overtime_mode", nullable = false, length = 20)
     @Builder.Default
     private String overtimeMode = "DAILY"; // DAILY, WEEKLY, BOTH
+
+    @Column(name = "shift_day_boundary_hour", nullable = false)
+    @Builder.Default
+    private Integer shiftDayBoundaryHour = 4;
 }

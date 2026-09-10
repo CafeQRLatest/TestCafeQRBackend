@@ -9,6 +9,8 @@ import lombok.Setter;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 @Entity
@@ -45,4 +47,7 @@ public class Attendance extends BaseEntity {
 
     @Column(name = "punch_method")
     private String punchMethod; // e.g., FACE_SCAN, PIN, MANUAL
+
+    @OneToMany(mappedBy = "attendance", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<PunchSegment> segments = new ArrayList<>();
 }

@@ -6,9 +6,11 @@ import com.restaurant.pos.hr.dto.AttendanceDto;
 import com.restaurant.pos.hr.entity.Attendance;
 import com.restaurant.pos.hr.entity.Employee;
 import com.restaurant.pos.hr.entity.LeaveRequest;
+import com.restaurant.pos.hr.entity.PunchSegment;
 import com.restaurant.pos.hr.repository.AttendanceRepository;
 import com.restaurant.pos.hr.repository.EmployeeRepository;
 import com.restaurant.pos.hr.repository.LeaveRequestRepository;
+import com.restaurant.pos.hr.repository.PunchSegmentRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -30,6 +32,7 @@ public class AttendanceService {
     private final AttendanceRepository attendanceRepository;
     private final EmployeeRepository employeeRepository;
     private final LeaveRequestRepository leaveRequestRepository;
+    private final PunchSegmentRepository punchSegmentRepository;
     private final TimezoneResolver timezoneResolver;
     private final HrSettingsService hrSettingsService;
 
@@ -48,18 +51,23 @@ public class AttendanceService {
             throw new RuntimeException("Inactive employees cannot clock in.");
         }
 
-        // Check if employee currently has an active open shift
-        List<Attendance> activeShifts = attendanceRepository.findActiveAttendanceByEmployeeIdAndClientIdAndOrgId(employeeId, clientId, orgId);
-        if (!activeShifts.isEmpty()) {
-            Attendance openShift = activeShifts.get(0);
-            throw new RuntimeException("Employee is already clocked in (shift started on " + openShift.getAttendanceDate() + "). Please clock out first.");
-        }
+        LocalDateTime now = LocalDateTime.now(zoneId);
+        int boundaryHour = 4;
+        try {
+            if (hrSettingsService != null && hrSettingsService.getSettings() != null) {
+                Integer customBoundary = hrSettingsService.getSettings().getShiftDayBoundaryHour();
+                if (customBoundary != null) boundaryHour = customBoundary;
+            }
+        } catch (Exception ignored) {}
 
-        LocalDate today = LocalDate.now(zoneId);
+        LocalDate shiftDate = now.toLocalDate();
+        if (now.getHour() < boundaryHour) {
+            shiftDate = shiftDate.minusDays(1);
+        }
 
         // Block clock-in if employee has an approved leave today
         List<LeaveRequest> approvedLeaves = leaveRequestRepository.findApprovedByEmployeeIdAndDate(
-                employeeId, today, clientId, orgId);
+                employeeId, shiftDate, clientId, orgId);
         if (!approvedLeaves.isEmpty()) {
             LeaveRequest leave = approvedLeaves.get(0);
             throw new RuntimeException("Cannot clock in: Employee has an approved "
@@ -67,15 +75,43 @@ public class AttendanceService {
                     + " to " + leave.getEndDate() + ". Cancel the leave first.");
         }
 
-        Attendance attendance = new Attendance();
+        Attendance attendance = attendanceRepository.findByEmployeeIdAndDateAndClientIdAndOrgId(employeeId, shiftDate, clientId, orgId)
+                .orElse(null);
+
+        if (attendance != null) {
+            // Returning from break or duplicate punch?
+            PunchSegment openSegment = punchSegmentRepository.findOpenSegmentByAttendanceId(attendance.getId()).orElse(null);
+            if (openSegment != null) {
+                throw new RuntimeException("Employee is already clocked in. Please clock out first.");
+            }
+            
+            PunchSegment newSegment = new PunchSegment();
+            newSegment.setAttendance(attendance);
+            newSegment.setClockInTime(now);
+            newSegment.setSegmentType("WORK");
+            punchSegmentRepository.save(newSegment);
+            
+            recalculateAttendance(attendance);
+            return mapToDto(attendanceRepository.save(attendance));
+        }
+
+        attendance = new Attendance();
         attendance.setEmployee(employee);
-        attendance.setAttendanceDate(today);
-        attendance.setClockInTime(LocalDateTime.now(zoneId));
+        attendance.setAttendanceDate(shiftDate);
+        attendance.setClockInTime(now); // Backward compatibility
         attendance.setPunchMethod(punchMethod);
         attendance.setStatus("PRESENT");
         
         Attendance saved = attendanceRepository.save(attendance);
-        return mapToDto(saved);
+        
+        PunchSegment firstSegment = new PunchSegment();
+        firstSegment.setAttendance(saved);
+        firstSegment.setClockInTime(now);
+        firstSegment.setSegmentType("WORK");
+        punchSegmentRepository.save(firstSegment);
+        
+        recalculateAttendance(saved);
+        return mapToDto(attendanceRepository.save(saved));
     }
 
     @Transactional
@@ -86,43 +122,91 @@ public class AttendanceService {
         
         List<Attendance> activeShifts = attendanceRepository.findActiveAttendanceByEmployeeIdAndClientIdAndOrgId(employeeId, clientId, orgId);
         if (activeShifts.isEmpty()) {
-            throw new RuntimeException("No active clock-in session found for employee.");
+            throw new RuntimeException("No active shift found for employee.");
         }
 
         Attendance attendance = activeShifts.get(0);
-        attendance.setClockOutTime(LocalDateTime.now(zoneId));
+        PunchSegment openSegment = punchSegmentRepository.findOpenSegmentByAttendanceId(attendance.getId())
+                .orElseThrow(() -> new RuntimeException("No active open punch segment found to clock out."));
+
+        LocalDateTime now = LocalDateTime.now(zoneId);
+        openSegment.setClockOutTime(now);
         
-        // Calculate hours and overtime using math similar to payroll-ddd
-        calculateHours(attendance);
+        Duration duration = Duration.between(openSegment.getClockInTime(), now);
+        double hours = duration.toMinutes() / 60.0;
+        openSegment.setHoursWorked(BigDecimal.valueOf(hours).setScale(2, RoundingMode.HALF_UP));
         
-        Attendance saved = attendanceRepository.save(attendance);
-        return mapToDto(saved);
+        punchSegmentRepository.save(openSegment);
+        
+        attendance.setClockOutTime(now); // Backward compatibility
+        
+        recalculateAttendance(attendance);
+        return mapToDto(attendanceRepository.save(attendance));
     }
 
-    private void calculateHours(Attendance attendance) {
-        if (attendance.getClockInTime() != null && attendance.getClockOutTime() != null) {
-            Duration duration = Duration.between(attendance.getClockInTime(), attendance.getClockOutTime());
-            double hours = duration.toMinutes() / 60.0;
-            BigDecimal totalHours = BigDecimal.valueOf(hours).setScale(2, RoundingMode.HALF_UP);
-            
-            attendance.setTotalHoursWorked(totalHours);
-
-            BigDecimal threshold = DEFAULT_STANDARD_HOURS_PER_DAY;
-            try {
-                if (hrSettingsService != null && hrSettingsService.getSettings() != null) {
-                    BigDecimal customHours = hrSettingsService.getSettings().getStandardHoursPerDay();
-                    if (customHours != null && customHours.compareTo(BigDecimal.ZERO) > 0) {
-                        threshold = customHours;
-                    }
+    private void recalculateAttendance(Attendance attendance) {
+        List<PunchSegment> segments = punchSegmentRepository.findByAttendanceId(attendance.getId());
+        
+        BigDecimal totalWorked = BigDecimal.ZERO;
+        LocalDateTime firstIn = null;
+        LocalDateTime lastOut = null;
+        
+        for (PunchSegment seg : segments) {
+            if ("WORK".equals(seg.getSegmentType())) {
+                BigDecimal h = seg.getHoursWorked() != null ? seg.getHoursWorked() : BigDecimal.ZERO;
+                if (seg.getClockOutTime() == null && seg.getClockInTime() != null) {
+                    // Open segment, calculate up to now
+                    ZoneId zoneId = timezoneResolver.resolveTimezone(attendance.getClientId(), attendance.getOrgId());
+                    Duration dur = Duration.between(seg.getClockInTime(), LocalDateTime.now(zoneId));
+                    h = BigDecimal.valueOf(dur.toMinutes() / 60.0).setScale(2, RoundingMode.HALF_UP);
                 }
-            } catch (Exception ignored) {
+                totalWorked = totalWorked.add(h);
             }
-            
-            if (totalHours.compareTo(threshold) > 0) {
-                attendance.setOvertimeHours(totalHours.subtract(threshold));
-            } else {
-                attendance.setOvertimeHours(BigDecimal.ZERO);
+            if (firstIn == null || (seg.getClockInTime() != null && seg.getClockInTime().isBefore(firstIn))) {
+                firstIn = seg.getClockInTime();
             }
+            if (lastOut == null || (seg.getClockOutTime() != null && seg.getClockOutTime().isAfter(lastOut))) {
+                lastOut = seg.getClockOutTime();
+            }
+        }
+        
+        attendance.setTotalHoursWorked(totalWorked);
+        attendance.setClockInTime(firstIn);
+        attendance.setClockOutTime(lastOut);
+
+        BigDecimal threshold = DEFAULT_STANDARD_HOURS_PER_DAY;
+        try {
+            if (hrSettingsService != null && hrSettingsService.getSettings() != null) {
+                BigDecimal customHours = hrSettingsService.getSettings().getStandardHoursPerDay();
+                if (customHours != null && customHours.compareTo(BigDecimal.ZERO) > 0) {
+                    threshold = customHours;
+                }
+            }
+        } catch (Exception ignored) {}
+        
+        if (totalWorked.compareTo(threshold) > 0) {
+            attendance.setOvertimeHours(totalWorked.subtract(threshold));
+        } else {
+            attendance.setOvertimeHours(BigDecimal.ZERO);
+        }
+    }
+
+    @Transactional(readOnly = true)
+    public String getEmployeeCurrentStatus(UUID employeeId) {
+        UUID clientId = TenantContext.getCurrentTenant();
+        UUID orgId = TenantContext.getCurrentOrg();
+        
+        List<Attendance> activeShifts = attendanceRepository.findActiveAttendanceByEmployeeIdAndClientIdAndOrgId(employeeId, clientId, orgId);
+        if (activeShifts.isEmpty()) {
+            return "NOT_CLOCKED_IN";
+        }
+        
+        Attendance shift = activeShifts.get(0);
+        java.util.Optional<PunchSegment> openSegment = punchSegmentRepository.findOpenSegmentByAttendanceId(shift.getId());
+        if (openSegment.isPresent()) {
+            return "WORKING";
+        } else {
+            return "ON_BREAK";
         }
     }
 
@@ -159,10 +243,16 @@ public class AttendanceService {
         ZoneId zoneId = timezoneResolver.resolveTimezone(clientId, orgId);
 
         Attendance attendance;
+        LocalDate attDate = dto.getAttendanceDate() != null ? dto.getAttendanceDate() : LocalDate.now(zoneId);
+
         if (dto.getId() != null) {
             attendance = attendanceRepository.findByIdAndClientIdAndOrgId(dto.getId(), clientId, orgId)
                     .orElseThrow(() -> new RuntimeException("Attendance record not found"));
         } else {
+            // Guard against duplicates
+            if (attendanceRepository.findByEmployeeIdAndDateAndClientIdAndOrgId(dto.getEmployeeId(), attDate, clientId, orgId).isPresent()) {
+                throw new RuntimeException("A timecard already exists for this employee on this date.");
+            }
             attendance = new Attendance();
         }
 
@@ -170,7 +260,7 @@ public class AttendanceService {
                 .orElseThrow(() -> new RuntimeException("Employee not found"));
 
         attendance.setEmployee(employee);
-        attendance.setAttendanceDate(dto.getAttendanceDate() != null ? dto.getAttendanceDate() : LocalDate.now(zoneId));
+        attendance.setAttendanceDate(attDate);
         attendance.setStatus(dto.getStatus() != null ? dto.getStatus() : "PRESENT");
         attendance.setPunchMethod(dto.getPunchMethod() != null ? dto.getPunchMethod() : "MANUAL");
 
@@ -179,6 +269,12 @@ public class AttendanceService {
             attendance.setClockOutTime(null);
             attendance.setTotalHoursWorked(BigDecimal.ZERO);
             attendance.setOvertimeHours(BigDecimal.ZERO);
+            attendanceRepository.save(attendance);
+            // Delete any existing segments
+            if (attendance.getId() != null) {
+                List<PunchSegment> segments = punchSegmentRepository.findByAttendanceId(attendance.getId());
+                punchSegmentRepository.deleteAll(segments);
+            }
         } else {
             // Block manual attendance if employee has an approved leave on that date
             List<LeaveRequest> approvedLeaves = leaveRequestRepository.findApprovedByEmployeeIdAndDate(
@@ -189,23 +285,46 @@ public class AttendanceService {
                         + leave.getLeaveType() + " leave from " + leave.getStartDate()
                         + " to " + leave.getEndDate() + ". Cancel the leave first.");
             }
+            
+            Attendance savedAtt = attendanceRepository.save(attendance);
+
+            // Manual timecard creates a single WORK segment from the payload
             LocalDateTime clockIn = dto.getClockInTime();
             if (clockIn != null && attendance.getAttendanceDate() != null) {
-                // Ensure date component of clockInTime matches attendanceDate
                 clockIn = LocalDateTime.of(attendance.getAttendanceDate(), clockIn.toLocalTime());
             }
-            attendance.setClockInTime(clockIn);
 
             LocalDateTime clockOut = dto.getClockOutTime();
             if (clockOut != null && attendance.getAttendanceDate() != null) {
-                // Ensure clockOut is on or after clockIn
                 clockOut = LocalDateTime.of(attendance.getAttendanceDate(), clockOut.toLocalTime());
                 if (clockIn != null && clockOut.isBefore(clockIn)) {
-                    clockOut = clockOut.plusDays(1); // Shift crossed midnight
+                    clockOut = clockOut.plusDays(1);
                 }
             }
-            attendance.setClockOutTime(clockOut);
-            calculateHours(attendance);
+            
+            List<PunchSegment> existingSegs = punchSegmentRepository.findByAttendanceId(savedAtt.getId());
+            PunchSegment segment;
+            if (existingSegs.isEmpty()) {
+                segment = new PunchSegment();
+                segment.setAttendance(savedAtt);
+            } else {
+                // Just update the first one if editing simple timecard
+                segment = existingSegs.get(0);
+            }
+            
+            segment.setSegmentType("WORK");
+            segment.setClockInTime(clockIn);
+            segment.setClockOutTime(clockOut);
+            if (clockIn != null && clockOut != null) {
+                Duration dur = Duration.between(clockIn, clockOut);
+                segment.setHoursWorked(BigDecimal.valueOf(dur.toMinutes() / 60.0).setScale(2, RoundingMode.HALF_UP));
+            } else {
+                segment.setHoursWorked(BigDecimal.ZERO);
+            }
+            punchSegmentRepository.save(segment);
+            
+            recalculateAttendance(savedAtt);
+            attendance = attendanceRepository.save(savedAtt);
         }
 
         Attendance saved = attendanceRepository.save(attendance);
@@ -224,6 +343,29 @@ public class AttendanceService {
     }
 
     private AttendanceDto mapToDto(Attendance entity) {
+        List<PunchSegment> segs = entity.getId() != null ? punchSegmentRepository.findByAttendanceId(entity.getId()) : java.util.Collections.emptyList();
+        
+        BigDecimal totalBreak = BigDecimal.ZERO;
+        LocalDateTime prevOut = null;
+        for (PunchSegment seg : segs) {
+            if (prevOut != null && seg.getClockInTime() != null) {
+                Duration gap = Duration.between(prevOut, seg.getClockInTime());
+                if (!gap.isNegative()) {
+                    totalBreak = totalBreak.add(BigDecimal.valueOf(gap.toMinutes() / 60.0));
+                }
+            }
+            prevOut = seg.getClockOutTime();
+        }
+
+        List<com.restaurant.pos.hr.dto.PunchSegmentDto> segDtos = segs.stream().map(s -> com.restaurant.pos.hr.dto.PunchSegmentDto.builder()
+                .id(s.getId())
+                .attendanceId(s.getAttendance().getId())
+                .clockInTime(s.getClockInTime())
+                .clockOutTime(s.getClockOutTime())
+                .hoursWorked(s.getHoursWorked())
+                .segmentType(s.getSegmentType())
+                .build()).collect(Collectors.toList());
+
         return AttendanceDto.builder()
                 .id(entity.getId())
                 .employeeId(entity.getEmployee().getId())
@@ -235,6 +377,8 @@ public class AttendanceService {
                 .overtimeHours(entity.getOvertimeHours())
                 .status(entity.getStatus())
                 .punchMethod(entity.getPunchMethod())
+                .totalBreakHours(totalBreak.setScale(2, RoundingMode.HALF_UP))
+                .segments(segDtos)
                 .build();
     }
 }

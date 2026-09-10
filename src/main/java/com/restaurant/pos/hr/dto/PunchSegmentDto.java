@@ -6,17 +6,18 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.UUID;
 
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class HrSettingsDto {
+public class PunchSegmentDto {
     private UUID id;
-    private BigDecimal standardHoursPerDay;
-    private BigDecimal overtimeMultiplier;
-    private BigDecimal weeklyOvertimeThreshold;
-    private String overtimeMode;
-    private Integer shiftDayBoundaryHour;
+    private UUID attendanceId;
+    private LocalDateTime clockInTime;
+    private LocalDateTime clockOutTime;
+    private BigDecimal hoursWorked;
+    private String segmentType;
 }

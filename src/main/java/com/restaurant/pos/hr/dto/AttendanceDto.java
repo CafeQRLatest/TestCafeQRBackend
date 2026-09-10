@@ -25,4 +25,6 @@ public class AttendanceDto {
     private BigDecimal overtimeHours;
     private String status;
     private String punchMethod;
+    private BigDecimal totalBreakHours;
+    private java.util.List<PunchSegmentDto> segments;
 }
