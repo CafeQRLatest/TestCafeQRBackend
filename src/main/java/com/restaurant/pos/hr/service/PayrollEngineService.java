@@ -83,10 +83,7 @@ public class PayrollEngineService {
                     .map(a -> a.getOvertimeHours() != null ? a.getOvertimeHours() : BigDecimal.ZERO)
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
                     
-            BigDecimal totalHours = normalHours.add(overtimeHours);
-            slip.setTotalWorkedHours(totalHours);
-
-            // 4. Aggregate Unpaid Leaves
+            // 4. Aggregate Leaves
             List<LeaveRequest> leaves = leaveRequestRepository.findApprovedByEmployeeIdAndDateRange(
                     emp.getId(), run.getStartDate(), run.getEndDate(), clientId, orgId);
                     
@@ -95,6 +92,28 @@ public class PayrollEngineService {
                     .mapToInt(LeaveRequest::getTotalDays)
                     .sum();
             slip.setTotalUnpaidLeaveDays(unpaidLeaveDays);
+
+            if ("HOURLY".equals(emp.getEmploymentType())) {
+                int paidLeaveDays = leaves.stream()
+                        .filter(l -> "PAID".equals(l.getLeaveType()) || "SICK".equals(l.getLeaveType()))
+                        .mapToInt(LeaveRequest::getTotalDays)
+                        .sum();
+                if (paidLeaveDays > 0) {
+                    BigDecimal standardHoursPerDay = new BigDecimal("8.00");
+                    try {
+                        if (hrSettingsService != null && hrSettingsService.getSettings() != null) {
+                            BigDecimal customHours = hrSettingsService.getSettings().getStandardHoursPerDay();
+                            if (customHours != null && customHours.compareTo(BigDecimal.ZERO) > 0) {
+                                standardHoursPerDay = customHours;
+                            }
+                        }
+                    } catch (Exception ignored) {}
+                    normalHours = normalHours.add(standardHoursPerDay.multiply(BigDecimal.valueOf(paidLeaveDays)));
+                }
+            }
+
+            BigDecimal totalHours = normalHours.add(overtimeHours);
+            slip.setTotalWorkedHours(totalHours);
 
             // 5. Calculate Base Pay
             BigDecimal grossPay = BigDecimal.ZERO;
