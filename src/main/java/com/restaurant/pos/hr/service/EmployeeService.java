@@ -69,28 +69,22 @@ public class EmployeeService {
 
     private void validateEmployeeDto(EmployeeDto dto) {
         if (dto.getFirstName() == null || dto.getFirstName().trim().isEmpty()) {
+            throw new BusinessException("First name is required.");
+        }
+
         if (dto.getPinCode() != null && !dto.getPinCode().isBlank()) {
             String cleanPin = dto.getPinCode().trim();
             if (!cleanPin.matches("\\d{4}")) {
-                throw new RuntimeException("Kiosk PIN must be exactly 4 numeric digits.");
-            }
-            if (employeeRepository.existsByPinCodeAndClientIdAndOrgId(cleanPin, clientId, orgId, currentId)) {
-                throw new RuntimeException("The PIN code '" + cleanPin + "' is already assigned to another employee.");
-            }
-        }
-
-        if (dto.getEmail() != null && !dto.getEmail().isBlank()) {
-            if (employeeRepository.existsByEmailAndClientId(dto.getEmail().trim(), clientId, currentId)) {
-                throw new RuntimeException("An employee with email '" + dto.getEmail().trim() + "' already exists.");
+                throw new BusinessException("Kiosk PIN must be exactly 4 numeric digits.");
             }
         }
 
         if (dto.getBaseSalary() != null && dto.getBaseSalary().compareTo(java.math.BigDecimal.ZERO) < 0) {
-            throw new RuntimeException("Base salary cannot be negative.");
+            throw new BusinessException("Base salary cannot be negative.");
         }
 
         if (dto.getHourlyRate() != null && dto.getHourlyRate().compareTo(java.math.BigDecimal.ZERO) < 0) {
-            throw new RuntimeException("Hourly rate cannot be negative.");
+            throw new BusinessException("Hourly rate cannot be negative.");
         }
     }
 
