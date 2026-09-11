@@ -3572,7 +3572,7 @@ public class OrderService {
         findTenantTableForOrder(order.getTableId(), order.getOrgId()).ifPresent(table -> {
             if (!nextStatus.equalsIgnoreCase(String.valueOf(table.getStatus()))) {
                 table.setStatus(nextStatus);
-                tableRepository.save(table);
+                tableRepository.saveAndFlush(table);
             }
         });
     }
