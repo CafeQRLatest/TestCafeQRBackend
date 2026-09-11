@@ -1,5 +1,6 @@
 package com.restaurant.pos.hr.service;
 
+import com.restaurant.pos.common.exception.BusinessException;
 import com.restaurant.pos.common.tenant.TenantContext;
 import com.restaurant.pos.hr.dto.EmployeeDto;
 import com.restaurant.pos.hr.entity.Department;
@@ -9,6 +10,7 @@ import com.restaurant.pos.hr.repository.DepartmentRepository;
 import com.restaurant.pos.hr.repository.DesignationRepository;
 import com.restaurant.pos.hr.repository.EmployeeRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -39,48 +41,34 @@ public class EmployeeService {
         UUID clientId = TenantContext.getCurrentTenant();
         UUID orgId = TenantContext.getCurrentOrg();
         
-        return employeeRepository.findByIdAndClientIdAndOrgId(id, clientId, orgId)
-                .map(this::mapToDto)
-                .orElseThrow(() -> new RuntimeException("Employee not found"));
+        Employee employee = employeeRepository.findByIdAndClientIdAndOrgId(id, clientId, orgId)
+                .orElseThrow(() -> new BusinessException("Employee not found"));
+        return mapToDto(employee);
     }
 
     @Transactional
     public EmployeeDto createEmployee(EmployeeDto dto) {
-        validateUniqueness(dto, null);
+        validateEmployeeDto(dto);
         Employee employee = new Employee();
         mapToEntity(dto, employee);
-        employee.setActive(true);
-        Employee saved = employeeRepository.save(employee);
-        return mapToDto(saved);
+        return mapToDto(employeeRepository.save(employee));
     }
 
     @Transactional
     public EmployeeDto updateEmployee(UUID id, EmployeeDto dto) {
+        validateEmployeeDto(dto);
         UUID clientId = TenantContext.getCurrentTenant();
         UUID orgId = TenantContext.getCurrentOrg();
         
         Employee employee = employeeRepository.findByIdAndClientIdAndOrgId(id, clientId, orgId)
-                .orElseThrow(() -> new RuntimeException("Employee not found"));
-                
-        validateUniqueness(dto, id);
+                .orElseThrow(() -> new BusinessException("Employee not found"));
 
         mapToEntity(dto, employee);
-        Employee saved = employeeRepository.save(employee);
-        return mapToDto(saved);
+        return mapToDto(employeeRepository.save(employee));
     }
 
-    private void validateUniqueness(EmployeeDto dto, UUID currentId) {
-        UUID clientId = TenantContext.getCurrentTenant();
-        UUID orgId = TenantContext.getCurrentOrg();
-
+    private void validateEmployeeDto(EmployeeDto dto) {
         if (dto.getFirstName() == null || dto.getFirstName().trim().isEmpty()) {
-            throw new RuntimeException("First name is required.");
-        }
-
-        if (dto.getLastName() == null || dto.getLastName().trim().isEmpty()) {
-            throw new RuntimeException("Last name is required.");
-        }
-
         if (dto.getPinCode() != null && !dto.getPinCode().isBlank()) {
             String cleanPin = dto.getPinCode().trim();
             if (!cleanPin.matches("\\d{4}")) {
@@ -112,9 +100,15 @@ public class EmployeeService {
         UUID orgId = TenantContext.getCurrentOrg();
         
         Employee employee = employeeRepository.findByIdAndClientIdAndOrgId(id, clientId, orgId)
-                .orElseThrow(() -> new RuntimeException("Employee not found"));
+                .orElseThrow(() -> new BusinessException("Employee not found"));
                 
-        employeeRepository.delete(employee);
+        try {
+            employeeRepository.delete(employee);
+            employeeRepository.flush();
+        } catch (DataIntegrityViolationException e) {
+            String name = (employee.getFirstName() + " " + (employee.getLastName() != null ? employee.getLastName() : "")).trim();
+            throw new BusinessException("Cannot delete employee '" + name + "' because they have linked attendance, leave, or payroll history. You can edit the employee and set their status to Inactive instead.");
+        }
     }
 
     private void mapToEntity(EmployeeDto dto, Employee employee) {
