@@ -1,6 +1,7 @@
 package com.restaurant.pos.hr.service;
 
 import com.restaurant.pos.common.tenant.TenantContext;
+import com.restaurant.pos.expense.repository.ExpenseRepository;
 import com.restaurant.pos.hr.dto.PayrollRunDto;
 import com.restaurant.pos.hr.dto.SalarySlipDto;
 import com.restaurant.pos.hr.entity.*;
@@ -30,6 +31,7 @@ class PayrollEngineServiceTest {
     private LeaveRequestRepository leaveRequestRepository;
     private SalaryAdvanceRepository salaryAdvanceRepository;
     private HrSettingsService hrSettingsService;
+    private ExpenseRepository expenseRepository;
 
     private PayrollEngineService payrollEngineService;
 
@@ -46,6 +48,7 @@ class PayrollEngineServiceTest {
         leaveRequestRepository = mock(LeaveRequestRepository.class);
         salaryAdvanceRepository = mock(SalaryAdvanceRepository.class);
         hrSettingsService = mock(HrSettingsService.class);
+        expenseRepository = mock(ExpenseRepository.class);
 
         payrollEngineService = new PayrollEngineService(
                 payrollRunRepository,
@@ -55,7 +58,8 @@ class PayrollEngineServiceTest {
                 attendanceRepository,
                 leaveRequestRepository,
                 salaryAdvanceRepository,
-                hrSettingsService
+                hrSettingsService,
+                expenseRepository
         );
 
         clientId = UUID.randomUUID();
