@@ -44,7 +44,11 @@ public class ConfigurationDto {
     private boolean dineInAutoPrintKotOnSettle;
     private boolean dineInHideKitchenMode;
     @Builder.Default
-    private String defaultBillingUiMode = "standard";
+    private String defaultBillingUiMode = "board";
+    @Builder.Default
+    private String salesVersion = "v1";
+    @Builder.Default
+    private boolean posV2Enabled = false;
 
     // Offline Sync Capabilities
     private boolean offlineSyncEnabled;

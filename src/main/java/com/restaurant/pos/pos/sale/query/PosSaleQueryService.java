@@ -511,7 +511,7 @@ public class PosSaleQueryService {
 
         return SalesScreenConfiguration.builder()
                 .salesType(salesType)
-                .defaultBillingUiMode(billingMode != null ? billingMode.toLowerCase() : "standard")
+                .defaultBillingUiMode(billingMode != null ? billingMode.toLowerCase() : "board")
                 .configurationVersion(configVersion)
                 .posProductListingEnabled(productListing)
                 .tableEnabled(c.isTableManagementEnabled())

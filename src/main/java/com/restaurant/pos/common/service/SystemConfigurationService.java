@@ -246,8 +246,9 @@ public class SystemConfigurationService {
                 .takeawayAutoPrintKotOnSettle(false)
                 .takeawayHideKitchenMode(false)
                 .dineInAutoPrintKotOnSettle(false)
-                .dineInHideKitchenMode(false)
-                .defaultBillingUiMode("standard")
+                .defaultBillingUiMode("board")
+                .salesVersion("v1")
+                .posV2Enabled(false)
                 .offlineSyncEnabled(false)
                 .offlineSyncInterval(60)
                 .offlineLeaseBlockSize(100)
@@ -433,7 +434,9 @@ public class SystemConfigurationService {
                 .takeawayHideKitchenMode(entity.isTakeawayHideKitchenMode())
                 .dineInAutoPrintKotOnSettle(entity.isDineInAutoPrintKotOnSettle())
                 .dineInHideKitchenMode(entity.isDineInHideKitchenMode())
-                .defaultBillingUiMode(entity.getDefaultBillingUiMode())
+                .defaultBillingUiMode(entity.getDefaultBillingUiMode() != null ? entity.getDefaultBillingUiMode() : "board")
+                .salesVersion(entity.getSalesVersion() != null && "v2".equalsIgnoreCase(entity.getSalesVersion()) ? "v2" : "v1")
+                .posV2Enabled(entity.getSalesVersion() != null && "v2".equalsIgnoreCase(entity.getSalesVersion()))
                 .offlineSyncEnabled(entity.isOfflineSyncEnabled())
                 .offlineSyncInterval(entity.getOfflineSyncInterval())
                 .offlineLeaseBlockSize(entity.getOfflineLeaseBlockSize())
@@ -504,6 +507,13 @@ public class SystemConfigurationService {
         entity.setDineInAutoPrintKotOnSettle(dto.isDineInAutoPrintKotOnSettle());
         entity.setDineInHideKitchenMode(dto.isDineInHideKitchenMode());
         if (dto.getDefaultBillingUiMode() != null) entity.setDefaultBillingUiMode(dto.getDefaultBillingUiMode());
+        if (dto.getSalesVersion() != null) {
+            entity.setSalesVersion(dto.getSalesVersion().toLowerCase());
+            entity.setPosV2Enabled(!"v1".equalsIgnoreCase(dto.getSalesVersion()));
+        } else {
+            entity.setPosV2Enabled(dto.isPosV2Enabled());
+            entity.setSalesVersion(dto.isPosV2Enabled() ? "v2" : "v1");
+        }
         entity.setOfflineSyncEnabled(dto.isOfflineSyncEnabled());
         entity.setOfflineSyncInterval(dto.getOfflineSyncInterval());
         entity.setOfflineFailOpenPayments(dto.isOfflineFailOpenPayments());
