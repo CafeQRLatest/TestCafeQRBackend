@@ -471,6 +471,7 @@ public class SystemConfigurationService {
                 .shippingAddressLine1(resolvedAddress)
                 .shippingPincode(resolvedPincode)
                 .timezone(resolvedTimezone)
+                .updatedAt(entity.getUpdatedAt())
                 .build();
     }
 

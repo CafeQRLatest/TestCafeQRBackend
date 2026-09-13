@@ -2097,19 +2097,7 @@ public class OrderService {
             diagnosticPhase = "hydrate_saved_order";
             Order hydrated = hydrateOrder(saved);
             hydrated.setSkipAutoPrintKinds(order.getSkipAutoPrintKinds());
-
-            diagnosticPhase = "enqueue_cloud_print_jobs";
-            enqueueCloudPrintJobs(hydrated);
             logCreditOrderCreateSuccess(logCreditDiagnostics, hydrated);
-            publishLoyaltyEventIfApplicable(hydrated);
-
-            try {
-                if (hydrated.getOrderType() == OrderType.SALE) {
-                    pushNotificationService.sendNewOrderPush(hydrated);
-                }
-            } catch (Exception ex) {
-                log.error("Failed to send push notification for order {}", hydrated.getId(), ex);
-            }
 
             return hydrated;
         } catch (RuntimeException ex) {
@@ -4147,7 +4135,7 @@ public class OrderService {
      * <b>excluding</b>: tax, round-off, delivery/service charges,
      * and any loyalty redemption discount already applied.
      */
-    private BigDecimal computeLoyaltyEligibleAmount(Order order) {
+    public BigDecimal computeLoyaltyEligibleAmount(Order order) {
         if (order == null)
             return BigDecimal.ZERO;
 

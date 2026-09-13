@@ -6,6 +6,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.List;
 
@@ -103,6 +104,8 @@ public class ConfigurationDto {
     private String shippingAddressState;
     private String shippingPincode;
     private String timezone;
+
+    private LocalDateTime updatedAt;
 
     // Branch override metadata (not persisted — set by service layer)
     @Builder.Default

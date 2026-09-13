@@ -148,6 +148,8 @@ public class SalesQueryService {
                 where.append("AND o.payment_status = 'PAID' AND o.isactive = 'Y' AND o.order_status <> 'VOID' AND o.order_no NOT LIKE '%\\_VOID\\_%' ESCAPE '\\' ");
             } else if ("COMPLETED_CANCELLED".equalsIgnoreCase(status)) {
                 where.append("AND o.order_status IN ('COMPLETED', 'CANCELLED') AND o.isactive = 'Y' AND o.order_status <> 'VOID' AND o.order_no NOT LIKE '%\\_VOID\\_%' ESCAPE '\\' ");
+            } else if ("LIVE".equalsIgnoreCase(status)) {
+                where.append("AND o.order_status NOT IN ('COMPLETED', 'CANCELLED', 'VOID', 'CLOSED') AND o.isactive = 'Y' AND o.order_no NOT LIKE '%\\_VOID\\_%' ESCAPE '\\' ");
             } else {
                 where.append("AND o.order_status = :status AND o.isactive = 'Y' AND o.order_status <> 'VOID' AND o.order_no NOT LIKE '%\\_VOID\\_%' ESCAPE '\\' ");
                 params.addValue("status", status);

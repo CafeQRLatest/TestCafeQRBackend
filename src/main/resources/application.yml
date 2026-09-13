@@ -1,7 +1,11 @@
 server:
   port: 8080
   max-http-request-header-size: 65536
-
+  compression:
+    enabled: true
+    mime-types: text/html,text/xml,text/plain,text/css,text/javascript,application/javascript,application/json,application/xml
+    min-response-size: 1024
+ 
 spring:
   profiles:
     active: ${SPRING_PROFILES_ACTIVE:local}
@@ -125,6 +129,8 @@ subscription:
   monthly-amount-paise: ${SUBSCRIPTION_MONTHLY_AMOUNT_PAISE:100}
 
 logging:
+  file:
+    name: logs/cafe-qr.log
   level:
     org.hibernate.orm.jdbc.bind: ERROR
 
