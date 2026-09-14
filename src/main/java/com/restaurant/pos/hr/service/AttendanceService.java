@@ -366,6 +366,22 @@ public class AttendanceService {
                 .segmentType(s.getSegmentType())
                 .build()).collect(Collectors.toList());
 
+        BigDecimal threshold = DEFAULT_STANDARD_HOURS_PER_DAY;
+        try {
+            if (hrSettingsService != null && hrSettingsService.getSettings() != null) {
+                BigDecimal customHours = hrSettingsService.getSettings().getStandardHoursPerDay();
+                if (customHours != null && customHours.compareTo(BigDecimal.ZERO) > 0) {
+                    threshold = customHours;
+                }
+            }
+        } catch (Exception ignored) {}
+
+        BigDecimal totalWorked = entity.getTotalHoursWorked() != null ? entity.getTotalHoursWorked() : BigDecimal.ZERO;
+        BigDecimal computedOt = BigDecimal.ZERO;
+        if (!"ABSENT".equalsIgnoreCase(entity.getStatus()) && totalWorked.compareTo(threshold) > 0) {
+            computedOt = totalWorked.subtract(threshold);
+        }
+
         return AttendanceDto.builder()
                 .id(entity.getId())
                 .employeeId(entity.getEmployee().getId())
@@ -374,7 +390,7 @@ public class AttendanceService {
                 .clockInTime(entity.getClockInTime())
                 .clockOutTime(entity.getClockOutTime())
                 .totalHoursWorked(entity.getTotalHoursWorked())
-                .overtimeHours(entity.getOvertimeHours())
+                .overtimeHours(computedOt)
                 .status(entity.getStatus())
                 .punchMethod(entity.getPunchMethod())
                 .totalBreakHours(totalBreak.setScale(2, RoundingMode.HALF_UP))

@@ -187,4 +187,37 @@ class AttendanceServiceTest {
         assertThat(result.getTotalHoursWorked()).isEqualByComparingTo("13.00");
         assertThat(result.getOvertimeHours()).isEqualByComparingTo("1.00");
     }
+
+    @Test
+    void updateHrSettings_BulkRecalculatesOvertimeForPastAttendanceRecords() {
+        com.restaurant.pos.hr.repository.HrSettingsRepository hrSettingsRepository = mock(com.restaurant.pos.hr.repository.HrSettingsRepository.class);
+        HrSettingsService settingsService = new HrSettingsService(hrSettingsRepository, attendanceRepository);
+
+        Attendance pastAtt1 = new Attendance();
+        pastAtt1.setId(UUID.randomUUID());
+        pastAtt1.setTotalHoursWorked(new BigDecimal("10.00"));
+        pastAtt1.setOvertimeHours(new BigDecimal("2.00")); // Old calculation based on 8 hr threshold
+
+        Attendance pastAtt2 = new Attendance();
+        pastAtt2.setId(UUID.randomUUID());
+        pastAtt2.setTotalHoursWorked(new BigDecimal("12.00"));
+        pastAtt2.setOvertimeHours(new BigDecimal("4.00")); // Old calculation based on 8 hr threshold
+
+        when(attendanceRepository.findByClientIdAndOrgId(clientId, orgId)).thenReturn(List.of(pastAtt1, pastAtt2));
+        when(hrSettingsRepository.findByClientIdAndOrgId(clientId, orgId)).thenReturn(java.util.Optional.empty());
+        when(hrSettingsRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        HrSettingsDto newPolicy = HrSettingsDto.builder()
+                .standardHoursPerDay(new BigDecimal("10.00"))
+                .build();
+
+        settingsService.updateSettings(newPolicy);
+
+        // pastAtt1 (10 hrs) vs 10 hr threshold -> overtimeHours should be updated to 0.00
+        assertThat(pastAtt1.getOvertimeHours()).isEqualByComparingTo("0.00");
+        // pastAtt2 (12 hrs) vs 10 hr threshold -> overtimeHours should be updated to 2.00
+        assertThat(pastAtt2.getOvertimeHours()).isEqualByComparingTo("2.00");
+
+        verify(attendanceRepository, times(2)).save(any(Attendance.class));
+    }
 }
