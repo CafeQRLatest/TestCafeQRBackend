@@ -48,14 +48,20 @@ public class EmployeeSalaryComponentService {
         SalaryComponent component = salaryComponentRepository.findByIdAndClientIdAndOrgIdOrGlobal(dto.getSalaryComponentId(), clientId, orgId)
                 .orElseThrow(() -> new RuntimeException("SalaryComponent not found"));
 
-        EmployeeSalaryComponent empComp = employeeSalaryComponentRepository
-                .findByEmployeeIdAndSalaryComponentId(employeeId, dto.getSalaryComponentId())
-                .orElseGet(() -> {
-                    EmployeeSalaryComponent newComp = new EmployeeSalaryComponent();
-                    newComp.setEmployee(employee);
-                    newComp.setSalaryComponent(component);
-                    return newComp;
-                });
+        List<EmployeeSalaryComponent> existingComps = employeeSalaryComponentRepository
+                .findAllByEmployeeIdAndSalaryComponentId(employeeId, dto.getSalaryComponentId());
+
+        EmployeeSalaryComponent empComp;
+        if (!existingComps.isEmpty()) {
+            empComp = existingComps.get(0);
+            if (existingComps.size() > 1) {
+                employeeSalaryComponentRepository.deleteAll(existingComps.subList(1, existingComps.size()));
+            }
+        } else {
+            empComp = new EmployeeSalaryComponent();
+            empComp.setEmployee(employee);
+            empComp.setSalaryComponent(component);
+        }
 
         empComp.setOverrideAmount(dto.getOverrideAmount());
         empComp.setOverridePercentage(dto.getOverridePercentage());
@@ -73,11 +79,14 @@ public class EmployeeSalaryComponentService {
         employeeRepository.findByIdAndClientIdAndOrgId(employeeId, clientId, orgId)
                 .orElseThrow(() -> new RuntimeException("Employee not found"));
 
-        EmployeeSalaryComponent empComp = employeeSalaryComponentRepository
-                .findByEmployeeIdAndSalaryComponentId(employeeId, salaryComponentId)
-                .orElseThrow(() -> new RuntimeException("Salary component assignment not found for employee"));
+        List<EmployeeSalaryComponent> existingComps = employeeSalaryComponentRepository
+                .findAllByEmployeeIdAndSalaryComponentId(employeeId, salaryComponentId);
 
-        employeeSalaryComponentRepository.delete(empComp);
+        if (existingComps.isEmpty()) {
+            throw new RuntimeException("Salary component assignment not found for employee");
+        }
+
+        employeeSalaryComponentRepository.deleteAll(existingComps);
     }
 
     private EmployeeSalaryComponentDto mapToDto(EmployeeSalaryComponent entity) {
