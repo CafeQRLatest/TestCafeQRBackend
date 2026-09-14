@@ -53,9 +53,19 @@ public class EmployeeSalaryComponentService {
 
         EmployeeSalaryComponent empComp;
         if (!existingComps.isEmpty()) {
-            empComp = existingComps.get(0);
+            if (dto.getId() == null) {
+                throw new IllegalArgumentException("Salary rule is already assigned to this employee.");
+            }
+            empComp = existingComps.stream()
+                    .filter(c -> c.getId().equals(dto.getId()))
+                    .findFirst()
+                    .orElseThrow(() -> new IllegalArgumentException("Salary rule is already assigned to this employee."));
+
             if (existingComps.size() > 1) {
-                employeeSalaryComponentRepository.deleteAll(existingComps.subList(1, existingComps.size()));
+                List<EmployeeSalaryComponent> toDelete = existingComps.stream()
+                        .filter(c -> !c.getId().equals(empComp.getId()))
+                        .collect(Collectors.toList());
+                employeeSalaryComponentRepository.deleteAll(toDelete);
             }
         } else {
             empComp = new EmployeeSalaryComponent();
