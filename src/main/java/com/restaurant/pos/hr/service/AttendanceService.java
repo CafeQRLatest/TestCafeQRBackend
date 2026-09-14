@@ -297,8 +297,11 @@ public class AttendanceService {
             LocalDateTime clockOut = dto.getClockOutTime();
             if (clockOut != null && attendance.getAttendanceDate() != null) {
                 clockOut = LocalDateTime.of(attendance.getAttendanceDate(), clockOut.toLocalTime());
-                if (clockIn != null && clockOut.isBefore(clockIn)) {
-                    clockOut = clockOut.plusDays(1);
+            }
+
+            if (clockIn != null && clockOut != null) {
+                if (!clockOut.isAfter(clockIn)) {
+                    throw new IllegalArgumentException("Clock Out time must be later than Clock In time.");
                 }
             }
             

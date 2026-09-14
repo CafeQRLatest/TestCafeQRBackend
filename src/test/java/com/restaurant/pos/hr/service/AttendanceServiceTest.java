@@ -23,6 +23,7 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
@@ -219,5 +220,28 @@ class AttendanceServiceTest {
         assertThat(pastAtt2.getOvertimeHours()).isEqualByComparingTo("2.00");
 
         verify(attendanceRepository, times(2)).save(any(Attendance.class));
+    }
+
+    @Test
+    void saveManualAttendance_ClockOutEarlierThanClockIn_ThrowsException() {
+        Employee emp = new Employee();
+        emp.setId(employeeId);
+
+        when(employeeRepository.findByIdAndClientIdAndOrgId(employeeId, clientId, orgId))
+                .thenReturn(java.util.Optional.of(emp));
+        when(attendanceRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        AttendanceDto dto = AttendanceDto.builder()
+                .employeeId(employeeId)
+                .attendanceDate(LocalDate.of(2026, 9, 14))
+                .clockInTime(LocalDateTime.of(2026, 9, 14, 18, 0)) // 06:00 PM
+                .clockOutTime(LocalDateTime.of(2026, 9, 14, 9, 0)) // 09:00 AM (earlier)
+                .status("PRESENT")
+                .punchMethod("MANUAL")
+                .build();
+
+        assertThatThrownBy(() -> attendanceService.saveManualAttendance(dto))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Clock Out time must be later than Clock In time.");
     }
 }
