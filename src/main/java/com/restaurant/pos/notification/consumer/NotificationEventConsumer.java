@@ -2,8 +2,8 @@ package com.restaurant.pos.notification.consumer;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.restaurant.pos.common.tenant.TenantContext;
-import com.restaurant.pos.delivery.api.OrderStatusSseController;
 import com.restaurant.pos.order.domain.Order;
+import com.restaurant.pos.order.domain.event.OrderStatusUpdatedEvent;
 import com.restaurant.pos.order.repository.OrderRepository;
 import com.restaurant.pos.outbox.domain.OutboxEvent;
 import com.restaurant.pos.outbox.domain.ProcessedEvent;
@@ -13,6 +13,7 @@ import com.restaurant.pos.push.service.PushNotificationService;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Component;
 
 import java.util.UUID;
@@ -42,6 +43,7 @@ public class NotificationEventConsumer {
     private final PushNotificationService pushNotificationService;
     private final OrderRepository orderRepository;
     private final ProcessedEventRepository processedEventRepository;
+    private final ApplicationEventPublisher eventPublisher;
 
     @PostConstruct
     void registerHandlers() {
@@ -102,7 +104,7 @@ public class NotificationEventConsumer {
 
         if (orderId != null && status != null) {
             try {
-                OrderStatusSseController.publishStatusUpdate(orderId, status);
+                eventPublisher.publishEvent(new OrderStatusUpdatedEvent(this, orderId, status));
                 log.debug("[NotificationConsumer] SSE broadcast for order {} status={}",
                         orderId, status);
             } catch (Exception e) {
@@ -116,8 +118,8 @@ public class NotificationEventConsumer {
 
     private void broadcastSse(OutboxEvent event, Order order) {
         try {
-            OrderStatusSseController.publishStatusUpdate(
-                    order.getId(), order.getOrderStatus());
+            eventPublisher.publishEvent(new OrderStatusUpdatedEvent(
+                    this, order.getId(), order.getOrderStatus() != null ? order.getOrderStatus().toString() : null));
         } catch (Exception e) {
             log.warn("[NotificationConsumer] SSE broadcast failed for order {} — {}",
                     order.getId(), e.getMessage());

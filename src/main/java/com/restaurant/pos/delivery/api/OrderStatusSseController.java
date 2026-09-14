@@ -1,6 +1,8 @@
 package com.restaurant.pos.delivery.api;
 
+import com.restaurant.pos.order.domain.event.OrderStatusUpdatedEvent;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.event.EventListener;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -67,5 +69,14 @@ public class OrderStatusSseController {
                 emitters.remove(orderId);
             }
         }
+    }
+
+    /**
+     * Listens for {@link OrderStatusUpdatedEvent} published by the core notification module.
+     * This decouples the delivery SSE broadcasting from the notification consumer.
+     */
+    @EventListener
+    public void onOrderStatusUpdated(OrderStatusUpdatedEvent event) {
+        publishStatusUpdate(event.getOrderId(), event.getStatus());
     }
 }
