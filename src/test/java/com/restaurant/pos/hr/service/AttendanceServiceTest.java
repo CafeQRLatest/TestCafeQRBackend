@@ -2,6 +2,7 @@ package com.restaurant.pos.hr.service;
 
 import com.restaurant.pos.common.context.TimezoneResolver;
 import com.restaurant.pos.common.tenant.TenantContext;
+import com.restaurant.pos.hr.dto.AttendanceDto;
 import com.restaurant.pos.hr.dto.HrSettingsDto;
 import com.restaurant.pos.hr.entity.Attendance;
 import com.restaurant.pos.hr.entity.Employee;
@@ -224,6 +225,7 @@ class AttendanceServiceTest {
 
     @Test
     void saveManualAttendance_ClockOutEarlierThanClockIn_ThrowsException() {
+        UUID employeeId = UUID.randomUUID();
         Employee emp = new Employee();
         emp.setId(employeeId);
 
