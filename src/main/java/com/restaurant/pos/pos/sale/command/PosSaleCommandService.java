@@ -139,8 +139,10 @@ public class PosSaleCommandService {
                 )
         );
 
-        // 3. Asynchronous loyalty earn/redeem if order is actually settled and customer is attached
-        if (settled && order.getCustomerId() != null) {
+        // 3. Asynchronous loyalty earn/redeem if order is actually settled, customer is attached,
+        //    and order is NOT a credit sale (credit orders must not earn loyalty points).
+        boolean isCredit = Boolean.TRUE.equals(order.getIsCredit()) || order.getCreditCustomerId() != null;
+        if (settled && !isCredit && order.getCustomerId() != null) {
             BigDecimal eligible = orderService.computeLoyaltyEligibleAmount(order);
             Integer redeemPoints = order.getRedeemPoints() != null ? order.getRedeemPoints() : 0;
             outboxService.enqueue(
