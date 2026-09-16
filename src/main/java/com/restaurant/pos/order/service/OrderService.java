@@ -481,9 +481,14 @@ public class OrderService {
                     order.getId(), status, (addedLines != null ? addedLines.size() : 0),
                     (removedLines != null ? removedLines.size() : 0));
             if ("KITCHEN".equalsIgnoreCase(status)
+                    || "ORDERED".equalsIgnoreCase(status)
                     || "CONFIRMED".equalsIgnoreCase(status)
                     || "IN_PROGRESS".equalsIgnoreCase(status)
-                    || "READY".equalsIgnoreCase(status)) {
+                    || "READY".equalsIgnoreCase(status)
+                    || "PENDING".equalsIgnoreCase(status)
+                    || "NEW".equalsIgnoreCase(status)
+                    || "SAVED".equalsIgnoreCase(status)
+                    || "OPEN".equalsIgnoreCase(status)) {
                 if (shouldSkipAutoPrint(order, PrintJobKind.KOT)) {
                     log.info("Skipping backend auto KOT print job for order {} because requester will print locally",
                             order.getId());
