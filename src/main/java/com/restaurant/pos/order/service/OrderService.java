@@ -2102,6 +2102,7 @@ public class OrderService {
             diagnosticPhase = "hydrate_saved_order";
             Order hydrated = hydrateOrder(saved);
             hydrated.setSkipAutoPrintKinds(order.getSkipAutoPrintKinds());
+            enqueueCloudPrintJobs(hydrated);
             logCreditOrderCreateSuccess(logCreditDiagnostics, hydrated);
 
             return hydrated;
