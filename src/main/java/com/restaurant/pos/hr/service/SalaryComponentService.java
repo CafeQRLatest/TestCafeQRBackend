@@ -30,8 +30,23 @@ public class SalaryComponentService {
 
     @Transactional
     public SalaryComponentDto createComponent(SalaryComponentDto dto) {
+        UUID clientId = TenantContext.getCurrentTenant();
+        UUID orgId = TenantContext.getCurrentOrg();
+
+        String trimmedName = dto.getName() != null ? dto.getName().trim() : "";
+        if (trimmedName.isEmpty()) {
+            throw new IllegalArgumentException("Salary rule name is required.");
+        }
+
+        salaryComponentRepository.findByNameIgnoreCaseAndClientIdAndOrgIdOrGlobal(trimmedName, clientId, orgId)
+                .ifPresent(c -> {
+                    throw new IllegalArgumentException("Salary rule with name '" + trimmedName + "' already exists.");
+                });
+
         SalaryComponent component = new SalaryComponent();
-        component.setName(dto.getName());
+        component.setClientId(clientId);
+        component.setOrgId(orgId);
+        component.setName(trimmedName);
         component.setType(dto.getType());
         component.setTaxApplicable(dto.isTaxApplicable());
         component.setDependsOnAttendance(dto.isDependsOnAttendance());
@@ -53,7 +68,18 @@ public class SalaryComponentService {
         SalaryComponent component = salaryComponentRepository.findByIdAndClientIdAndOrgIdOrGlobal(id, clientId, orgId)
                 .orElseThrow(() -> new RuntimeException("SalaryComponent not found"));
                 
-        component.setName(dto.getName());
+        String trimmedName = dto.getName() != null ? dto.getName().trim() : "";
+        if (trimmedName.isEmpty()) {
+            throw new IllegalArgumentException("Salary rule name is required.");
+        }
+
+        salaryComponentRepository.findByNameIgnoreCaseAndClientIdAndOrgIdOrGlobal(trimmedName, clientId, orgId)
+                .filter(existing -> !existing.getId().equals(id))
+                .ifPresent(c -> {
+                    throw new IllegalArgumentException("Salary rule with name '" + trimmedName + "' already exists.");
+                });
+
+        component.setName(trimmedName);
         component.setType(dto.getType());
         component.setTaxApplicable(dto.isTaxApplicable());
         component.setDependsOnAttendance(dto.isDependsOnAttendance());

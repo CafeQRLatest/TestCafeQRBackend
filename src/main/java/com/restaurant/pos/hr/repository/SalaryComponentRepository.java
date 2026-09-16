@@ -21,4 +21,7 @@ public interface SalaryComponentRepository extends JpaRepository<SalaryComponent
     
     @Query("SELECT s FROM SalaryComponent s WHERE s.isActive = true AND (s.clientId = :clientId OR s.clientId IS NULL) AND (s.orgId = :orgId OR s.orgId IS NULL)")
     List<SalaryComponent> findActiveComponents(@Param("clientId") UUID clientId, @Param("orgId") UUID orgId);
+
+    @Query("SELECT s FROM SalaryComponent s WHERE LOWER(s.name) = LOWER(:name) AND (s.clientId = :clientId OR s.clientId IS NULL) AND (s.orgId = :orgId OR s.orgId IS NULL)")
+    Optional<SalaryComponent> findByNameIgnoreCaseAndClientIdAndOrgIdOrGlobal(@Param("name") String name, @Param("clientId") UUID clientId, @Param("orgId") UUID orgId);
 }
