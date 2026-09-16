@@ -143,7 +143,7 @@ public class PosSaleCommandService {
         //    and order is NOT a credit sale (credit orders must not earn loyalty points).
         boolean isCredit = Boolean.TRUE.equals(order.getIsCredit()) || order.getCreditCustomerId() != null;
         UUID targetCustomerId = order.getCustomerId();
-        if (targetCustomerId == null && order.getCustomers() != null && !ordetargetCustomerId = {UUID@22428} "de5892b3-86b2-470b-8e12-7115cc3a2fcf"r.getCustomers().isEmpty()) {
+        if (targetCustomerId == null && order.getCustomers() != null && !order.getCustomers().isEmpty()) {
             targetCustomerId = order.getCustomers().get(0).getId();
         }
 
