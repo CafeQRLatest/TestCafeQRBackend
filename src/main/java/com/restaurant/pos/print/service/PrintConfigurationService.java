@@ -225,6 +225,8 @@ public class PrintConfigurationService {
                         routeMap.put("profileIds", sanitized);
                         if (sanitized.isEmpty()) {
                             routeMap.put("enabled", false);
+                        } else if (routeMap.get("enabled") == null || Boolean.FALSE.equals(routeMap.get("enabled"))) {
+                            routeMap.put("enabled", true);
                         }
                     }
                     sanitizedRoutes.add(routeMap);
