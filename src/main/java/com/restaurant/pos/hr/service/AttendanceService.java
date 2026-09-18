@@ -20,6 +20,7 @@ import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.time.ZoneId;
 import java.util.List;
 import java.util.UUID;
@@ -296,12 +297,52 @@ public class AttendanceService {
 
             LocalDateTime clockOut = dto.getClockOutTime();
             if (clockOut != null && attendance.getAttendanceDate() != null) {
-                clockOut = LocalDateTime.of(attendance.getAttendanceDate(), clockOut.toLocalTime());
+                LocalDate outDate = dto.getClockOutTime().toLocalDate();
+                LocalTime inLocal = clockIn != null ? clockIn.toLocalTime() : null;
+                LocalTime outLocal = clockOut.toLocalTime();
+
+                boolean isNextDayExplicit = outDate.isAfter(attendance.getAttendanceDate());
+                if (isNextDayExplicit) {
+                    clockOut = LocalDateTime.of(attendance.getAttendanceDate().plusDays(1), outLocal);
+                } else if (inLocal != null && outLocal.isBefore(inLocal)) {
+                    // Time-of-day crosses midnight: evaluate whether it qualifies as an overnight shift
+                    int boundaryHour = 4;
+                    try {
+                        if (hrSettingsService != null && hrSettingsService.getSettings() != null) {
+                            Integer custom = hrSettingsService.getSettings().getShiftDayBoundaryHour();
+                            if (custom != null) boundaryHour = custom;
+                        }
+                    } catch (Exception ignored) {}
+
+                    Duration crossMidnightDur = Duration.between(
+                            LocalDateTime.of(attendance.getAttendanceDate(), inLocal),
+                            LocalDateTime.of(attendance.getAttendanceDate().plusDays(1), outLocal)
+                    );
+
+                    // Valid overnight shift if duration is within max shift limit (16h),
+                    // clock-out is within morning boundary, and clock-in is afternoon/evening (>= 12:00)
+                    boolean isValidOvernight = crossMidnightDur.toMinutes() > 0
+                            && crossMidnightDur.toHours() <= 16
+                            && outLocal.getHour() <= Math.max(boundaryHour, 6)
+                            && inLocal.getHour() >= 12;
+
+                    if (isValidOvernight) {
+                        clockOut = LocalDateTime.of(attendance.getAttendanceDate().plusDays(1), outLocal);
+                    } else {
+                        clockOut = LocalDateTime.of(attendance.getAttendanceDate(), outLocal);
+                    }
+                } else {
+                    clockOut = LocalDateTime.of(attendance.getAttendanceDate(), outLocal);
+                }
             }
 
             if (clockIn != null && clockOut != null) {
                 if (!clockOut.isAfter(clockIn)) {
                     throw new IllegalArgumentException("Clock Out time must be later than Clock In time.");
+                }
+                Duration totalDur = Duration.between(clockIn, clockOut);
+                if (totalDur.toHours() > 16) {
+                    throw new IllegalArgumentException("Invalid shift duration: Continuous shift cannot exceed 16 hours.");
                 }
             }
             

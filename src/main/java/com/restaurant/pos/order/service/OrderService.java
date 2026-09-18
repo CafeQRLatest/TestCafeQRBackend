@@ -498,7 +498,6 @@ public class OrderService {
                     if (!addedLines.isEmpty() || !removedLines.isEmpty()) {
                         log.info("Calling enqueueKotEditJob for order {}", order.getId());
                         printJobService.enqueueKotEditJob(order, addedLines, removedLines, "edit");
-                        dispatchMasterKotJobs(order, addedLines, removedLines);
                     } else {
                         log.info("addedLines and removedLines are both empty for order {}, no KOT edit generated",
                                 order.getId());
@@ -506,7 +505,6 @@ public class OrderService {
                 } else {
                     log.info("Calling enqueueForOrder (New KOT) for order {}", order.getId());
                     printJobService.enqueueForOrder(order, PrintJobKind.KOT, "auto");
-                    dispatchMasterKotJobs(order, null, null);
                 }
             } else if ("BILLED".equalsIgnoreCase(status)) {
                 if (shouldSkipAutoPrint(order, PrintJobKind.BILL)) {
