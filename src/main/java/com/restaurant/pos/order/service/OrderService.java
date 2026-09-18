@@ -2994,6 +2994,31 @@ public class OrderService {
 
         recalculateOrderTotals(order);
 
+        // Attach customer from settle request if not already attached (e.g. kitchen/table orders settled from payment popup)
+        if (order.getCustomerId() == null && (safeRequest.getCustomerId() != null
+                || (safeRequest.getCustomerPhone() != null && !safeRequest.getCustomerPhone().isBlank())
+                || (safeRequest.getCustomerName() != null && !safeRequest.getCustomerName().isBlank()))) {
+            if (safeRequest.getCustomerId() != null) {
+                order.setCustomerId(safeRequest.getCustomerId());
+            }
+            if (safeRequest.getCustomerName() != null && !safeRequest.getCustomerName().isBlank()) {
+                order.setCustomerName(safeRequest.getCustomerName());
+            }
+            if (safeRequest.getCustomerPhone() != null && !safeRequest.getCustomerPhone().isBlank()) {
+                order.setCustomerPhone(safeRequest.getCustomerPhone());
+            }
+            prepareCustomerFields(order);
+            Order savedForCustomer = orderRepository.saveAndFlush(order);
+            linkCustomersToSavedOrder(savedForCustomer);
+            // Re-read to get linked customers hydrated
+            order.setCustomerId(savedForCustomer.getCustomerId());
+            order.setCustomerName(savedForCustomer.getCustomerName());
+            order.setCustomerPhone(savedForCustomer.getCustomerPhone());
+            order.setCustomers(savedForCustomer.getCustomers());
+            log.info("Attached customer during settlement | orderId={} | customerId={} | customerName={}",
+                    order.getId(), order.getCustomerId(), order.getCustomerName());
+        }
+
         // Process loyalty redemption if points are specified in settlement
         if (safeRequest.getRedeemPoints() != null && safeRequest.getRedeemPoints() > 0) {
             UUID custId = order.getCustomerId();

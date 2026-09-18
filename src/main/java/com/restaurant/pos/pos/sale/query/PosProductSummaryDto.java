@@ -38,6 +38,10 @@ public class PosProductSummaryDto implements PosProductSummaryView {
     private Boolean isVariant;
 
     public static PosProductSummaryDto from(PosProductSummaryView v) {
+        return from(v, true);
+    }
+
+    public static PosProductSummaryDto from(PosProductSummaryView v, boolean includeImages) {
         if (v == null) return null;
         return PosProductSummaryDto.builder()
                 .id(v.getId())
@@ -47,7 +51,7 @@ public class PosProductSummaryDto implements PosProductSummaryView {
                 .costPrice(v.getCostPrice())
                 .mrp(v.getMrp())
                 .isAvailable(v.getIsAvailable())
-                .imageUrl(v.getImageUrl())
+                .imageUrl(includeImages ? v.getImageUrl() : null)
                 .categoryId(v.getCategoryId())
                 .categoryName(v.getCategoryName())
                 .productCode(v.getProductCode())

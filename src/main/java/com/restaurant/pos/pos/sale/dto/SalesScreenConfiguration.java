@@ -41,6 +41,7 @@ public class SalesScreenConfiguration {
     private boolean dineInHideKitchenMode;
     private boolean sendToKitchenEnabled;
     private boolean loyaltyEnabled;
+    private boolean menuImagesEnabled;
 
     // Currency & Formatting
     private String currencySymbol;
