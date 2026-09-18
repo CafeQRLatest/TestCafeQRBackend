@@ -9,6 +9,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
+import java.util.Collections;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -45,7 +47,7 @@ class SalaryComponentServiceTest {
     @Test
     void createComponent_UniqueName_Success() {
         when(salaryComponentRepository.findByNameIgnoreCaseAndClientIdAndOrgIdOrGlobal("Bike Allowance", clientId, orgId))
-                .thenReturn(Optional.empty());
+                .thenReturn(Collections.emptyList());
         when(salaryComponentRepository.save(any(SalaryComponent.class)))
                 .thenAnswer(inv -> inv.getArgument(0));
 
@@ -69,7 +71,7 @@ class SalaryComponentServiceTest {
         existing.setName("Bike Allowance");
 
         when(salaryComponentRepository.findByNameIgnoreCaseAndClientIdAndOrgIdOrGlobal("Bike Allowance", clientId, orgId))
-                .thenReturn(Optional.of(existing));
+                .thenReturn(List.of(existing));
 
         SalaryComponentDto dto = SalaryComponentDto.builder()
                 .name("Bike Allowance")
@@ -81,7 +83,7 @@ class SalaryComponentServiceTest {
 
         assertThatThrownBy(() -> service.createComponent(dto))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("Salary rule with name 'Bike Allowance' already exists.");
+                .hasMessage("Rule Name already exists.");
     }
 
     @Test
@@ -100,7 +102,7 @@ class SalaryComponentServiceTest {
         when(salaryComponentRepository.findByIdAndClientIdAndOrgIdOrGlobal(id1, clientId, orgId))
                 .thenReturn(Optional.of(compToEdit));
         when(salaryComponentRepository.findByNameIgnoreCaseAndClientIdAndOrgIdOrGlobal("Bike Allowance", clientId, orgId))
-                .thenReturn(Optional.of(anotherComp));
+                .thenReturn(List.of(anotherComp));
 
         SalaryComponentDto dto = SalaryComponentDto.builder()
                 .name("Bike Allowance")
@@ -112,6 +114,6 @@ class SalaryComponentServiceTest {
 
         assertThatThrownBy(() -> service.updateComponent(id1, dto))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("Salary rule with name 'Bike Allowance' already exists.");
+                .hasMessage("Rule Name already exists.");
     }
 }

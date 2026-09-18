@@ -38,10 +38,10 @@ public class SalaryComponentService {
             throw new IllegalArgumentException("Salary rule name is required.");
         }
 
-        salaryComponentRepository.findByNameIgnoreCaseAndClientIdAndOrgIdOrGlobal(trimmedName, clientId, orgId)
-                .ifPresent(c -> {
-                    throw new IllegalArgumentException("Salary rule with name '" + trimmedName + "' already exists.");
-                });
+        List<SalaryComponent> existing = salaryComponentRepository.findByNameIgnoreCaseAndClientIdAndOrgIdOrGlobal(trimmedName, clientId, orgId);
+        if (!existing.isEmpty()) {
+            throw new IllegalArgumentException("Rule Name already exists.");
+        }
 
         SalaryComponent component = new SalaryComponent();
         component.setClientId(clientId);
@@ -73,11 +73,11 @@ public class SalaryComponentService {
             throw new IllegalArgumentException("Salary rule name is required.");
         }
 
-        salaryComponentRepository.findByNameIgnoreCaseAndClientIdAndOrgIdOrGlobal(trimmedName, clientId, orgId)
-                .filter(existing -> !existing.getId().equals(id))
-                .ifPresent(c -> {
-                    throw new IllegalArgumentException("Salary rule with name '" + trimmedName + "' already exists.");
-                });
+        List<SalaryComponent> existing = salaryComponentRepository.findByNameIgnoreCaseAndClientIdAndOrgIdOrGlobal(trimmedName, clientId, orgId);
+        boolean isDuplicate = existing.stream().anyMatch(c -> !c.getId().equals(id));
+        if (isDuplicate) {
+            throw new IllegalArgumentException("Rule Name already exists.");
+        }
 
         component.setName(trimmedName);
         component.setType(dto.getType());
