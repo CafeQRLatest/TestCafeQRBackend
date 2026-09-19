@@ -268,6 +268,25 @@ class PosSaleCommandServiceTest {
         assertThat(eventTypeCaptor.getAllValues()).doesNotContain("ORDER_SETTLED_PRINT");
     }
 
+    // ─── Print: Kitchen order with skipAutoPrintKinds=['KOT'] → no print outbox event ──
+
+    @Test
+    void kitchenOrderWithSkipKot_doesNotEnqueuePrintEvent() {
+        Order order = buildOrder("KITCHEN", "PENDING", null, false, null);
+        stubCreateOrderReturning(order);
+
+        service.createSaleOrder(buildRequest(List.of("KOT")), "idem-key-1");
+
+        ArgumentCaptor<String> eventTypeCaptor = ArgumentCaptor.forClass(String.class);
+        verify(outboxService, atLeastOnce()).enqueue(
+                eq("ORDER"), eq(orderId), eventTypeCaptor.capture(),
+                eq(clientId), eq(orgId), any()
+        );
+
+        assertThat(eventTypeCaptor.getAllValues()).doesNotContain("ORDER_CONFIRMED");
+        assertThat(eventTypeCaptor.getAllValues()).doesNotContain("ORDER_SETTLED_PRINT");
+    }
+
     // ─── Print: skipAutoPrintKinds=['BILL'] → no print outbox event ─────
 
     @Test

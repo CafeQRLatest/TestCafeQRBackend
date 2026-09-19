@@ -107,8 +107,11 @@ public class PosSaleCommandService {
         boolean settled = isActuallySettled(order);
 
         // 1. Asynchronous print event (if print not explicitly skipped)
-        boolean skipPrint = request.getSkipAutoPrintKinds() != null
-                && request.getSkipAutoPrintKinds().contains("BILL");
+        boolean skipPrint = request.getSkipAutoPrintKinds() != null && (
+                settled
+                        ? request.getSkipAutoPrintKinds().stream().anyMatch(k -> "BILL".equalsIgnoreCase(k) || "SETTLE".equalsIgnoreCase(k))
+                        : request.getSkipAutoPrintKinds().stream().anyMatch(k -> "KOT".equalsIgnoreCase(k))
+        );
         if (!skipPrint) {
             String printEventType = settled ? "ORDER_SETTLED_PRINT" : "ORDER_CONFIRMED";
             outboxService.enqueue(
