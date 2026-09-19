@@ -3,6 +3,7 @@ package com.restaurant.pos.hr.service;
 import com.restaurant.pos.common.context.TimezoneResolver;
 import com.restaurant.pos.common.tenant.TenantContext;
 import com.restaurant.pos.hr.dto.AttendanceDto;
+import com.restaurant.pos.hr.dto.HrSettingsDto;
 import com.restaurant.pos.hr.entity.Attendance;
 import com.restaurant.pos.hr.entity.Employee;
 import com.restaurant.pos.hr.entity.LeaveRequest;
@@ -177,10 +178,10 @@ public class AttendanceService {
 
         BigDecimal threshold = DEFAULT_STANDARD_HOURS_PER_DAY;
         try {
-            if (hrSettingsService != null && hrSettingsService.getSettings() != null) {
-                BigDecimal customHours = hrSettingsService.getSettings().getStandardHoursPerDay();
-                if (customHours != null && customHours.compareTo(BigDecimal.ZERO) > 0) {
-                    threshold = customHours;
+            if (hrSettingsService != null) {
+                HrSettingsDto s = hrSettingsService.getSettingsForClientAndOrg(attendance.getClientId(), attendance.getOrgId());
+                if (s != null && s.getStandardHoursPerDay() != null && s.getStandardHoursPerDay().compareTo(BigDecimal.ZERO) > 0) {
+                    threshold = s.getStandardHoursPerDay();
                 }
             }
         } catch (Exception ignored) {}
@@ -412,10 +413,12 @@ public class AttendanceService {
 
         BigDecimal threshold = DEFAULT_STANDARD_HOURS_PER_DAY;
         try {
-            if (hrSettingsService != null && hrSettingsService.getSettings() != null) {
-                BigDecimal customHours = hrSettingsService.getSettings().getStandardHoursPerDay();
-                if (customHours != null && customHours.compareTo(BigDecimal.ZERO) > 0) {
-                    threshold = customHours;
+            if (hrSettingsService != null) {
+                UUID cId = entity.getClientId() != null ? entity.getClientId() : TenantContext.getCurrentTenant();
+                UUID oId = entity.getOrgId() != null ? entity.getOrgId() : TenantContext.getCurrentOrg();
+                HrSettingsDto s = hrSettingsService.getSettingsForClientAndOrg(cId, oId);
+                if (s != null && s.getStandardHoursPerDay() != null && s.getStandardHoursPerDay().compareTo(BigDecimal.ZERO) > 0) {
+                    threshold = s.getStandardHoursPerDay();
                 }
             }
         } catch (Exception ignored) {}
