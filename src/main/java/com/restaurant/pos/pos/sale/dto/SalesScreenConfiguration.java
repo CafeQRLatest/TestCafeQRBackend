@@ -42,6 +42,8 @@ public class SalesScreenConfiguration {
     private boolean sendToKitchenEnabled;
     private boolean loyaltyEnabled;
     private boolean menuImagesEnabled;
+    private boolean creditEnabled;
+    private String creditAllocationMode;
 
     // Currency & Formatting
     private String currencySymbol;

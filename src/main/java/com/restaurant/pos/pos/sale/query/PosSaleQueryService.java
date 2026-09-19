@@ -536,6 +536,8 @@ public class PosSaleQueryService {
                 .sendToKitchenEnabled(c.isSendToKitchenEnabled())
                 .loyaltyEnabled(c.isLoyaltyEnabled())
                 .menuImagesEnabled(c.isMenuImagesEnabled())
+                .creditEnabled(c.isCreditEnabled())
+                .creditAllocationMode(c.getCreditAllocationMode())
                 .currencySymbol(c.getCurrencySymbol())
                 .currencyPosition(c.getCurrencyPosition())
                 .currencyDecimalPlaces(c.getCurrencyDecimalPlaces() != null ? c.getCurrencyDecimalPlaces() : 2)
