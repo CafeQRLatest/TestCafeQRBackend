@@ -55,7 +55,7 @@ public class ProductService {
     private com.restaurant.pos.pos.sale.query.PosCacheInvalidationService posCacheInvalidationService;
 
     private void invalidatePosCategories(UUID clientId, UUID orgId) {
-        if (posCacheInvalidationService != null && clientId != null && orgId != null) {
+        if (posCacheInvalidationService != null && clientId != null) {
             try {
                 posCacheInvalidationService.invalidateCategories(clientId, orgId);
             } catch (Exception ex) {
@@ -65,7 +65,7 @@ public class ProductService {
     }
 
     private void invalidatePosProducts(UUID clientId, UUID orgId) {
-        if (posCacheInvalidationService != null && clientId != null && orgId != null) {
+        if (posCacheInvalidationService != null && clientId != null) {
             try {
                 posCacheInvalidationService.invalidateProducts(clientId, orgId);
             } catch (Exception ex) {
