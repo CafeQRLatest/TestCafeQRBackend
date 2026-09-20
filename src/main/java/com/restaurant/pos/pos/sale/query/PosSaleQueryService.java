@@ -217,17 +217,17 @@ public class PosSaleQueryService {
                 }), executor);
 
         final boolean menuImagesEnabled = config.isMenuImagesEnabled();
-        CompletableFuture<List<ProductBean>> productsFuture = req.isStandardMode()
+        CompletableFuture<com.restaurant.pos.pos.sale.dto.PosProductPageResponse> productsFuture = req.isStandardMode()
                 ? CompletableFuture.supplyAsync(
                         withUserContext(callerContext, () -> {
                             long s = System.nanoTime();
                             try {
-                                return getInitialProductBeans(clientId, orgId, menuImagesEnabled);
+                                return getInitialProductPage(clientId, orgId, menuImagesEnabled);
                             } finally {
                                 productsTimeMs.set(elapsedMs(s));
                             }
                         }), executor)
-                : CompletableFuture.completedFuture(Collections.emptyList());
+                : CompletableFuture.completedFuture(new com.restaurant.pos.pos.sale.dto.PosProductPageResponse(Collections.emptyList(), null, false));
 
         CompletableFuture<List<TableBean>> tablesFuture = req.isTableEnabled()
                 ? CompletableFuture.supplyAsync(
@@ -246,7 +246,10 @@ public class PosSaleQueryService {
 
         List<ProductCategoryBean> categories = categoriesFuture.get();
         List<PaymentModeBean> paymentModes = paymentModesFuture.get();
-        List<ProductBean> products = productsFuture.get();
+        com.restaurant.pos.pos.sale.dto.PosProductPageResponse productPage = productsFuture.get();
+        List<ProductBean> products = productPage.items().stream()
+                .map(p -> mapProductBean(p, menuImagesEnabled))
+                .toList();
         List<TableBean> tables = tablesFuture.get();
 
         final long totalTimeMs = elapsedMs(t0);
@@ -264,6 +267,8 @@ public class PosSaleQueryService {
                 .configuration(config)
                 .categories(categories)
                 .products(products)
+                .nextCursor(productPage.nextCursor())
+                .hasMore(productPage.hasMore())
                 .tables(tables)
                 .paymentModes(paymentModes)
                 .build();
@@ -424,25 +429,40 @@ public class PosSaleQueryService {
         }, (k, v) -> redisCacheService.put(k, v, PosCacheKeys.jittered(PosCacheKeys.TTL_PAYMENT_MODES)));
     }
 
-    private List<ProductBean> getInitialProductBeans(UUID clientId, UUID orgId) {
-        return getInitialProductBeans(clientId, orgId, true);
-    }
-
-    private List<ProductBean> getInitialProductBeans(UUID clientId, UUID orgId, boolean includeImages) {
+    private com.restaurant.pos.pos.sale.dto.PosProductPageResponse getInitialProductPage(UUID clientId, UUID orgId, boolean includeImages) {
         long version = versionService.getVersion(PosCacheVersionService.Namespace.PRODUCTS, clientId, orgId);
         String cacheKey = PosCacheKeys.initialProducts(clientId, orgId, version) + (includeImages ? "" : ":noimg");
-        Optional<List<ProductBean>> cached = redisCacheService.get(cacheKey, new TypeReference<List<ProductBean>>() {
-        });
+        Optional<PosProductPageDto> cached = redisCacheService.get(cacheKey, PosProductPageDto.class);
         if (cached.isPresent()) {
-            return cached.get();
+            PosProductPageDto dto = cached.get();
+            List<PosProductSummaryView> items = dto.getItems() != null
+                    ? new java.util.ArrayList<>(dto.getItems())
+                    : Collections.emptyList();
+            return new com.restaurant.pos.pos.sale.dto.PosProductPageResponse(items, dto.getNextCursor(), dto.isHasMore());
         }
 
         return singleFlightLoader.loadAndCache(cacheKey, () -> {
-            // Critical metadata - fail fast
-            List<PosProductSummaryView> list = projectionRepository.findProductsKeyset(
-                    clientId, orgId, null, null, null, null, 50);
-            return list.stream().map(p -> mapProductBean(p, includeImages)).toList();
-        }, (k, v) -> redisCacheService.put(k, v, PosCacheKeys.jittered(PosCacheKeys.TTL_INITIAL_PRODUCTS)));
+            List<PosProductSummaryView> products = projectionRepository.findProductsKeyset(
+                    clientId, orgId, null, null, null, null, 51);
+            boolean hasMore = products.size() > 50;
+            if (hasMore) {
+                products = products.subList(0, 50);
+            }
+            String nextCursor = null;
+            if (hasMore && !products.isEmpty()) {
+                PosProductSummaryView last = products.get(products.size() - 1);
+                nextCursor = com.restaurant.pos.pos.sale.dto.ProductCursor.of(last).encode();
+            }
+            List<PosProductSummaryDto> dtoItems = products.stream()
+                    .map(p -> PosProductSummaryDto.from(p, includeImages))
+                    .toList();
+            return new com.restaurant.pos.pos.sale.dto.PosProductPageResponse(new java.util.ArrayList<>(dtoItems), nextCursor, hasMore);
+        }, (k, v) -> {
+            List<PosProductSummaryDto> dtoItems = v.items().stream()
+                    .map(p -> (p instanceof PosProductSummaryDto dto) ? dto : PosProductSummaryDto.from(p, includeImages))
+                    .toList();
+            redisCacheService.put(k, new PosProductPageDto(dtoItems, v.nextCursor(), v.hasMore()), PosCacheKeys.jittered(PosCacheKeys.TTL_INITIAL_PRODUCTS));
+        });
     }
 
     private List<TableBean> getTableBeans(UUID clientId, UUID orgId) {
@@ -502,6 +522,10 @@ public class PosSaleQueryService {
                 .isPackagedGood(p.getIsPackagedGood())
                 .isVariablePrice(p.getIsVariablePrice())
                 .isVariant(p.getIsVariant())
+                .hasVariants(p.getHasVariants())
+                .variantCount(p.getVariantCount())
+                .hasUpsells(p.getHasUpsells())
+                .upsellCount(p.getUpsellCount())
                 .build();
     }
 
