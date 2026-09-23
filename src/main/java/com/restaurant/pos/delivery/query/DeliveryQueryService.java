@@ -307,7 +307,7 @@ public class DeliveryQueryService {
                 .findByClientIdAndOrgIdOrGlobalAndIsActiveTrue(clientId, orgUuid);
 
         return products.stream()
-                .filter(Product::isAvailable)
+                .filter(p -> p.isAvailable() && p.isDeliveryVisible())
                 .map(p -> {
                     Map<String, Object> item = new LinkedHashMap<>();
                     item.put("id",          p.getId());
