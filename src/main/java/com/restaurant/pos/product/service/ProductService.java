@@ -924,6 +924,7 @@ public class ProductService {
         existing.setAvailable(product.isAvailable());
         existing.setImageUrl(product.getImageUrl());
         existing.setActive(product.isActive());
+        existing.setDeliveryVisible(product.isDeliveryVisible());
 
         // ERP Fields
         existing.setProductType(product.getProductType());
