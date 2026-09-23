@@ -261,7 +261,8 @@ public class DeliveryCommandService {
                         .filter(p -> effectiveClientId.equals(p.getClientId()))
                         .filter(p -> effectiveOrgId == null || p.getOrgId() == null || effectiveOrgId.equals(p.getOrgId()))
                         .filter(Product::isActive)
-                        .filter(Product::isAvailable);
+                        .filter(Product::isAvailable)
+                        .filter(Product::isDeliveryVisible);
 
                 if (productOpt.isEmpty()) {
                     throw new BusinessException("Invalid or unavailable item: " + productId);
@@ -672,7 +673,8 @@ public class DeliveryCommandService {
                     .filter(p -> clientId.equals(p.getClientId()))
                     .filter(p -> orgUuid == null || p.getOrgId() == null || orgUuid.equals(p.getOrgId()))
                     .filter(Product::isActive)
-                    .filter(Product::isAvailable);
+                    .filter(Product::isAvailable)
+                    .filter(Product::isDeliveryVisible);
 
             if (productOpt.isEmpty()) {
                 throw new BusinessException("Invalid or unavailable item: " + productId);
