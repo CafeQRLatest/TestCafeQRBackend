@@ -1078,21 +1078,23 @@ public class ProductService {
                         ? java.math.BigDecimal.ONE
                         : recipe.getQuantity();
 
+                Product ingredientProduct = productRepository.findById(ingId)
+                        .orElseThrow(() -> new ResourceNotFoundException("Ingredient product not found"));
+                validateOwnership(ingredientProduct.getClientId(), ingredientProduct.getOrgId(),
+                        "Ingredient Product", false);
+                if (!ingredientProduct.isIngredient()) {
+                    ingredientProduct.setIngredient(true);
+                    productRepository.save(ingredientProduct);
+                }
+
                 ProductRecipe existingLine = existingByIngredient.get(ingId);
                 if (existingLine != null) {
                     // Update in-place on managed persistent entity so Hibernate updates rather than inserting duplicates
+                    existingLine.setIngredient(ingredientProduct);
                     existingLine.setQuantity(qty);
                     existingLine.setActive(recipe.isActive());
                 } else {
                     // Brand new ingredient line
-                    Product ingredientProduct = productRepository.findById(ingId)
-                            .orElseThrow(() -> new ResourceNotFoundException("Ingredient product not found"));
-                    validateOwnership(ingredientProduct.getClientId(), ingredientProduct.getOrgId(),
-                            "Ingredient Product", false);
-                    if (!ingredientProduct.isIngredient()) {
-                        ingredientProduct.setIngredient(true);
-                        productRepository.save(ingredientProduct);
-                    }
                     recipe.setId(null);
                     recipe.setIngredient(ingredientProduct);
                     recipe.setQuantity(qty);
