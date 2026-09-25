@@ -660,7 +660,7 @@ public class ProductService {
     }
 
     @Transactional
-    @CacheEvict(value = "products_list_v3", key = "T(com.restaurant.pos.common.tenant.TenantContext).getCurrentTenant() + ':' + T(com.restaurant.pos.common.tenant.TenantContext).getCurrentOrg()")
+    @CacheEvict(value = { "products_list_v4", "products_list_v3", "products_list_v2" }, key = "T(com.restaurant.pos.common.tenant.TenantContext).getCurrentTenant() + ':' + T(com.restaurant.pos.common.tenant.TenantContext).getCurrentOrg()")
     public Product createProduct(Product product) {
         UUID clientId = TenantContext.getCurrentTenant();
         UUID orgId = TenantContext.getCurrentOrg();
@@ -824,7 +824,7 @@ public class ProductService {
     }
 
     @Transactional
-    @CacheEvict(value = "products_list_v3", key = "T(com.restaurant.pos.common.tenant.TenantContext).getCurrentTenant() + ':' + T(com.restaurant.pos.common.tenant.TenantContext).getCurrentOrg()")
+    @CacheEvict(value = { "products_list_v4", "products_list_v3", "products_list_v2" }, key = "T(com.restaurant.pos.common.tenant.TenantContext).getCurrentTenant() + ':' + T(com.restaurant.pos.common.tenant.TenantContext).getCurrentOrg()")
     public List<Product> bulkCreateProducts(List<Product> products) {
         UUID clientId = TenantContext.getCurrentTenant();
         UUID orgId = TenantContext.getCurrentOrg();
@@ -884,7 +884,7 @@ public class ProductService {
     }
 
     @Transactional
-    @CacheEvict(value = "products_list_v4", key = "T(com.restaurant.pos.common.tenant.TenantContext).getCurrentTenant() + ':' + T(com.restaurant.pos.common.tenant.TenantContext).getCurrentOrg()")
+    @CacheEvict(value = { "products_list_v4", "products_list_v3", "products_list_v2" }, key = "T(com.restaurant.pos.common.tenant.TenantContext).getCurrentTenant() + ':' + T(com.restaurant.pos.common.tenant.TenantContext).getCurrentOrg()")
     public Product updateProduct(UUID id, Product product) {
         Product existing = productRepository.findById(java.util.Objects.requireNonNull(id))
                 .orElseThrow(() -> new ResourceNotFoundException("Product not found"));
@@ -1181,7 +1181,7 @@ public class ProductService {
     }
 
     @Transactional
-    @CacheEvict(value = "products_list_v2", key = "T(com.restaurant.pos.common.tenant.TenantContext).getCurrentTenant() + ':' + T(com.restaurant.pos.common.tenant.TenantContext).getCurrentOrg()")
+    @CacheEvict(value = { "products_list_v4", "products_list_v3", "products_list_v2" }, key = "T(com.restaurant.pos.common.tenant.TenantContext).getCurrentTenant() + ':' + T(com.restaurant.pos.common.tenant.TenantContext).getCurrentOrg()")
     public Product updateProductStatus(UUID id, boolean active) {
         Product existing = productRepository.findById(java.util.Objects.requireNonNull(id))
                 .orElseThrow(() -> new ResourceNotFoundException("Product not found"));
@@ -1196,7 +1196,7 @@ public class ProductService {
     }
 
     @Transactional
-    @CacheEvict(value = "products_list_v3", key = "T(com.restaurant.pos.common.tenant.TenantContext).getCurrentTenant() + ':' + T(com.restaurant.pos.common.tenant.TenantContext).getCurrentOrg()")
+    @CacheEvict(value = { "products_list_v4", "products_list_v3", "products_list_v2" }, key = "T(com.restaurant.pos.common.tenant.TenantContext).getCurrentTenant() + ':' + T(com.restaurant.pos.common.tenant.TenantContext).getCurrentOrg()")
     public void deleteProduct(UUID id) {
         Product existing = productRepository.findById(java.util.Objects.requireNonNull(id))
                 .orElseThrow(() -> new ResourceNotFoundException("Product not found"));
