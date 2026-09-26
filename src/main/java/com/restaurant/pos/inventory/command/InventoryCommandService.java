@@ -72,29 +72,33 @@ public class InventoryCommandService {
         updateStock(warehouseId, productId, variantId, quantityChange, transactionType, referenceId, unitCost, null);
     }
 
-    public void updateStock(UUID warehouseId, UUID productId, UUID variantId, BigDecimal quantityChange,
-                            String transactionType, UUID referenceId, BigDecimal unitCost, UUID explicitOrgId) {
+    public void updateStock(
+            UUID warehouseId,
+            UUID productId,
+            UUID variantId,
+            BigDecimal quantityChange,
+            String transactionType,
+            UUID referenceId,
+            BigDecimal unitCost,
+            UUID explicitOrgId) {
+
         UUID clientId = TenantContext.getCurrentTenant();
-        UUID orgId = explicitOrgId != null ? explicitOrgId
+        UUID orgId = explicitOrgId != null
+                ? explicitOrgId
                 : branchContext.requireWriteOrgId(TenantContext.getCurrentOrg());
 
-        Optional<StockSnapshot> exactOpt = findStockSnapshot(warehouseId, productId, variantId);
-
-        StockSnapshot snapshot;
-        if (exactOpt.isPresent()) {
-            snapshot = exactOpt.get();
-        } else {
-            snapshot = StockSnapshot.builder()
-                    .clientId(clientId)
-                    .orgId(orgId)
-                    .warehouseId(warehouseId)
-                    .productId(productId)
-                    .variantId(variantId)
-                    .currentQuantity(BigDecimal.ZERO)
-                    .build();
-        }
+        StockSnapshot snapshot = findStockSnapshot(warehouseId, productId, variantId)
+                .orElseGet(() -> StockSnapshot.builder()
+                        .clientId(clientId)
+                        .orgId(orgId)
+                        .warehouseId(warehouseId)
+                        .productId(productId)
+                        .variantId(variantId)
+                        .currentQuantity(BigDecimal.ZERO)
+                        .build());
 
         BigDecimal newBalance = snapshot.getCurrentQuantity().add(quantityChange);
+
         snapshot.setCurrentQuantity(newBalance);
         snapshot.setLastUpdated(LocalDateTime.now());
         stockSnapshotRepository.save(snapshot);
@@ -112,6 +116,7 @@ public class InventoryCommandService {
                 .unitCost(unitCost)
                 .createdBy(SecurityUtils.getCurrentUserId())
                 .build();
+
         stockLedgerRepository.save(ledger);
     }
 

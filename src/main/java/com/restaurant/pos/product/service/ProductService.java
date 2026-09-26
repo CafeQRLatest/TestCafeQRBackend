@@ -6,7 +6,7 @@ import com.restaurant.pos.common.tenant.TenantContext;
 import com.restaurant.pos.common.exception.ResourceNotFoundException;
 import com.restaurant.pos.common.service.SystemConfigurationService;
 import com.restaurant.pos.common.util.SecurityUtils;
-import com.restaurant.pos.product.domain.Category; 
+import com.restaurant.pos.product.domain.Category;
 import com.restaurant.pos.product.domain.Product;
 import com.restaurant.pos.product.domain.ProductRecipe;
 import com.restaurant.pos.product.domain.Uom;
@@ -588,6 +588,8 @@ public class ProductService {
                                 .ingredientId(recipe.getIngredient() != null ? recipe.getIngredient().getId() : null)
                                 .ingredientName(
                                         recipe.getIngredient() != null ? recipe.getIngredient().getName() : null)
+                                .variantOptionId(recipe.getVariantOption() != null ? recipe.getVariantOption().getId() : null)
+                                .variantOptionName(recipe.getVariantOption() != null ? recipe.getVariantOption().getName() : null)
                                 .quantity(recipe.getQuantity())
                                 .uomName(recipe.getIngredient() != null && recipe.getIngredient().getUom() != null
                                         ? recipe.getIngredient().getUom().getName()
@@ -790,7 +792,7 @@ public class ProductService {
             product.getPricelistProducts().removeIf(pp -> pp.getPricelist() == null);
         }
         if (product.getRecipeLines() != null) {
-            java.util.Set<UUID> addedIngredientIds = new java.util.HashSet<>();
+            java.util.Set<String> addedCompositeKeys = new java.util.HashSet<>();
             java.util.List<ProductRecipe> validRecipes = new java.util.ArrayList<>();
             product.getRecipeLines().forEach(recipe -> {
                 if (product.getId() != null && recipe.getIngredient() != null
@@ -799,8 +801,19 @@ public class ProductService {
                 }
                 if (recipe.getIngredient() != null && recipe.getIngredient().getId() != null) {
                     UUID ingId = recipe.getIngredient().getId();
-                    if (addedIngredientIds.contains(ingId)) return;
-                    addedIngredientIds.add(ingId);
+
+                    // Resolve variant option if present
+                    VariantOption resolvedVariantOption = null;
+                    String voKey = "base";
+                    if (recipe.getVariantOption() != null && recipe.getVariantOption().getId() != null) {
+                        resolvedVariantOption = resolveVariantOptionReference(recipe.getVariantOption());
+                        voKey = resolvedVariantOption.getId().toString();
+                    }
+
+                    String compositeKey = ingId + "|" + voKey;
+                    if (addedCompositeKeys.contains(compositeKey)) return;
+                    addedCompositeKeys.add(compositeKey);
+
                     Product ingredientProduct = productRepository.findById(ingId).orElse(null);
                     if (ingredientProduct != null) {
                         if (!ingredientProduct.isIngredient()) {
@@ -809,6 +822,7 @@ public class ProductService {
                         }
                         recipe.setIngredient(ingredientProduct);
                     }
+                    recipe.setVariantOption(resolvedVariantOption);
                 }
                 if (recipe.getQuantity() == null || recipe.getQuantity().compareTo(java.math.BigDecimal.ZERO) <= 0) {
                     recipe.setQuantity(java.math.BigDecimal.ONE);
@@ -1043,7 +1057,7 @@ public class ProductService {
             existing.getPricelistProducts().addAll(product.getPricelistProducts());
         }
 
-        // Update Recipe Lines
+        // Update Recipe Lines (variant-aware: composite key = ingredientId + variantOptionId)
         if (existing.getRecipeLines() == null) {
             existing.setRecipeLines(new java.util.ArrayList<>());
         }
@@ -1051,14 +1065,17 @@ public class ProductService {
         if (product.getRecipeLines() == null || product.getRecipeLines().isEmpty()) {
             existing.getRecipeLines().clear();
         } else {
-            java.util.Map<UUID, ProductRecipe> existingByIngredient = new java.util.HashMap<>();
+            // Build lookup map with composite key: ingredientId + "|" + variantOptionId (or "base")
+            java.util.Map<String, ProductRecipe> existingByCompositeKey = new java.util.HashMap<>();
             for (ProductRecipe er : existing.getRecipeLines()) {
                 if (er.getIngredient() != null && er.getIngredient().getId() != null) {
-                    existingByIngredient.put(er.getIngredient().getId(), er);
+                    String voKey = er.getVariantOption() != null && er.getVariantOption().getId() != null
+                            ? er.getVariantOption().getId().toString() : "base";
+                    existingByCompositeKey.put(er.getIngredient().getId() + "|" + voKey, er);
                 }
             }
 
-            java.util.Set<UUID> payloadIngredientIds = new java.util.HashSet<>();
+            java.util.Set<String> payloadCompositeKeys = new java.util.HashSet<>();
             java.util.List<ProductRecipe> toAdd = new java.util.ArrayList<>();
 
             for (ProductRecipe recipe : product.getRecipeLines()) {
@@ -1069,10 +1086,20 @@ public class ProductService {
                 if (existing.getId() != null && existing.getId().equals(ingId)) {
                     throw new BusinessException("A product cannot be an ingredient of itself");
                 }
-                if (payloadIngredientIds.contains(ingId)) {
-                    continue;
+
+                // Resolve variant option if present
+                VariantOption resolvedVariantOption = null;
+                String voKey = "base";
+                if (recipe.getVariantOption() != null && recipe.getVariantOption().getId() != null) {
+                    resolvedVariantOption = resolveVariantOptionReference(recipe.getVariantOption());
+                    voKey = resolvedVariantOption.getId().toString();
                 }
-                payloadIngredientIds.add(ingId);
+
+                String compositeKey = ingId + "|" + voKey;
+                if (payloadCompositeKeys.contains(compositeKey)) {
+                    continue; // Skip duplicates within same variant context
+                }
+                payloadCompositeKeys.add(compositeKey);
 
                 java.math.BigDecimal qty = (recipe.getQuantity() == null || recipe.getQuantity().compareTo(java.math.BigDecimal.ZERO) <= 0)
                         ? java.math.BigDecimal.ONE
@@ -1087,16 +1114,18 @@ public class ProductService {
                     productRepository.save(ingredientProduct);
                 }
 
-                ProductRecipe existingLine = existingByIngredient.get(ingId);
+                ProductRecipe existingLine = existingByCompositeKey.get(compositeKey);
                 if (existingLine != null) {
-                    // Update in-place on managed persistent entity so Hibernate updates rather than inserting duplicates
+                    // Update in-place on managed persistent entity
                     existingLine.setIngredient(ingredientProduct);
+                    existingLine.setVariantOption(resolvedVariantOption);
                     existingLine.setQuantity(qty);
                     existingLine.setActive(recipe.isActive());
                 } else {
                     // Brand new ingredient line
                     recipe.setId(null);
                     recipe.setIngredient(ingredientProduct);
+                    recipe.setVariantOption(resolvedVariantOption);
                     recipe.setQuantity(qty);
                     recipe.setProduct(existing);
                     recipe.setClientId(clientId);
@@ -1105,10 +1134,13 @@ public class ProductService {
                 }
             }
 
-            // Remove ingredients that were deleted in the UI
-            existing.getRecipeLines().removeIf(er ->
-                er.getIngredient() == null || !payloadIngredientIds.contains(er.getIngredient().getId())
-            );
+            // Remove recipe lines that were deleted in the UI
+            existing.getRecipeLines().removeIf(er -> {
+                if (er.getIngredient() == null || er.getIngredient().getId() == null) return true;
+                String voKey = er.getVariantOption() != null && er.getVariantOption().getId() != null
+                        ? er.getVariantOption().getId().toString() : "base";
+                return !payloadCompositeKeys.contains(er.getIngredient().getId() + "|" + voKey);
+            });
 
             // Add new ingredient lines
             existing.getRecipeLines().addAll(toAdd);

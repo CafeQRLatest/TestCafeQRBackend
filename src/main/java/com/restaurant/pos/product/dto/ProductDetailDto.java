@@ -77,6 +77,8 @@ public class ProductDetailDto {
         private UUID id;
         private UUID ingredientId;
         private String ingredientName;
+        private UUID variantOptionId;
+        private String variantOptionName;
         private BigDecimal quantity;
         private String uomName;
         @JsonProperty("isActive")
