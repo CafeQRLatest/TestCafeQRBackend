@@ -188,7 +188,7 @@ public class PaymentBalanceReportService {
 
         if (expensesList != null) {
             for (Expense e : expensesList) {
-                if (e != null && e.isActive() && "COMPLETED".equalsIgnoreCase(e.getDocStatus())) {
+                if (e != null && e.isActive() && !"VOID".equalsIgnoreCase(e.getDocStatus())) {
                     String method = normalizeKey(e.getPaymentMethod());
                     if (isMixedOrComposite(method)) {
                         BigDecimal half = safe(e.getAmount()).divide(BigDecimal.valueOf(2), 2, RoundingMode.HALF_UP);
@@ -410,27 +410,10 @@ public class PaymentBalanceReportService {
     }
 
     private List<Order> fetchSaleOrders(Instant from, Instant to, UUID clientId, UUID resolvedOrgId, UUID terminalId) {
-        return orderRepository.findAll((root, query, cb) -> {
-            var predicates = new ArrayList<jakarta.persistence.criteria.Predicate>();
-            predicates.add(cb.equal(root.get("clientId"), clientId));
-            if (resolvedOrgId != null) {
-                predicates.add(cb.equal(root.get("orgId"), resolvedOrgId));
-            }
-            if (terminalId != null) {
-                predicates.add(cb.equal(root.get("terminalId"), terminalId));
-            }
-            predicates.add(cb.equal(root.get("orderType"), OrderType.SALE));
-            predicates.add(cb.equal(root.get("orderStatus"), "COMPLETED"));
-            predicates.add(cb.equal(root.get("isactive"), "Y"));
-            if (from != null) {
-                predicates.add(cb.greaterThanOrEqualTo(root.get("orderDate"), from));
-            }
-            if (to != null) {
-                predicates.add(cb.lessThanOrEqualTo(root.get("orderDate"), to));
-            }
-            query.orderBy(cb.desc(root.get("orderDate")));
-            return cb.and(predicates.toArray(new jakarta.persistence.criteria.Predicate[0]));
-        });
+        return orderRepository.findSaleOrdersLightweight(
+                clientId, resolvedOrgId, terminalId,
+                "SALE", "COMPLETED",
+                from, to);
     }
 
     private String normalizeKey(String method) {
