@@ -850,8 +850,12 @@ public class ProductService {
                 .stream().map(c -> c.getId()).filter(java.util.Objects::nonNull).collect(Collectors.toSet());
         java.util.Set<UUID> validUomIds = uomRepository.findByClientIdAndOrgIdOrGlobal(clientId, orgId)
                 .stream().map(u -> u.getId()).filter(java.util.Objects::nonNull).collect(Collectors.toSet());
-        Map<String, Category> categoryNameMap = categoryRepository.findByClientIdAndOrgIdOrGlobal(clientId, orgId)
-                .stream().filter(c -> c.getName() != null).collect(Collectors.toMap(c -> c.getName(), c -> c, (a, b) -> a));
+        Map<String, Category> categoryNameMap = new java.util.HashMap<>();
+        for (Category c : categoryRepository.findByClientIdAndOrgIdOrGlobal(clientId, orgId)) {
+            if (c.getName() != null && !c.getName().isBlank()) {
+                categoryNameMap.putIfAbsent(c.getName().trim().toLowerCase(), c);
+            }
+        }
 
         for (Product product : products) {
             // Batch Duplicate Check
@@ -869,27 +873,27 @@ public class ProductService {
             product.setClientId(clientId);
             product.setOrgId(orgId);
 
-            // Perform integrity check against pre-fetched sets for O(1) speed
-            validateProductIntegrityOptimized(product, clientId, orgId, validCategoryIds, validUomIds);
-
-            setProductRelationships(product, clientId, orgId);
-
-            // Resolve category efficiently
+            // Resolve category efficiently (by name or by ID) before setting relationships
             if (product.getCategory() != null && product.getCategory().getId() == null
-                    && product.getCategory().getName() != null) {
-                String catName = product.getCategory().getName();
-                Category category = categoryNameMap.get(catName);
+                    && product.getCategory().getName() != null && !product.getCategory().getName().isBlank()) {
+                String catName = product.getCategory().getName().trim();
+                Category category = categoryNameMap.get(catName.toLowerCase());
                 if (category == null) {
                     category = new Category();
                     category.setName(catName);
                     category.setClientId(clientId);
                     category.setOrgId(orgId);
                     category = categoryRepository.save(category);
-                    categoryNameMap.put(catName, category);
+                    categoryNameMap.put(catName.toLowerCase(), category);
                     validCategoryIds.add(category.getId());
                 }
                 product.setCategory(category);
             }
+
+            // Perform integrity check against pre-fetched sets for O(1) speed
+            validateProductIntegrityOptimized(product, clientId, orgId, validCategoryIds, validUomIds);
+
+            setProductRelationships(product, clientId, orgId);
         }
         @SuppressWarnings("null")
         List<Product> savedProducts = productRepository.saveAll(products);
