@@ -443,11 +443,11 @@ public class SystemConfigurationService {
                 .upiPayeeName(resolvedUpiPayeeName)
                 .upiQrOnBillEnabled(entity.isUpiQrOnBillEnabled())
                 .upiQrOnPosEnabled(entity.isUpiQrOnPosEnabled())
-                .menuImagesEnabled(isFeatureEnabled(entity.getClientId(), orgId, ModuleName.MENU_IMAGES, entity.isMenuImagesEnabled()))
+                .menuImagesEnabled(entity.isMenuImagesEnabled())
                 .creditEnabled(isFeatureEnabled(entity.getClientId(), orgId, ModuleName.CREDIT_LEDGER, entity.isCreditEnabled()))
                 .creditAllocationMode(normalizeCreditAllocationMode(entity.getCreditAllocationMode()))
                 .tableManagementEnabled(entity.isTableManagementEnabled())
-                .qrOrderingEnabled(isFeatureEnabled(entity.getClientId(), orgId, ModuleName.TABLE_QR, entity.isQrOrderingEnabled()))
+                .qrOrderingEnabled(entity.isQrOrderingEnabled())
                 .inventoryEnabled(isFeatureEnabled(entity.getClientId(), orgId, ModuleName.INVENTORY, entity.isInventoryEnabled()))
                 .purchaseEnabled(isFeatureEnabled(entity.getClientId(), orgId, ModuleName.INVENTORY, entity.isPurchaseEnabled()))
                 .productionEnabled(isFeatureEnabled(entity.getClientId(), orgId, ModuleName.INVENTORY, entity.isProductionEnabled()))
@@ -638,12 +638,6 @@ public class SystemConfigurationService {
         if ((dto.isCustomersEnabled() || dto.isLoyaltyEnabled()) && !isModuleActive(clientId, orgId, ModuleName.CRM)) {
             throw new BusinessException("Subscription required: Customer CRM & Loyalty is not active. Please visit the billing center.");
         }
-        if (dto.isQrOrderingEnabled() && !isModuleActive(clientId, orgId, ModuleName.TABLE_QR)) {
-            throw new BusinessException("Subscription required: Table QR Ordering is not active. Please visit the billing center.");
-        }
-        if (dto.isMenuImagesEnabled() && !isModuleActive(clientId, orgId, ModuleName.MENU_IMAGES)) {
-            throw new BusinessException("Subscription required: Menu Images module is not active. Please visit the billing center.");
-        }
         if (dto.isBarcodeScannerEnabled() && !isModuleActive(clientId, orgId, ModuleName.BARCODE_SCANNER)) {
             throw new BusinessException("Subscription required: Barcode Scanner Module is not active. Please visit the billing center.");
         }
@@ -671,6 +665,17 @@ public class SystemConfigurationService {
     }
 
     public boolean isModuleActive(UUID clientId, UUID orgId, ModuleName moduleName) {
+        // Base plan features (Table QR, Menu Images, Online Delivery) are active for all clients with an active base subscription
+        if (moduleName == ModuleName.TABLE_QR || moduleName == ModuleName.MENU_IMAGES || moduleName == ModuleName.ONLINE_DELIVERY) {
+            if (clientId == null) {
+                return true;
+            }
+            Optional<Client> clientOpt = clientRepository.findById(clientId);
+            if (clientOpt.isPresent() && clientOpt.get().isSubscriptionActive()) {
+                return true;
+            }
+        }
+
         List<ClientSubscriptionModule> activeModules = clientSubscriptionModuleRepository.findByClientId(clientId);
         for (ClientSubscriptionModule m : activeModules) {
             if (m.getModuleName() == moduleName && "ACTIVE".equalsIgnoreCase(m.getStatus())) {

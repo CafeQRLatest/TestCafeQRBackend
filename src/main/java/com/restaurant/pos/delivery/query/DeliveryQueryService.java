@@ -119,16 +119,40 @@ public class DeliveryQueryService {
             if (targetOrg == null) {
                 targetOrg = organizationRepository.findByClientIdAndBranchCodeIgnoreCase(client.getId(), trimmedBranch).orElse(null);
             }
+
+            if (targetOrg == null) {
+                List<Organization> clientOrgs = organizationRepository.findByClientIdAndIsactive(client.getId(), "Y");
+                targetOrg = clientOrgs.stream()
+                        .filter(o -> o.getName() != null && (
+                                o.getName().equalsIgnoreCase(trimmedBranch) ||
+                                o.getName().toLowerCase().replaceAll("[^a-z0-9]+", "-").replaceAll("^-+|-+$", "").equalsIgnoreCase(trimmedBranch)
+                        ))
+                        .findFirst()
+                        .orElse(null);
+            }
         }
 
         if (targetOrg == null) {
             List<Organization> activeOrgs = organizationRepository.findByClientIdAndIsactive(client.getId(), "Y");
+            if (activeOrgs.isEmpty()) {
+                activeOrgs = organizationRepository.findAllByClientId(client.getId());
+            }
             if (!activeOrgs.isEmpty()) {
-                targetOrg = activeOrgs.get(0);
-            } else {
-                List<Organization> allOrgs = organizationRepository.findAllByClientId(client.getId());
-                if (!allOrgs.isEmpty()) {
-                    targetOrg = allOrgs.get(0);
+                targetOrg = activeOrgs.stream()
+                        .filter(o -> "HQ".equalsIgnoreCase(o.getBranchCode()) || "MAIN".equalsIgnoreCase(o.getBranchCode()))
+                        .findFirst()
+                        .orElse(null);
+
+                if (targetOrg == null) {
+                    targetOrg = activeOrgs.stream()
+                            .filter(o -> (client.getSlug() != null && client.getSlug().equalsIgnoreCase(o.getSlug()))
+                                      || (client.getName() != null && client.getName().equalsIgnoreCase(o.getName())))
+                            .findFirst()
+                            .orElse(null);
+                }
+
+                if (targetOrg == null) {
+                    targetOrg = activeOrgs.get(0);
                 }
             }
         }
