@@ -1188,17 +1188,33 @@ public class ReportService {
 
     private List<Order> fetchSaleOrders(Instant from, Instant to, UUID orgId, UUID terminalId) {
         UUID clientId = TenantContext.getCurrentTenant();
-        UUID resolvedOrgId;
-        if (SecurityUtils.isSuperAdmin()) {
-            resolvedOrgId = orgId;
-        } else {
-            resolvedOrgId = TenantContext.getCurrentOrg();
-        }
+        UUID resolvedOrgId = SecurityUtils.isSuperAdmin() ? orgId : TenantContext.getCurrentOrg();
 
-        return orderRepository.findSaleOrdersForReport(
-                clientId, resolvedOrgId, terminalId,
-                "SALE", "COMPLETED",
-                from, to);
+        return orderRepository.findAll((root, query, cb) -> {
+            var predicates = new ArrayList<jakarta.persistence.criteria.Predicate>();
+            predicates.add(cb.equal(root.get("clientId"), clientId));
+            if (resolvedOrgId != null) {
+                predicates.add(cb.equal(root.get("orgId"), resolvedOrgId));
+            }
+            if (terminalId != null) {
+                predicates.add(cb.equal(root.get("terminalId"), terminalId));
+            }
+            predicates.add(cb.equal(root.get("orderType"), OrderType.SALE));
+            predicates.add(cb.equal(root.get("orderStatus"), "COMPLETED"));
+            predicates.add(cb.equal(root.get("isactive"), "Y"));
+            if (from != null) {
+                predicates.add(cb.greaterThanOrEqualTo(root.get("orderDate"), from));
+            }
+            if (to != null) {
+                predicates.add(cb.lessThanOrEqualTo(root.get("orderDate"), to));
+            }
+            if (Long.class != query.getResultType() && long.class != query.getResultType()) {
+                root.fetch("lines", jakarta.persistence.criteria.JoinType.LEFT);
+                query.distinct(true);
+            }
+            query.orderBy(cb.desc(root.get("orderDate")));
+            return cb.and(predicates.toArray(new jakarta.persistence.criteria.Predicate[0]));
+        });
     }
 
     /**
@@ -1207,17 +1223,29 @@ public class ReportService {
      */
     private List<Order> fetchSaleOrdersLightweight(Instant from, Instant to, UUID orgId, UUID terminalId) {
         UUID clientId = TenantContext.getCurrentTenant();
-        UUID resolvedOrgId;
-        if (SecurityUtils.isSuperAdmin()) {
-            resolvedOrgId = orgId;
-        } else {
-            resolvedOrgId = TenantContext.getCurrentOrg();
-        }
+        UUID resolvedOrgId = SecurityUtils.isSuperAdmin() ? orgId : TenantContext.getCurrentOrg();
 
-        return orderRepository.findSaleOrdersLightweight(
-                clientId, resolvedOrgId, terminalId,
-                "SALE", "COMPLETED",
-                from, to);
+        return orderRepository.findAll((root, query, cb) -> {
+            var predicates = new ArrayList<jakarta.persistence.criteria.Predicate>();
+            predicates.add(cb.equal(root.get("clientId"), clientId));
+            if (resolvedOrgId != null) {
+                predicates.add(cb.equal(root.get("orgId"), resolvedOrgId));
+            }
+            if (terminalId != null) {
+                predicates.add(cb.equal(root.get("terminalId"), terminalId));
+            }
+            predicates.add(cb.equal(root.get("orderType"), OrderType.SALE));
+            predicates.add(cb.equal(root.get("orderStatus"), "COMPLETED"));
+            predicates.add(cb.equal(root.get("isactive"), "Y"));
+            if (from != null) {
+                predicates.add(cb.greaterThanOrEqualTo(root.get("orderDate"), from));
+            }
+            if (to != null) {
+                predicates.add(cb.lessThanOrEqualTo(root.get("orderDate"), to));
+            }
+            query.orderBy(cb.desc(root.get("orderDate")));
+            return cb.and(predicates.toArray(new jakarta.persistence.criteria.Predicate[0]));
+        });
     }
 
     private UUID reportOrgId() {

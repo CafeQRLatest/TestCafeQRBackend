@@ -131,17 +131,33 @@ public class PurchaseOrderQueryService {
                 ? orgId
                 : (com.restaurant.pos.common.util.SecurityUtils.isSuperAdmin() ? null : TenantContext.getCurrentOrg());
 
-        if (fetchLines) {
-            return orderRepository.findPurchaseOrdersForReportWithLines(
-                    clientId, resolvedOrgId, vendorId, warehouseId,
-                    "PURCHASE",
-                    from, to);
-        } else {
-            return orderRepository.findPurchaseOrdersForReportLightweight(
-                    clientId, resolvedOrgId, vendorId, warehouseId,
-                    "PURCHASE",
-                    from, to);
-        }
+        return orderRepository.findAll((root, query, cb) -> {
+            var predicates = new java.util.ArrayList<jakarta.persistence.criteria.Predicate>();
+            predicates.add(cb.equal(root.get("clientId"), clientId));
+            if (resolvedOrgId != null) {
+                predicates.add(cb.equal(root.get("orgId"), resolvedOrgId));
+            }
+            if (vendorId != null) {
+                predicates.add(cb.equal(root.get("vendorId"), vendorId));
+            }
+            if (warehouseId != null) {
+                predicates.add(cb.equal(root.get("warehouseId"), warehouseId));
+            }
+            predicates.add(cb.equal(root.get("orderType"), OrderType.PURCHASE));
+            predicates.add(cb.equal(root.get("isactive"), "Y"));
+            if (from != null) {
+                predicates.add(cb.greaterThanOrEqualTo(root.get("orderDate"), from));
+            }
+            if (to != null) {
+                predicates.add(cb.lessThanOrEqualTo(root.get("orderDate"), to));
+            }
+            if (fetchLines && Long.class != query.getResultType() && long.class != query.getResultType()) {
+                root.fetch("lines", jakarta.persistence.criteria.JoinType.LEFT);
+                query.distinct(true);
+            }
+            query.orderBy(cb.desc(root.get("orderDate")));
+            return cb.and(predicates.toArray(new jakarta.persistence.criteria.Predicate[0]));
+        });
     }
 
     private java.math.BigDecimal safe(java.math.BigDecimal val) {

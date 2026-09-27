@@ -410,10 +410,27 @@ public class PaymentBalanceReportService {
     }
 
     private List<Order> fetchSaleOrders(Instant from, Instant to, UUID clientId, UUID resolvedOrgId, UUID terminalId) {
-        return orderRepository.findSaleOrdersLightweight(
-                clientId, resolvedOrgId, terminalId,
-                "SALE", "COMPLETED",
-                from, to);
+        return orderRepository.findAll((root, query, cb) -> {
+            var predicates = new ArrayList<jakarta.persistence.criteria.Predicate>();
+            predicates.add(cb.equal(root.get("clientId"), clientId));
+            if (resolvedOrgId != null) {
+                predicates.add(cb.equal(root.get("orgId"), resolvedOrgId));
+            }
+            if (terminalId != null) {
+                predicates.add(cb.equal(root.get("terminalId"), terminalId));
+            }
+            predicates.add(cb.equal(root.get("orderType"), OrderType.SALE));
+            predicates.add(cb.equal(root.get("orderStatus"), "COMPLETED"));
+            predicates.add(cb.equal(root.get("isactive"), "Y"));
+            if (from != null) {
+                predicates.add(cb.greaterThanOrEqualTo(root.get("orderDate"), from));
+            }
+            if (to != null) {
+                predicates.add(cb.lessThanOrEqualTo(root.get("orderDate"), to));
+            }
+            query.orderBy(cb.desc(root.get("orderDate")));
+            return cb.and(predicates.toArray(new jakarta.persistence.criteria.Predicate[0]));
+        });
     }
 
     private String normalizeKey(String method) {
