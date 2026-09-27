@@ -697,6 +697,9 @@ public class ProductService {
         }
 
         boolean isClientWise = Boolean.TRUE.equals(product.getIsClientWise());
+        if (isClientWise && !SecurityUtils.isSuperAdmin() && orgId != null) {
+            throw new BusinessException("Access denied: Branch users cannot create client-level products");
+        }
         UUID effectiveOrgId = isClientWise ? null : (product.getOrgId() != null ? product.getOrgId() : orgId);
 
         // Deep Validation
@@ -941,11 +944,14 @@ public class ProductService {
             throw new BusinessException("Product category is required");
         }
 
-        UUID clientId = TenantContext.getCurrentTenant();
+        UUID clientId = TenantContext.getCurrentTenant() != null ? TenantContext.getCurrentTenant() : existing.getClientId();
         UUID currentOrgId = TenantContext.getCurrentOrg();
 
         UUID targetOrgId = existing.getOrgId();
         if (product.getIsClientWise() != null) {
+            if (Boolean.TRUE.equals(product.getIsClientWise()) && !SecurityUtils.isSuperAdmin() && currentOrgId != null) {
+                throw new BusinessException("Access denied: Branch users cannot convert products to client-level products");
+            }
             targetOrgId = Boolean.TRUE.equals(product.getIsClientWise()) ? null : (product.getOrgId() != null ? product.getOrgId() : currentOrgId);
         } else if (product.getOrgId() != null) {
             targetOrgId = product.getOrgId();
@@ -1307,12 +1313,12 @@ public class ProductService {
     }
 
     private void validateOwnership(UUID ownerClientId, UUID ownerOrgId, String entityName, boolean forModification) {
-        UUID currentClientId = TenantContext.getCurrentTenant();
-        UUID currentOrgId = TenantContext.getCurrentOrg();
-
-        if (SecurityUtils.isSuperAdmin() && currentOrgId == null) {
+        if (SecurityUtils.isSuperAdmin()) {
             return;
         }
+
+        UUID currentClientId = TenantContext.getCurrentTenant();
+        UUID currentOrgId = TenantContext.getCurrentOrg();
 
         // 1. Cross-Tenant Check
         if (currentClientId != null && ownerClientId != null && !currentClientId.equals(ownerClientId)) {
@@ -1335,6 +1341,9 @@ public class ProductService {
     }
 
     private UUID effectiveWriteOrgId(UUID ownerOrgId) {
+        if (ownerOrgId == null) {
+            return null;
+        }
         UUID currentOrgId = TenantContext.getCurrentOrg();
         return currentOrgId != null ? currentOrgId : ownerOrgId;
     }
