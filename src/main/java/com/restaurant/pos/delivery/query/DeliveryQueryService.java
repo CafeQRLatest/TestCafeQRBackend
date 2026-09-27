@@ -144,9 +144,11 @@ public class DeliveryQueryService {
                         .orElse(null);
 
                 if (targetOrg == null) {
+                    final String finalClientSlug = client.getSlug();
+                    final String finalClientName = client.getName();
                     targetOrg = activeOrgs.stream()
-                            .filter(o -> (client.getSlug() != null && client.getSlug().equalsIgnoreCase(o.getSlug()))
-                                      || (client.getName() != null && client.getName().equalsIgnoreCase(o.getName())))
+                            .filter(o -> (finalClientSlug != null && finalClientSlug.equalsIgnoreCase(o.getSlug()))
+                                      || (finalClientName != null && finalClientName.equalsIgnoreCase(o.getName())))
                             .findFirst()
                             .orElse(null);
                 }
