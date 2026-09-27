@@ -483,6 +483,8 @@ public class ProductService {
         try {
             return ProductListDto.builder()
                     .id(product.getId())
+                    .orgId(product.getOrgId())
+                    .isClientWise(product.getOrgId() == null || new UUID(0L, 0L).equals(product.getOrgId()))
                     .name(product.getName())
                     .description(product.getDescription())
                     .price(product.getPrice())
@@ -600,6 +602,9 @@ public class ProductService {
 
         return ProductDetailDto.builder()
                 .id(product.getId())
+                .clientId(product.getClientId())
+                .orgId(product.getOrgId())
+                .isClientWise(product.getOrgId() == null || new UUID(0L, 0L).equals(product.getOrgId()))
                 .name(product.getName())
                 .description(product.getDescription())
                 .price(product.getPrice())
@@ -691,11 +696,14 @@ public class ProductService {
             product.setProductCode(null);
         }
 
+        boolean isClientWise = Boolean.TRUE.equals(product.getIsClientWise());
+        UUID effectiveOrgId = isClientWise ? null : (product.getOrgId() != null ? product.getOrgId() : orgId);
+
         // Deep Validation
-        validateProductIntegrity(product, clientId, orgId);
+        validateProductIntegrity(product, clientId, effectiveOrgId != null ? effectiveOrgId : orgId);
 
         // Duplicate Name Check (case-insensitive)
-        if (productRepository.existsByNameAndClientIdAndOrgIdOrGlobalAndIdNot(product.getName().trim(), clientId, orgId,
+        if (productRepository.existsByNameAndClientIdAndOrgIdOrGlobalAndIdNot(product.getName().trim(), clientId, effectiveOrgId,
                 null)) {
             throw new BusinessException("Product with this name already exists");
         }
@@ -703,16 +711,17 @@ public class ProductService {
         // Duplicate Code Check (case-insensitive)
         if (product.getProductCode() != null && productRepository
                 .existsByProductCodeAndClientIdAndOrgIdOrGlobalAndIdNot(product.getProductCode().trim(), clientId,
-                        orgId, null)) {
+                        effectiveOrgId, null)) {
             throw new BusinessException("Product with this code already exists");
         }
 
         product.setClientId(clientId);
-        product.setOrgId(orgId);
+        product.setOrgId(effectiveOrgId);
 
-        setProductRelationships(product, clientId, orgId);
+        setProductRelationships(product, clientId, effectiveOrgId);
 
         Product saved = productRepository.save(product);
+        saved.setIsClientWise(saved.getOrgId() == null);
         invalidatePosProducts(saved.getClientId(), saved.getOrgId());
         return saved;
     }
@@ -858,20 +867,23 @@ public class ProductService {
         }
 
         for (Product product : products) {
+            boolean isClientWise = Boolean.TRUE.equals(product.getIsClientWise());
+            UUID effectiveOrgId = isClientWise ? null : (product.getOrgId() != null ? product.getOrgId() : orgId);
+
             // Batch Duplicate Check
             if (product.getProductCode() != null) {
                 if (batchCodes.contains(product.getProductCode())) {
                     throw new BusinessException("Duplicate product code in batch: " + product.getProductCode());
                 }
                 if (productRepository.existsByProductCodeAndClientIdAndOrgIdOrGlobal(product.getProductCode(), clientId,
-                        orgId)) {
+                        effectiveOrgId)) {
                     throw new BusinessException("Product code already exists in DB: " + product.getProductCode());
                 }
                 batchCodes.add(product.getProductCode());
             }
 
             product.setClientId(clientId);
-            product.setOrgId(orgId);
+            product.setOrgId(effectiveOrgId);
 
             // Resolve category efficiently (by name or by ID) before setting relationships
             if (product.getCategory() != null && product.getCategory().getId() == null
@@ -882,7 +894,7 @@ public class ProductService {
                     category = new Category();
                     category.setName(catName);
                     category.setClientId(clientId);
-                    category.setOrgId(orgId);
+                    category.setOrgId(effectiveOrgId);
                     category = categoryRepository.save(category);
                     categoryNameMap.put(catName.toLowerCase(), category);
                     validCategoryIds.add(category.getId());
@@ -891,12 +903,13 @@ public class ProductService {
             }
 
             // Perform integrity check against pre-fetched sets for O(1) speed
-            validateProductIntegrityOptimized(product, clientId, orgId, validCategoryIds, validUomIds);
+            validateProductIntegrityOptimized(product, clientId, effectiveOrgId != null ? effectiveOrgId : orgId, validCategoryIds, validUomIds);
 
-            setProductRelationships(product, clientId, orgId);
+            setProductRelationships(product, clientId, effectiveOrgId);
         }
         @SuppressWarnings("null")
         List<Product> savedProducts = productRepository.saveAll(products);
+        savedProducts.forEach(p -> p.setIsClientWise(p.getOrgId() == null));
         invalidatePosProducts(clientId, orgId);
         return savedProducts;
     }
@@ -929,11 +942,22 @@ public class ProductService {
         }
 
         UUID clientId = TenantContext.getCurrentTenant();
-        UUID orgId = effectiveWriteOrgId(existing.getOrgId());
-        validateProductIntegrity(product, clientId, orgId);
+        UUID currentOrgId = TenantContext.getCurrentOrg();
+
+        UUID targetOrgId = existing.getOrgId();
+        if (product.getIsClientWise() != null) {
+            targetOrgId = Boolean.TRUE.equals(product.getIsClientWise()) ? null : (product.getOrgId() != null ? product.getOrgId() : currentOrgId);
+        } else if (product.getOrgId() != null) {
+            targetOrgId = product.getOrgId();
+        }
+        existing.setOrgId(targetOrgId);
+        final UUID finalOrgId = targetOrgId;
+
+        UUID effectiveOrgForValidation = targetOrgId != null ? targetOrgId : currentOrgId;
+        validateProductIntegrity(product, clientId, effectiveOrgForValidation);
 
         // Duplicate Name Check (case-insensitive, excluding current product)
-        if (productRepository.existsByNameAndClientIdAndOrgIdOrGlobalAndIdNot(product.getName().trim(), clientId, orgId,
+        if (productRepository.existsByNameAndClientIdAndOrgIdOrGlobalAndIdNot(product.getName().trim(), clientId, targetOrgId,
                 id)) {
             throw new BusinessException("Product with this name already exists");
         }
@@ -956,7 +980,7 @@ public class ProductService {
         String newCode = product.getProductCode() != null && product.getProductCode().trim().isEmpty() ? null
                 : product.getProductCode();
         if (newCode != null && productRepository.existsByProductCodeAndClientIdAndOrgIdOrGlobalAndIdNot(newCode.trim(),
-                clientId, orgId, id)) {
+                clientId, targetOrgId, id)) {
             throw new BusinessException("Product with this code already exists");
         }
         existing.setProductCode(newCode);
@@ -969,8 +993,8 @@ public class ProductService {
         existing.setMinStockLevel(product.getMinStockLevel());
         existing.setKdsStation(product.getKdsStation());
 
-        existing.setCategory(resolveCategoryReference(product.getCategory(), clientId, orgId));
-        existing.setUom(resolveUomReference(product.getUom(), clientId, orgId));
+        existing.setCategory(resolveCategoryReference(product.getCategory(), clientId, effectiveOrgForValidation));
+        existing.setUom(resolveUomReference(product.getUom(), clientId, effectiveOrgForValidation));
         if (product.getDefaultPricelist() != null && product.getDefaultPricelist().getId() != null) {
             existing.setDefaultPricelist(pricelistRepository.findById(product.getDefaultPricelist().getId()).orElse(null));
         } else {
@@ -990,7 +1014,7 @@ public class ProductService {
                 vm.setVariantGroup(resolveVariantGroupReference(vm.getVariantGroup()));
                 vm.setProduct(existing);
                 vm.setClientId(clientId);
-                vm.setOrgId(orgId);
+                vm.setOrgId(finalOrgId);
             });
             existing.getVariantMappings().addAll(product.getVariantMappings());
         }
@@ -1008,7 +1032,7 @@ public class ProductService {
                 vp.setVariantOption(resolveVariantOptionReference(vp.getVariantOption()));
                 vp.setProduct(existing);
                 vp.setClientId(clientId);
-                vp.setOrgId(orgId);
+                vp.setOrgId(finalOrgId);
             });
             existing.getVariantPricings().addAll(product.getVariantPricings());
         }
@@ -1034,7 +1058,7 @@ public class ProductService {
                 }
                 upsell.setParentProduct(existing);
                 upsell.setClientId(clientId);
-                upsell.setOrgId(orgId);
+                upsell.setOrgId(finalOrgId);
             });
             existing.getUpsells().addAll(product.getUpsells());
         }
@@ -1050,7 +1074,7 @@ public class ProductService {
                 pp.setId(null);
                 pp.setProduct(existing);
                 pp.setClientId(clientId);
-                pp.setOrgId(orgId);
+                pp.setOrgId(finalOrgId);
                 if (pp.getPricelist() == null && pp.getPricelistId() != null) {
                     pp.setPricelist(pricelistRepository.findById(pp.getPricelistId()).orElse(null));
                 } else if (pp.getPricelist() != null && pp.getPricelist().getId() != null) {
@@ -1125,6 +1149,7 @@ public class ProductService {
                     existingLine.setVariantOption(resolvedVariantOption);
                     existingLine.setQuantity(qty);
                     existingLine.setActive(recipe.isActive());
+                    existingLine.setOrgId(finalOrgId);
                 } else {
                     // Brand new ingredient line
                     recipe.setId(null);
@@ -1133,7 +1158,7 @@ public class ProductService {
                     recipe.setQuantity(qty);
                     recipe.setProduct(existing);
                     recipe.setClientId(clientId);
-                    recipe.setOrgId(orgId);
+                    recipe.setOrgId(finalOrgId);
                     toAdd.add(recipe);
                 }
             }
@@ -1153,6 +1178,7 @@ public class ProductService {
 
 
         Product saved = productRepository.save(existing);
+        saved.setIsClientWise(saved.getOrgId() == null);
         invalidatePosProducts(saved.getClientId(), saved.getOrgId());
         return saved;
     }
@@ -1257,6 +1283,7 @@ public class ProductService {
         existing.setActive(active);
         existing.setAvailable(active);
         Product saved = productRepository.save(existing);
+        saved.setIsClientWise(saved.getOrgId() == null);
         invalidatePosProducts(saved.getClientId(), saved.getOrgId());
         return saved;
     }
@@ -1280,29 +1307,29 @@ public class ProductService {
     }
 
     private void validateOwnership(UUID ownerClientId, UUID ownerOrgId, String entityName, boolean forModification) {
-        if (SecurityUtils.isSuperAdmin()) {
-            return;
-        }
-
         UUID currentClientId = TenantContext.getCurrentTenant();
         UUID currentOrgId = TenantContext.getCurrentOrg();
+
+        if (SecurityUtils.isSuperAdmin() && currentOrgId == null) {
+            return;
+        }
 
         // 1. Cross-Tenant Check
         if (currentClientId != null && ownerClientId != null && !currentClientId.equals(ownerClientId)) {
             throw new BusinessException("Access denied: " + entityName + " belongs to another tenant");
         }
 
-        // 2. Global Data Protection (Global records have NULL orgId)
-        if (forModification && ownerOrgId == null && currentOrgId != null) {
-            // Check if user has permission to modify global data (assuming only
-            // SuperAdmin/System, for now rejecting all non-system)
-            // In a real scenario, we'd check Roles. Here we protect global data from being
-            // deleted/updated by org users.
+        // 2. Global Data Protection (Global records have NULL orgId or 00000000-0000-0000-0000-000000000000)
+        boolean isGlobal = (ownerOrgId == null || new UUID(0L, 0L).equals(ownerOrgId));
+        boolean currentIsBranch = (currentOrgId != null && !new UUID(0L, 0L).equals(currentOrgId));
+
+        if (forModification && isGlobal && currentIsBranch) {
+            // Protect global data from being deleted/updated by org users.
             throw new BusinessException("Access denied: Global " + entityName + " cannot be modified by branch users");
         }
 
         // 3. Cross-Org Check
-        if (ownerOrgId != null && currentOrgId != null && !java.util.Objects.equals(currentOrgId, ownerOrgId)) {
+        if (!isGlobal && currentIsBranch && !java.util.Objects.equals(currentOrgId, ownerOrgId)) {
             throw new BusinessException("Access denied: " + entityName + " belongs to another organization");
         }
     }
