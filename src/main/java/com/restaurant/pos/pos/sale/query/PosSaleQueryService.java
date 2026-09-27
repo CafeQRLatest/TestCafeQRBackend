@@ -488,10 +488,10 @@ public class PosSaleQueryService {
 
         return singleFlightLoader.loadAndCache(cacheKey, () -> {
             List<PosProductSummaryView> products = projectionRepository.findProductsKeyset(
-                    clientId, orgId, null, null, null, null, 2501);
-            boolean hasMore = products.size() > 2500;
+                    clientId, orgId, null, null, null, null, 10001);
+            boolean hasMore = products.size() > 10000;
             if (hasMore) {
-                products = products.subList(0, 2500);
+                products = products.subList(0, 10000);
             }
             String nextCursor = null;
             if (hasMore && !products.isEmpty()) {
@@ -673,7 +673,8 @@ public class PosSaleQueryService {
         String normalizedSearch = (search != null && !search.isBlank()) ? search.trim() : null;
         boolean includeImages = getConfigurations().isMenuImagesEnabled();
 
-        String cacheKey = PosCacheKeys.productPage(ctx.clientId(), ctx.orgId(), categoryId, normalizedSearch, limit, cursor) + (includeImages ? "" : ":noimg");
+        long version = versionService.getVersion(PosCacheVersionService.Namespace.PRODUCTS, ctx.clientId(), ctx.orgId());
+        String cacheKey = PosCacheKeys.productPage(ctx.clientId(), ctx.orgId(), version, categoryId, normalizedSearch, limit, cursor) + (includeImages ? "" : ":noimg");
 
         Optional<PosProductPageDto> cached = redisCacheService.get(cacheKey, PosProductPageDto.class);
         if (cached.isPresent()) {

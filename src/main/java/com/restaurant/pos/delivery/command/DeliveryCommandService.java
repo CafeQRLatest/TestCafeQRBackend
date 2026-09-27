@@ -259,7 +259,7 @@ public class DeliveryCommandService {
 
                 Optional<Product> productOpt = productRepository.findWithCategoryById(productId)
                         .filter(p -> effectiveClientId.equals(p.getClientId()))
-                        .filter(p -> effectiveOrgId == null || p.getOrgId() == null || effectiveOrgId.equals(p.getOrgId()))
+                        .filter(p -> effectiveOrgId == null || p.getOrgId() == null || new UUID(0L, 0L).equals(p.getOrgId()) || effectiveOrgId.equals(p.getOrgId()))
                         .filter(Product::isActive)
                         .filter(Product::isAvailable)
                         .filter(Product::isDeliveryVisible);
@@ -671,7 +671,7 @@ public class DeliveryCommandService {
 
             Optional<Product> productOpt = productRepository.findWithCategoryById(productId)
                     .filter(p -> clientId.equals(p.getClientId()))
-                    .filter(p -> orgUuid == null || p.getOrgId() == null || orgUuid.equals(p.getOrgId()))
+                    .filter(p -> orgUuid == null || p.getOrgId() == null || new UUID(0L, 0L).equals(p.getOrgId()) || orgUuid.equals(p.getOrgId()))
                     .filter(Product::isActive)
                     .filter(Product::isAvailable)
                     .filter(Product::isDeliveryVisible);

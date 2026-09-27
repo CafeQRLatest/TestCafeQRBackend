@@ -259,7 +259,7 @@ public interface PosSaleProjectionRepository extends JpaRepository<Order, UUID> 
         FROM products p
         LEFT JOIN categories c ON c.id = p.category_id
         WHERE (p.client_id = :clientId OR p.client_id IS NULL)
-          AND (:orgId IS NULL OR p.org_id = CAST(:orgId AS uuid) OR p.org_id IS NULL)
+          AND (:orgId IS NULL OR p.org_id = CAST(:orgId AS uuid) OR p.org_id IS NULL OR p.org_id = '00000000-0000-0000-0000-000000000000'::uuid)
           AND p.is_active = true
           AND (p.is_ingredient IS FALSE OR p.is_ingredient IS NULL)
           AND (:categoryId IS NULL OR p.category_id = CAST(:categoryId AS uuid))
