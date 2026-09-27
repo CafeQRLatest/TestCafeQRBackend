@@ -270,6 +270,8 @@ public class SystemConfigurationService {
                 .defaultBillingUiMode("board")
                 .salesVersion("v1")
                 .posV2Enabled(false)
+                .nonStockSalesPolicy("NONE")
+                .nonStockTransferPolicy("NONE")
                 .offlineSyncEnabled(false)
                 .offlineSyncInterval(60)
                 .offlineLeaseBlockSize(100)
@@ -319,6 +321,8 @@ public class SystemConfigurationService {
                 .dineInAutoPrintKotOnSettle(source.isDineInAutoPrintKotOnSettle())
                 .dineInHideKitchenMode(source.isDineInHideKitchenMode())
                 .defaultBillingUiMode(source.getDefaultBillingUiMode())
+                .nonStockSalesPolicy(source.getNonStockSalesPolicy() != null ? source.getNonStockSalesPolicy() : "NONE")
+                .nonStockTransferPolicy(source.getNonStockTransferPolicy() != null ? source.getNonStockTransferPolicy() : "NONE")
                 .offlineSyncEnabled(source.isOfflineSyncEnabled())
                 .offlineSyncInterval(source.getOfflineSyncInterval())
                 .offlineLeaseBlockSize(source.getOfflineLeaseBlockSize())
@@ -468,6 +472,8 @@ public class SystemConfigurationService {
                 .defaultBillingUiMode(entity.getDefaultBillingUiMode() != null ? entity.getDefaultBillingUiMode() : "board")
                 .salesVersion(entity.getSalesVersion() != null && "v2".equalsIgnoreCase(entity.getSalesVersion()) ? "v2" : "v1")
                 .posV2Enabled(entity.getSalesVersion() != null && "v2".equalsIgnoreCase(entity.getSalesVersion()))
+                .nonStockSalesPolicy(entity.getNonStockSalesPolicy() != null ? entity.getNonStockSalesPolicy() : "NONE")
+                .nonStockTransferPolicy(entity.getNonStockTransferPolicy() != null ? entity.getNonStockTransferPolicy() : "NONE")
                 .offlineSyncEnabled(entity.isOfflineSyncEnabled())
                 .offlineSyncInterval(entity.getOfflineSyncInterval())
                 .offlineLeaseBlockSize(entity.getOfflineLeaseBlockSize())
@@ -548,6 +554,12 @@ public class SystemConfigurationService {
         } else {
             entity.setPosV2Enabled(dto.isPosV2Enabled());
             entity.setSalesVersion(dto.isPosV2Enabled() ? "v2" : "v1");
+        }
+        if (dto.getNonStockSalesPolicy() != null) {
+            entity.setNonStockSalesPolicy(dto.getNonStockSalesPolicy().trim().toUpperCase());
+        }
+        if (dto.getNonStockTransferPolicy() != null) {
+            entity.setNonStockTransferPolicy(dto.getNonStockTransferPolicy().trim().toUpperCase());
         }
         entity.setOfflineSyncEnabled(dto.isOfflineSyncEnabled());
         entity.setOfflineSyncInterval(dto.getOfflineSyncInterval());

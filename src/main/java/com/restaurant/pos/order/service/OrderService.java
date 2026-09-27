@@ -1993,6 +1993,9 @@ public class OrderService {
             diagnosticPhase = "validate_gst_fields";
             validateGstFields(order);
 
+            diagnosticPhase = "validate_non_stock_sales";
+            validateNonStockSalesPolicy(order);
+
             diagnosticPhase = "save_order";
             Order saved = orderRepository.save(order);
 
@@ -3839,6 +3842,78 @@ public class OrderService {
                         order.getId(),
                         line.getUnitPrice() != null ? line.getUnitPrice() : java.math.BigDecimal.ZERO,
                         order.getOrgId());
+            }
+        }
+    }
+
+    private void validateNonStockSalesPolicy(Order order) {
+        if (order.getOrderType() != null && order.getOrderType() != OrderType.SALE) {
+            return;
+        }
+        if (order.getLines() == null || order.getLines().isEmpty()) {
+            return;
+        }
+        UUID clientId = order.getClientId() != null ? order.getClientId() : TenantContext.getCurrentTenant();
+        UUID orgId = order.getOrgId();
+        ConfigurationDto config = configurationService.getConfigurationForClientAndBranch(clientId, orgId);
+        if (config == null || !config.isInventoryEnabled()) {
+            return;
+        }
+        String policy = config.getNonStockSalesPolicy() != null
+                ? config.getNonStockSalesPolicy()
+                : "NONE";
+
+        if (!"BLOCK".equalsIgnoreCase(policy)) {
+            return;
+        }
+
+        UUID warehouseId = order.getWarehouseId();
+        if (warehouseId == null && orgId != null) {
+            warehouseId = inventoryService.findDefaultWarehouse(clientId, orgId)
+                    .map(com.restaurant.pos.warehouse.domain.Warehouse::getId)
+                    .orElse(null);
+        }
+        if (warehouseId == null) {
+            return;
+        }
+
+        for (com.restaurant.pos.order.domain.OrderLine line : order.getLines()) {
+            if (line.getProductId() == null) continue;
+            BigDecimal reqQty = line.getQuantity() != null ? line.getQuantity() : BigDecimal.ONE;
+            if (reqQty.signum() <= 0) continue;
+
+            Product product = productRepository.findById(line.getProductId()).orElse(null);
+            List<com.restaurant.pos.product.domain.ProductRecipe> recipes =
+                    product != null ? getActiveRecipes(product) : Collections.emptyList();
+
+            if (recipes.isEmpty()) {
+                com.restaurant.pos.inventory.domain.StockSnapshot snapshot = inventoryService.findStockSnapshot(warehouseId, line.getProductId(), line.getVariantId())
+                        .orElse(null);
+                if (snapshot == null && line.getVariantId() != null) {
+                    snapshot = inventoryService.findStockSnapshot(warehouseId, line.getProductId(), null).orElse(null);
+                }
+                BigDecimal available = snapshot != null && snapshot.getCurrentQuantity() != null ? snapshot.getCurrentQuantity() : BigDecimal.ZERO;
+                if (available.compareTo(BigDecimal.ZERO) <= 0 || available.compareTo(reqQty) < 0) {
+                    String prodName = line.getProductName() != null ? line.getProductName() : (product != null ? product.getName() : "Item");
+                    throw new BusinessException(
+                            "Cannot sell '" + prodName + "' - out of stock (Available: " + available + ", Required: " + reqQty + ")."
+                    );
+                }
+            } else {
+                for (com.restaurant.pos.product.domain.ProductRecipe recipe : recipes) {
+                    if (!isValidRecipe(recipe)) continue;
+                    UUID ingId = recipe.getIngredient().getId();
+                    BigDecimal needed = reqQty.multiply(recipe.getQuantity());
+                    com.restaurant.pos.inventory.domain.StockSnapshot snapshot = inventoryService.findStockSnapshot(warehouseId, ingId, null).orElse(null);
+                    BigDecimal available = snapshot != null && snapshot.getCurrentQuantity() != null ? snapshot.getCurrentQuantity() : BigDecimal.ZERO;
+                    if (available.compareTo(BigDecimal.ZERO) <= 0 || available.compareTo(needed) < 0) {
+                        String ingName = recipe.getIngredient().getName() != null ? recipe.getIngredient().getName() : "Ingredient";
+                        String prodName = line.getProductName() != null ? line.getProductName() : (product != null ? product.getName() : "Item");
+                        throw new BusinessException(
+                                "Cannot sell '" + prodName + "' - ingredient '" + ingName + "' is out of stock (Available: " + available + ", Required: " + needed + ")."
+                        );
+                    }
+                }
             }
         }
     }

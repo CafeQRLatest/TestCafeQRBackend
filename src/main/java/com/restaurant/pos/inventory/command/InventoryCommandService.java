@@ -40,6 +40,8 @@ public class InventoryCommandService {
     private final BranchContextService branchContext;
     private final DocumentSequenceService documentSequenceService;
     private final WarehouseRepository warehouseRepository;
+    private final com.restaurant.pos.product.repository.ProductRepository productRepository;
+    private final com.restaurant.pos.common.service.SystemConfigurationService configurationService;
 
     public Optional<StockSnapshot> findStockSnapshot(UUID warehouseId, UUID productId, UUID variantId) {
         java.util.List<StockSnapshot> list = stockSnapshotRepository
@@ -218,29 +220,51 @@ public class InventoryCommandService {
                 if (line.getIsActive() == null) {
                     line.setIsActive("Y");
                 }
+                if (line.getProductId() != null) {
+                    com.restaurant.pos.product.domain.Product product = productRepository.findById(line.getProductId()).orElse(null);
+                    if (product != null) {
+                        if (product.getOrgId() != null && !new UUID(0L, 0L).equals(product.getOrgId())) {
+                            throw new com.restaurant.pos.common.exception.BusinessException(
+                                    "Product '" + product.getName() + "' is branch-specific and cannot be transferred across branches."
+                            );
+                        }
+                        if (product.getRecipeLines() != null && !product.getRecipeLines().isEmpty()) {
+                            throw new com.restaurant.pos.common.exception.BusinessException(
+                                    "Product '" + product.getName() + "' contains ingredients and cannot be transferred."
+                            );
+                        }
+                    }
+                }
             }
         }
 
         if (!"DRAFT".equalsIgnoreCase(transfer.getStatus()) && transfer.getLines() != null) {
             boolean isNewTransitionToActive = previousStatus == null || "DRAFT".equalsIgnoreCase(previousStatus);
             if (isNewTransitionToActive) {
-                for (StockTransferLine line : transfer.getLines()) {
-                    StockSnapshot snapshot = findStockSnapshot(transfer.getSourceWarehouseId(), line.getProductId(), line.getVariantId())
-                            .orElse(null);
-                    if (snapshot == null && line.getVariantId() != null) {
-                        snapshot = findStockSnapshot(transfer.getSourceWarehouseId(), line.getProductId(), null)
+                com.restaurant.pos.common.dto.ConfigurationDto sysConfig = configurationService.getConfigurationForClientAndBranch(clientId, orgId);
+                boolean isInventoryOn = sysConfig != null && sysConfig.isInventoryEnabled();
+                String transferPolicy = isInventoryOn && sysConfig.getNonStockTransferPolicy() != null
+                        ? sysConfig.getNonStockTransferPolicy()
+                        : "NONE";
+                if ("BLOCK".equalsIgnoreCase(transferPolicy)) {
+                    for (StockTransferLine line : transfer.getLines()) {
+                        StockSnapshot snapshot = findStockSnapshot(transfer.getSourceWarehouseId(), line.getProductId(), line.getVariantId())
                                 .orElse(null);
-                    }
-                    BigDecimal available = snapshot != null && snapshot.getCurrentQuantity() != null ? snapshot.getCurrentQuantity() : BigDecimal.ZERO;
-                    if (available.compareTo(BigDecimal.ZERO) <= 0) {
-                        throw new com.restaurant.pos.common.exception.BusinessException(
-                                "Cannot transfer non-stock item. Available stock is 0."
-                        );
-                    }
-                    if (line.getTransferQuantity() != null && line.getTransferQuantity().compareTo(available) > 0) {
-                        throw new com.restaurant.pos.common.exception.BusinessException(
-                                "Transfer quantity (" + line.getTransferQuantity() + ") exceeds available stock (" + available + ")."
-                        );
+                        if (snapshot == null && line.getVariantId() != null) {
+                            snapshot = findStockSnapshot(transfer.getSourceWarehouseId(), line.getProductId(), null)
+                                    .orElse(null);
+                        }
+                        BigDecimal available = snapshot != null && snapshot.getCurrentQuantity() != null ? snapshot.getCurrentQuantity() : BigDecimal.ZERO;
+                        if (available.compareTo(BigDecimal.ZERO) <= 0) {
+                            throw new com.restaurant.pos.common.exception.BusinessException(
+                                    "Cannot transfer non-stock item. Available stock is 0."
+                            );
+                        }
+                        if (line.getTransferQuantity() != null && line.getTransferQuantity().compareTo(available) > 0) {
+                            throw new com.restaurant.pos.common.exception.BusinessException(
+                                    "Transfer quantity (" + line.getTransferQuantity() + ") exceeds available stock (" + available + ")."
+                            );
+                        }
                     }
                 }
             }
