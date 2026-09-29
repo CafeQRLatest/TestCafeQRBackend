@@ -1,5 +1,6 @@
 package com.restaurant.pos.hr.service;
 
+import com.restaurant.pos.common.exception.BusinessException;
 import com.restaurant.pos.common.tenant.TenantContext;
 import com.restaurant.pos.hr.dto.PayrollRunDto;
 import com.restaurant.pos.hr.dto.SalarySlipDto;
@@ -35,8 +36,32 @@ public class PayrollEngineService {
 
     @Transactional
     public PayrollRunDto initiatePayrollRun(PayrollRunDto dto) {
+        if (dto == null) {
+            throw new BusinessException("Payroll run data is required.");
+        }
+        if (dto.getName() == null || dto.getName().trim().isEmpty()) {
+            throw new BusinessException("Payroll run name cannot be empty.");
+        }
+        if (dto.getStartDate() == null || dto.getEndDate() == null) {
+            throw new BusinessException("Start date and end date are required.");
+        }
+        if (dto.getStartDate().isAfter(dto.getEndDate())) {
+            throw new BusinessException("Start date cannot be after end date.");
+        }
+        int startYear = dto.getStartDate().getYear();
+        int endYear = dto.getEndDate().getYear();
+        if (startYear < 2000 || startYear > 2100 || endYear < 2000 || endYear > 2100) {
+            throw new BusinessException("Invalid date range: Year must be between 2000 and 2100.");
+        }
+
+        UUID clientId = TenantContext.getCurrentTenant();
+        UUID orgId = TenantContext.getCurrentOrg();
+        if (payrollRunRepository.existsByNameAndClientIdAndOrgId(dto.getName().trim(), clientId, orgId)) {
+            throw new BusinessException("A payroll run with the name '" + dto.getName().trim() + "' already exists.");
+        }
+
         PayrollRun run = new PayrollRun();
-        run.setName(dto.getName());
+        run.setName(dto.getName().trim());
         run.setStartDate(dto.getStartDate());
         run.setEndDate(dto.getEndDate());
         run.setStatus("PROCESSING");

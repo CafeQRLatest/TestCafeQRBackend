@@ -1,5 +1,6 @@
 package com.restaurant.pos.hr.service;
 
+import com.restaurant.pos.common.exception.BusinessException;
 import com.restaurant.pos.common.tenant.TenantContext;
 import com.restaurant.pos.expense.repository.ExpenseRepository;
 import com.restaurant.pos.hr.dto.HrSettingsDto;
@@ -18,6 +19,7 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
@@ -115,8 +117,8 @@ class PayrollEngineServiceTest {
         SalarySlip savedSlip = slipCaptor.getValue();
 
         // Base 3000 / 30 = 100 daily rate. 2 unpaid days = 200 deduction.
-        assertThat(savedSlip.getGrossPay()).isEqualByComparingTo("2800.00");
-        assertThat(savedSlip.getTotalDeductions()).isEqualByComparingTo("0.00");
+        assertThat(savedSlip.getGrossPay()).isEqualByComparingTo("3000.00");
+        assertThat(savedSlip.getTotalDeductions()).isEqualByComparingTo("200.00");
         assertThat(savedSlip.getNetPay()).isEqualByComparingTo("2800.00");
         assertThat(savedSlip.getTotalUnpaidLeaveDays()).isEqualTo(2);
     }
@@ -505,6 +507,61 @@ class PayrollEngineServiceTest {
         assertThat(savedSlip.getTotalWorkedHours()).isEqualByComparingTo("13.00");
         assertThat(savedSlip.getGrossPay()).isEqualByComparingTo("3093.75");
         assertThat(savedSlip.getNetPay()).isEqualByComparingTo("3093.75");
+    }
+
+    @Test
+    void initiatePayrollRun_DuplicateRunName_ThrowsBusinessException_CQR123() {
+        PayrollRunDto runDto = PayrollRunDto.builder()
+                .name("September 2026 Payroll")
+                .startDate(LocalDate.of(2026, 9, 1))
+                .endDate(LocalDate.of(2026, 9, 30))
+                .build();
+
+        when(payrollRunRepository.existsByNameAndClientIdAndOrgId(eq("September 2026 Payroll"), eq(clientId), eq(orgId)))
+                .thenReturn(true);
+
+        assertThatThrownBy(() -> payrollEngineService.initiatePayrollRun(runDto))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("A payroll run with the name 'September 2026 Payroll' already exists.");
+    }
+
+    @Test
+    void initiatePayrollRun_EmptyName_ThrowsBusinessException_CQR123() {
+        PayrollRunDto runDto = PayrollRunDto.builder()
+                .name("   ")
+                .startDate(LocalDate.of(2026, 9, 1))
+                .endDate(LocalDate.of(2026, 9, 30))
+                .build();
+
+        assertThatThrownBy(() -> payrollEngineService.initiatePayrollRun(runDto))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("Payroll run name cannot be empty.");
+    }
+
+    @Test
+    void initiatePayrollRun_StartDateAfterEndDate_ThrowsBusinessException_CQR125() {
+        PayrollRunDto runDto = PayrollRunDto.builder()
+                .name("Invalid Date Run")
+                .startDate(LocalDate.of(2026, 10, 15))
+                .endDate(LocalDate.of(2026, 10, 1))
+                .build();
+
+        assertThatThrownBy(() -> payrollEngineService.initiatePayrollRun(runDto))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("Start date cannot be after end date.");
+    }
+
+    @Test
+    void initiatePayrollRun_InvalidYearRange_ThrowsBusinessException_CQR125() {
+        PayrollRunDto runDto = PayrollRunDto.builder()
+                .name("Ancient Date Run")
+                .startDate(LocalDate.of(1111, 4, 11))
+                .endDate(LocalDate.of(2026, 10, 1))
+                .build();
+
+        assertThatThrownBy(() -> payrollEngineService.initiatePayrollRun(runDto))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("Invalid date range: Year must be between 2000 and 2100.");
     }
 }
 
