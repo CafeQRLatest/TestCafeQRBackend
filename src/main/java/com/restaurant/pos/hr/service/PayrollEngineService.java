@@ -1,5 +1,8 @@
 package com.restaurant.pos.hr.service;
 
+import com.restaurant.pos.common.service.AuditLogService;
+import com.restaurant.pos.hr.dto.HrSettingsDto;
+
 import com.restaurant.pos.common.exception.BusinessException;
 import com.restaurant.pos.common.tenant.TenantContext;
 import com.restaurant.pos.hr.dto.PayrollRunDto;
@@ -16,7 +19,11 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -33,6 +40,7 @@ public class PayrollEngineService {
     private final SalaryAdvanceRepository salaryAdvanceRepository;
     private final HrSettingsService hrSettingsService;
     private final ExpenseRepository expenseRepository;
+    private final AuditLogService auditLogService;
 
     @Transactional
     public PayrollRunDto initiatePayrollRun(PayrollRunDto dto) {
@@ -86,6 +94,8 @@ public class PayrollEngineService {
         // Months factor (30 days = 1.0 month)
         BigDecimal monthsInPeriod = new BigDecimal(daysInPeriod).divide(new BigDecimal("30"), 4, RoundingMode.HALF_UP);
 
+        HrSettingsDto hrSettings = hrSettingsService != null ? hrSettingsService.getSettings() : null;
+
         // 1. Fetch all active employees
         List<Employee> employees = employeeRepository.findByClientIdAndOrgId(clientId, orgId)
                 .stream().filter(Employee::isActive).collect(Collectors.toList());
@@ -99,17 +109,15 @@ public class PayrollEngineService {
             List<Attendance> attendances = attendanceRepository.findByEmployeeIdAndDateRangeAndClientIdAndOrgId(
                     emp.getId(), run.getStartDate(), run.getEndDate(), clientId, orgId);
             
-            BigDecimal normalHours = attendances.stream()
-                    .map(a -> {
-                        BigDecimal total = a.getTotalHoursWorked() != null ? a.getTotalHoursWorked() : BigDecimal.ZERO;
-                        BigDecimal ot = a.getOvertimeHours() != null ? a.getOvertimeHours() : BigDecimal.ZERO;
-                        return total.subtract(ot);
-                    })
+            BigDecimal totalWorkedHours = attendances.stream()
+                    .map(a -> a.getTotalHoursWorked() != null ? a.getTotalHoursWorked() : BigDecimal.ZERO)
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
-                    
-            BigDecimal overtimeHours = attendances.stream()
-                    .map(a -> a.getOvertimeHours() != null ? a.getOvertimeHours() : BigDecimal.ZERO)
-                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+            BigDecimal overtimeHours = calculateOvertimeHours(attendances, hrSettings);
+            BigDecimal normalHours = totalWorkedHours.subtract(overtimeHours);
+            if (normalHours.compareTo(BigDecimal.ZERO) < 0) {
+                normalHours = BigDecimal.ZERO;
+            }
                     
             // 4. Aggregate Leaves
             List<LeaveRequest> leaves = leaveRequestRepository.findApprovedByEmployeeIdAndDateRange(
@@ -123,7 +131,7 @@ public class PayrollEngineService {
 
             // Safety net: for Hourly employees, exclude attendance on unpaid leave dates
             if ("HOURLY".equals(emp.getEmploymentType()) && unpaidLeaveDays > 0) {
-                java.util.Set<LocalDate> unpaidLeaveDates = new java.util.HashSet<>();
+                Set<LocalDate> unpaidLeaveDates = new HashSet<>();
                 for (LeaveRequest lr : leaves) {
                     if ("UNPAID".equals(lr.getLeaveType())) {
                         LocalDate d = lr.getStartDate();
@@ -136,18 +144,18 @@ public class PayrollEngineService {
                 List<Attendance> filtered = attendances.stream()
                         .filter(a -> !unpaidLeaveDates.contains(a.getAttendanceDate()))
                         .collect(Collectors.toList());
-                // Recalculate hours from filtered list only
-                normalHours = filtered.stream()
-                        .map(a -> {
-                            BigDecimal total = a.getTotalHoursWorked() != null ? a.getTotalHoursWorked() : BigDecimal.ZERO;
-                            BigDecimal ot = a.getOvertimeHours() != null ? a.getOvertimeHours() : BigDecimal.ZERO;
-                            return total.subtract(ot);
-                        })
+
+                totalWorkedHours = filtered.stream()
+                        .map(a -> a.getTotalHoursWorked() != null ? a.getTotalHoursWorked() : BigDecimal.ZERO)
                         .reduce(BigDecimal.ZERO, BigDecimal::add);
-                overtimeHours = filtered.stream()
-                        .map(a -> a.getOvertimeHours() != null ? a.getOvertimeHours() : BigDecimal.ZERO)
-                        .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+                overtimeHours = calculateOvertimeHours(filtered, hrSettings);
+                normalHours = totalWorkedHours.subtract(overtimeHours);
+                if (normalHours.compareTo(BigDecimal.ZERO) < 0) {
+                    normalHours = BigDecimal.ZERO;
+                }
             }
+
 
             if ("HOURLY".equals(emp.getEmploymentType())) {
                 int paidLeaveDays = leaves.stream()
@@ -315,7 +323,62 @@ public class PayrollEngineService {
         }
 
         payrollRunRepository.delete(run);
+
+        if (auditLogService != null) {
+            auditLogService.logAction("DELETE_PAYROLL_RUN", "PayrollRun", payrollRunId.toString());
+        }
     }
+
+    public BigDecimal calculateOvertimeHours(List<Attendance> attendances, HrSettingsDto settings) {
+        if (attendances == null || attendances.isEmpty()) {
+            return BigDecimal.ZERO;
+        }
+
+        BigDecimal dailyOvertimeTotal = attendances.stream()
+                .map(a -> a.getOvertimeHours() != null ? a.getOvertimeHours() : BigDecimal.ZERO)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        String mode = settings != null && settings.getOvertimeMode() != null 
+                ? settings.getOvertimeMode().toUpperCase() 
+                : "DAILY";
+
+        if ("DAILY".equals(mode)) {
+            return dailyOvertimeTotal;
+        }
+
+        BigDecimal weeklyThreshold = (settings != null && settings.getWeeklyOvertimeThreshold() != null)
+                ? settings.getWeeklyOvertimeThreshold()
+                : new BigDecimal("40.00");
+
+        java.time.temporal.WeekFields weekFields = java.time.temporal.WeekFields.of(java.time.DayOfWeek.MONDAY, 1);
+        Map<String, BigDecimal> weeklyHoursMap = new HashMap<>();
+
+        for (Attendance a : attendances) {
+            if (a.getAttendanceDate() != null && a.getTotalHoursWorked() != null) {
+                int year = a.getAttendanceDate().get(weekFields.weekBasedYear());
+                int week = a.getAttendanceDate().get(weekFields.weekOfWeekBasedYear());
+                String weekKey = year + "-W" + week;
+
+                weeklyHoursMap.put(weekKey, weeklyHoursMap.getOrDefault(weekKey, BigDecimal.ZERO).add(a.getTotalHoursWorked()));
+            }
+        }
+
+        BigDecimal weeklyOvertimeTotal = BigDecimal.ZERO;
+        for (BigDecimal weeklyHours : weeklyHoursMap.values()) {
+            if (weeklyHours.compareTo(weeklyThreshold) > 0) {
+                weeklyOvertimeTotal = weeklyOvertimeTotal.add(weeklyHours.subtract(weeklyThreshold));
+            }
+        }
+
+        if ("WEEKLY".equals(mode)) {
+            return weeklyOvertimeTotal;
+        } else if ("BOTH".equals(mode)) {
+            return dailyOvertimeTotal.max(weeklyOvertimeTotal);
+        }
+
+        return dailyOvertimeTotal;
+    }
+
 
     private PayrollRunDto mapToRunDto(PayrollRun entity) {
         UUID clientId = TenantContext.getCurrentTenant();

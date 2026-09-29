@@ -16,7 +16,9 @@ import org.mockito.ArgumentCaptor;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
+
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -35,6 +37,7 @@ class PayrollEngineServiceTest {
     private SalaryAdvanceRepository salaryAdvanceRepository;
     private HrSettingsService hrSettingsService;
     private ExpenseRepository expenseRepository;
+    private com.restaurant.pos.common.service.AuditLogService auditLogService;
 
     private PayrollEngineService payrollEngineService;
 
@@ -52,6 +55,7 @@ class PayrollEngineServiceTest {
         salaryAdvanceRepository = mock(SalaryAdvanceRepository.class);
         hrSettingsService = mock(HrSettingsService.class);
         expenseRepository = mock(ExpenseRepository.class);
+        auditLogService = mock(com.restaurant.pos.common.service.AuditLogService.class);
 
         payrollEngineService = new PayrollEngineService(
                 payrollRunRepository,
@@ -62,8 +66,10 @@ class PayrollEngineServiceTest {
                 leaveRequestRepository,
                 salaryAdvanceRepository,
                 hrSettingsService,
-                expenseRepository
+                expenseRepository,
+                auditLogService
         );
+
 
         clientId = UUID.randomUUID();
         orgId = UUID.randomUUID();
@@ -563,7 +569,71 @@ class PayrollEngineServiceTest {
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("Invalid date range: Year must be between 2000 and 2100.");
     }
+
+    @Test
+    void deletePayrollRun_RecordsAuditLog_CQR135_SubItem4() {
+        UUID runId = UUID.randomUUID();
+        PayrollRun run = new PayrollRun();
+        run.setId(runId);
+
+        when(payrollRunRepository.findByIdAndClientIdAndOrgId(eq(runId), eq(clientId), eq(orgId)))
+                .thenReturn(Optional.of(run));
+        when(salarySlipRepository.findByPayrollRunIdAndClientIdAndOrgId(eq(runId), eq(clientId), eq(orgId)))
+                .thenReturn(List.of());
+        when(expenseRepository.findByClientIdAndOrgIdAndExpenseNo(any(), any(), any()))
+                .thenReturn(List.of());
+
+        payrollEngineService.deletePayrollRun(runId);
+
+        verify(payrollRunRepository).delete(run);
+        verify(auditLogService).logAction("DELETE_PAYROLL_RUN", "PayrollRun", runId.toString());
+    }
+
+    @Test
+    void calculateOvertimeHours_BothMode_TakesHigherOfDailyOrWeekly_CQR135_SubItem6() {
+        // Mon 10h (2h daily OT), Tue 10h (2h daily OT), Wed 10h (2h daily OT) -> 30h total worked
+        // Daily OT sum = 6h. Weekly OT (threshold 40h) = 0h.
+        // BOTH mode should return Max(6, 0) = 6h.
+        Attendance a1 = new Attendance();
+        a1.setAttendanceDate(LocalDate.of(2026, 9, 7)); // Monday
+        a1.setTotalHoursWorked(new BigDecimal("10.00"));
+        a1.setOvertimeHours(new BigDecimal("2.00"));
+
+        Attendance a2 = new Attendance();
+        a2.setAttendanceDate(LocalDate.of(2026, 9, 8)); // Tuesday
+        a2.setTotalHoursWorked(new BigDecimal("10.00"));
+        a2.setOvertimeHours(new BigDecimal("2.00"));
+
+        Attendance a3 = new Attendance();
+        a3.setAttendanceDate(LocalDate.of(2026, 9, 9)); // Wednesday
+        a3.setTotalHoursWorked(new BigDecimal("10.00"));
+        a3.setOvertimeHours(new BigDecimal("2.00"));
+
+        com.restaurant.pos.hr.dto.HrSettingsDto settings = com.restaurant.pos.hr.dto.HrSettingsDto.builder()
+                .overtimeMode("BOTH")
+                .weeklyOvertimeThreshold(new BigDecimal("40.00"))
+                .build();
+
+        BigDecimal otBoth = payrollEngineService.calculateOvertimeHours(List.of(a1, a2, a3), settings);
+        assertThat(otBoth).isEqualByComparingTo("6.00");
+
+        // Now test 7 days of 8h (0h daily OT) = 56h total worked.
+        // Daily OT sum = 0h. Weekly OT (56 - 40) = 16h.
+        // BOTH mode should return Max(0, 16) = 16h.
+        List<Attendance> sevenDays = new java.util.ArrayList<>();
+        for (int day = 7; day <= 13; day++) {
+            Attendance a = new Attendance();
+            a.setAttendanceDate(LocalDate.of(2026, 9, day));
+            a.setTotalHoursWorked(new BigDecimal("8.00"));
+            a.setOvertimeHours(BigDecimal.ZERO);
+            sevenDays.add(a);
+        }
+
+        BigDecimal otWeeklyHigher = payrollEngineService.calculateOvertimeHours(sevenDays, settings);
+        assertThat(otWeeklyHigher).isEqualByComparingTo("16.00");
+    }
 }
+
 
 
 
