@@ -2,6 +2,7 @@ package com.restaurant.pos.hr.service;
 
 import com.restaurant.pos.common.tenant.TenantContext;
 import com.restaurant.pos.expense.repository.ExpenseRepository;
+import com.restaurant.pos.hr.dto.HrSettingsDto;
 import com.restaurant.pos.hr.dto.PayrollRunDto;
 import com.restaurant.pos.hr.dto.SalarySlipDto;
 import com.restaurant.pos.hr.entity.*;
@@ -439,4 +440,73 @@ class PayrollEngineServiceTest {
         // 61 days at $40/day = $2440.00 gross pay (full 2-month period)
         assertThat(savedSlip.getGrossPay()).isEqualByComparingTo("2440.00");
     }
+
+    /**
+     * CQR-135: Monthly-salaried employees must receive overtime pay when their
+     * timecards accumulate overtime hours beyond the standard daily threshold.
+     *
+     * Setup:
+     *   - Employee base salary: $3,000/month
+     *   - Period: 30-day month (Sep 2026)
+     *   - Timecard: 5 hours of overtime accumulated across the period
+     *   - HR settings: standardHoursPerDay = 8, overtimeMultiplier = 1.5
+     *
+     * Expected calculation:
+     *   - Daily rate       = $3000 / 30 = $100.00
+     *   - Base pay         = $100 * 30   = $3000.00
+     *   - Effective hourly = $100 / 8    = $12.50/hr
+     *   - OT pay           = $12.50 * 1.5 * 5 = $93.75
+     *   - Gross pay        = $3000.00 + $93.75 = $3093.75
+     */
+    @Test
+    void initiatePayrollRun_MonthlySalariedEmployee_IncludesOvertimePay_CQR135() {
+        Employee emp = new Employee();
+        emp.setFirstName("Sara");
+        emp.setLastName("Monthly");
+        emp.setEmploymentType("SALARIED");
+        emp.setBaseSalary(new BigDecimal("3000.00"));
+        emp.setActive(true);
+
+        // Timecard: 13 total hours on one day — 8 normal, 5 OT
+        Attendance att = new Attendance();
+        att.setTotalHoursWorked(new BigDecimal("13.00"));
+        att.setOvertimeHours(new BigDecimal("5.00"));
+
+        PayrollRunDto runDto = PayrollRunDto.builder()
+                .name("Monthly OT Test Run")
+                .startDate(LocalDate.of(2026, 9, 1))
+                .endDate(LocalDate.of(2026, 9, 30))
+                .build();
+
+        HrSettingsDto settings = HrSettingsDto.builder()
+                .standardHoursPerDay(new BigDecimal("8.00"))
+                .overtimeMultiplier(new BigDecimal("1.50"))
+                .build();
+
+        when(hrSettingsService.getSettings()).thenReturn(settings);
+        when(employeeRepository.findByClientIdAndOrgId(clientId, orgId)).thenReturn(List.of(emp));
+        when(attendanceRepository.findByEmployeeIdAndDateRangeAndClientIdAndOrgId(eq(emp.getId()), any(), any(), eq(clientId), eq(orgId)))
+                .thenReturn(List.of(att));
+        when(leaveRequestRepository.findApprovedByEmployeeIdAndDateRange(eq(emp.getId()), any(), any(), eq(clientId), eq(orgId)))
+                .thenReturn(List.of());
+        when(employeeSalaryComponentRepository.findActiveByEmployeeId(emp.getId())).thenReturn(List.of());
+        when(salaryAdvanceRepository.findActiveAdvancesByEmployeeId(emp.getId(), clientId, orgId)).thenReturn(List.of());
+
+        payrollEngineService.initiatePayrollRun(runDto);
+
+        ArgumentCaptor<SalarySlip> slipCaptor = ArgumentCaptor.forClass(SalarySlip.class);
+        verify(salarySlipRepository).save(slipCaptor.capture());
+        SalarySlip savedSlip = slipCaptor.getValue();
+
+        // Base pay: $3000/30 * 30 = $3000.00
+        // Effective hourly: $100 / 8hrs = $12.50
+        // OT pay: $12.50 * 1.5 * 5hrs = $93.75
+        // Gross pay: $3000.00 + $93.75 = $3093.75
+        assertThat(savedSlip.getTotalWorkedHours()).isEqualByComparingTo("13.00");
+        assertThat(savedSlip.getGrossPay()).isEqualByComparingTo("3093.75");
+        assertThat(savedSlip.getNetPay()).isEqualByComparingTo("3093.75");
+    }
 }
+
+
+

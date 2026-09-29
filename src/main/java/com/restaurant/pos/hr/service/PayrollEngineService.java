@@ -170,6 +170,28 @@ public class PayrollEngineService {
                 BigDecimal basePayForPeriod = dailyRate.multiply(new BigDecimal(daysInPeriod)).setScale(2, RoundingMode.HALF_UP);
                 unpaidLeaveDeductionAmount = dailyRate.multiply(BigDecimal.valueOf(unpaidLeaveDays)).setScale(2, RoundingMode.HALF_UP);
                 grossPay = basePayForPeriod; // Exception-Based Pay: Gross pay is full, unpaid leave is a deduction
+
+                // CQR-135: Include overtime pay for monthly-salaried employees who worked beyond the standard daily threshold.
+                // Effective hourly rate = baseSalary / 30 days / standardHoursPerDay
+                if (overtimeHours.compareTo(BigDecimal.ZERO) > 0) {
+                    BigDecimal standardHoursPerDay = new BigDecimal("8.00");
+                    BigDecimal otMultiplier = new BigDecimal("1.50");
+                    try {
+                        if (hrSettingsService != null && hrSettingsService.getSettings() != null) {
+                            BigDecimal customHours = hrSettingsService.getSettings().getStandardHoursPerDay();
+                            if (customHours != null && customHours.compareTo(BigDecimal.ZERO) > 0) {
+                                standardHoursPerDay = customHours;
+                            }
+                            BigDecimal customMult = hrSettingsService.getSettings().getOvertimeMultiplier();
+                            if (customMult != null && customMult.compareTo(BigDecimal.ONE) >= 0) {
+                                otMultiplier = customMult;
+                            }
+                        }
+                    } catch (Exception ignored) {}
+                    BigDecimal effectiveHourlyRate = dailyRate.divide(standardHoursPerDay, 4, RoundingMode.HALF_UP);
+                    BigDecimal monthlyOvertimePay = effectiveHourlyRate.multiply(otMultiplier).multiply(overtimeHours).setScale(2, RoundingMode.HALF_UP);
+                    grossPay = grossPay.add(monthlyOvertimePay);
+                }
             }
 
             // 6. Apply Rules Engine (Employee Specific Components)
