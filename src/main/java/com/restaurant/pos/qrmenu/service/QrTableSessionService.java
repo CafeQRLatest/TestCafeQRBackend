@@ -117,7 +117,15 @@ public class QrTableSessionService {
         UUID effectiveClientId = table.getClientId() != null ? table.getClientId() : clientId;
         UUID effectiveOrgId = table.getOrgId() != null ? table.getOrgId() : orgUuid;
 
-        info.put("onlinePaymentEnabled", systemConfigurationService.getConfigurationForClientAndBranch(effectiveClientId, effectiveOrgId).isOnlinePaymentEnabled());
+        // Online payment mirrors Delivery Website pattern (DeliveryQueryService:L269-272):
+        // requires onlineDeliveryEnabled + onlinePaymentEnabled + valid Razorpay key
+        com.restaurant.pos.common.dto.ConfigurationDto qrConfig = systemConfigurationService
+                .getConfigurationForClientAndBranch(effectiveClientId, effectiveOrgId);
+        boolean onlinePayActive = qrConfig.isOnlinePaymentEnabled()
+                && qrConfig.isOnlineDeliveryEnabled()
+                && qrConfig.getRazorpayKeyId() != null
+                && !qrConfig.getRazorpayKeyId().isBlank();
+        info.put("onlinePaymentEnabled", onlinePayActive);
 
         clientRepository.findById(effectiveClientId).ifPresent(client -> {
             info.put("brandColor", client.getBrandColor() != null ? client.getBrandColor() : "#f97316");
