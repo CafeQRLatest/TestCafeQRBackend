@@ -20,8 +20,8 @@ public interface QrOrderRepository extends JpaRepository<Order, UUID> {
     @Query("""
             SELECT o FROM Order o
             WHERE o.clientId = :clientId
-              AND (:orgId IS NULL OR o.orgId = :orgId)
-              AND ((:tableId IS NOT NULL AND o.tableId = :tableId) OR (:tableNumber IS NOT NULL AND o.tableNumber = :tableNumber))
+              AND (cast(:orgId as uuid) IS NULL OR o.orgId = :orgId)
+              AND ((cast(:tableId as uuid) IS NOT NULL AND o.tableId = :tableId) OR (:tableNumber IS NOT NULL AND o.tableNumber = :tableNumber))
               AND o.isactive = 'Y'
               AND (o.orderStatus IS NULL OR UPPER(o.orderStatus) NOT IN ('COMPLETED', 'CANCELLED', 'VOID', 'PAID'))
             ORDER BY o.createdAt DESC
