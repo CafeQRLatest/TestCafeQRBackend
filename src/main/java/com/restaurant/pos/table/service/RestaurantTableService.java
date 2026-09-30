@@ -31,10 +31,14 @@ public class RestaurantTableService {
 
     private final RestaurantTableRepository tableRepository;
     private final OrderRepository orderRepository;
-    private final ClientRepository clientRepository;
-    private final OrganizationRepository organizationRepository;
     private final EmailService emailService;
     private final BranchContextService branchContext;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private ClientRepository clientRepository;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private OrganizationRepository organizationRepository;
 
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     @org.springframework.context.annotation.Lazy
@@ -132,15 +136,19 @@ public class RestaurantTableService {
         
         // On creation, automatically send QR mail to owner
         if (isNew) {
-            String clientSlug = clientRepository.findById(saved.getClientId())
+            String clientSlug = (clientRepository != null && saved.getClientId() != null)
+                    ? clientRepository.findById(saved.getClientId())
                     .map(Client::getSlug)
                     .filter(s -> !s.isBlank())
-                    .orElse(saved.getClientId().toString());
-            String branchSlug = organizationRepository.findById(saved.getOrgId())
+                    .orElse(String.valueOf(saved.getClientId()))
+                    : String.valueOf(saved.getClientId());
+            String branchSlug = (organizationRepository != null && saved.getOrgId() != null)
+                    ? organizationRepository.findById(saved.getOrgId())
                     .map(org -> org.getSlug() != null && !org.getSlug().isBlank() ? org.getSlug() : (org.getBranchCode() != null ? org.getBranchCode().toLowerCase() : null))
                     .filter(s -> s != null && !s.isBlank())
-                    .orElse(saved.getOrgId().toString());
-            String tableIdent = saved.getId().toString(); // Always use tamper-proof 36-character UUID
+                    .orElse(String.valueOf(saved.getOrgId()))
+                    : String.valueOf(saved.getOrgId());
+            String tableIdent = saved.getId() != null ? saved.getId().toString() : "";
             String qrLink = String.format("%s/menu/%s/%s/%s", frontendUrl, clientSlug, branchSlug, tableIdent);
             sendQRCode(saved.getId(), null, qrLink);
         }
