@@ -2033,9 +2033,9 @@ public class OrderService {
                     processInventoryForOrder(saved);
                 }
             } else {
-                // SALE: deduct stock when the order reaches COMPLETED+PAID state
-                if ("COMPLETED".equalsIgnoreCase(saved.getOrderStatus())
-                        && "PAID".equalsIgnoreCase(saved.getPaymentStatus())) {
+                // SALE: deduct stock immediately on order creation (kitchen orders, counter orders)
+                // The idempotency guard in deductStockForSale prevents duplicate deductions
+                if (!"CANCELLED".equalsIgnoreCase(saved.getOrderStatus())) {
                     deductStockForSale(saved);
                 }
                 // Sales
@@ -2712,12 +2712,11 @@ public class OrderService {
         }
         handleTableStatus(saved);
 
-        // Inventory Hook: PURCHASE=add stock, SALE=deduct stock
+        // Inventory Hook: PURCHASE=add stock, SALE=deduct stock on creation
         if (saved.getOrderType() == OrderType.PURCHASE && "COMPLETED".equalsIgnoreCase(saved.getOrderStatus())) {
             processInventoryForOrder(saved);
         } else if (saved.getOrderType() == OrderType.SALE
-                && "COMPLETED".equalsIgnoreCase(saved.getOrderStatus())
-                && "PAID".equalsIgnoreCase(saved.getPaymentStatus())) {
+                && !"CANCELLED".equalsIgnoreCase(saved.getOrderStatus())) {
             deductStockForSale(saved);
         }
 
@@ -2819,8 +2818,7 @@ public class OrderService {
         if (result.getOrderType() == OrderType.PURCHASE && "COMPLETED".equalsIgnoreCase(result.getOrderStatus())) {
             processInventoryForOrder(result);
         } else if (result.getOrderType() == OrderType.SALE
-                && "COMPLETED".equalsIgnoreCase(result.getOrderStatus())
-                && "PAID".equalsIgnoreCase(result.getPaymentStatus())) {
+                && !"CANCELLED".equalsIgnoreCase(result.getOrderStatus())) {
             deductStockForSale(result);
         }
         Order hydrated = hydrateOrder(result);
@@ -3103,8 +3101,7 @@ public class OrderService {
         if (saved.getOrderType() == OrderType.PURCHASE && "COMPLETED".equalsIgnoreCase(saved.getOrderStatus())) {
             processInventoryForOrder(saved);
         } else if (saved.getOrderType() == OrderType.SALE
-                && "COMPLETED".equalsIgnoreCase(saved.getOrderStatus())
-                && "PAID".equalsIgnoreCase(saved.getPaymentStatus())) {
+                && !"CANCELLED".equalsIgnoreCase(saved.getOrderStatus())) {
             deductStockForSale(saved);
         }
 
@@ -3195,6 +3192,13 @@ public class OrderService {
             }
         }
         accountingPostingService.postSaleCogs(saved);
+
+        // Deduct stock on credit completion (idempotency guard prevents duplicates)
+        if (saved.getOrderType() == OrderType.SALE
+                && !"CANCELLED".equalsIgnoreCase(saved.getOrderStatus())) {
+            deductStockForSale(saved);
+        }
+
         handleTableStatus(saved);
         Order hydrated = hydrateOrder(saved);
         hydrated.setSkipAutoPrintKinds(safeRequest.getSkipAutoPrintKinds());
@@ -3237,8 +3241,7 @@ public class OrderService {
         ConfigurationDto config = configurationService.getConfigurationForClientAndBranch(order.getClientId(),
                 order.getOrgId());
 
-        boolean wasSettledSale = isSaleOrder(order)
-                && ("COMPLETED".equalsIgnoreCase(order.getOrderStatus()) || "PAID".equalsIgnoreCase(order.getPaymentStatus()));
+        boolean wasStockDeducted = isSaleOrder(order) && Boolean.TRUE.equals(order.getIsStockDeducted());
         boolean wasCompletedPurchase = order.getOrderType() == OrderType.PURCHASE
                 && "COMPLETED".equalsIgnoreCase(order.getOrderStatus());
 
@@ -3256,8 +3259,10 @@ public class OrderService {
             voidLinkedInvoices(saved, "Order cancelled");
             voidLinkedPayments(saved, "Order cancelled");
             accountingPostingService.reverseSaleCogs(saved, "Order cancelled");
-            if (wasSettledSale) {
+            if (wasStockDeducted) {
                 restoreStockForSale(saved);
+                saved.setIsStockDeducted(false);
+                orderRepository.save(saved);
             }
             // ── Publish loyalty reversal event (only if loyalty is enabled) ───
             if (config != null && config.isLoyaltyEnabled()) {
@@ -3919,6 +3924,12 @@ public class OrderService {
     }
 
     private void deductStockForSale(Order order) {
+        // Idempotency guard: skip if stock was already deducted for this order
+        if (Boolean.TRUE.equals(order.getIsStockDeducted())) {
+            log.debug("Stock already deducted for order {} — skipping", order.getId());
+            return;
+        }
+
         if (order.getLines() == null || order.getLines().isEmpty()) {
             return;
         }
@@ -4005,6 +4016,11 @@ public class OrderService {
                         orgId);
             }
         }
+
+        // Mark stock as deducted and persist
+        order.setIsStockDeducted(true);
+        orderRepository.save(order);
+        log.info("Stock deducted for sale order {}", order.getId());
     }
 
     private List<com.restaurant.pos.product.domain.ProductRecipe> getActiveRecipes(Product product) {

@@ -295,6 +295,11 @@ public class Order extends BaseEntity {
     private Integer itemCount = 0;
 
     @Builder.Default
+    @JsonProperty("isStockDeducted")
+    @Column(name = "is_stock_deducted")
+    private Boolean isStockDeducted = false;
+
+    @Builder.Default
     @JsonProperty("isActive")
     @Column(name = "isactive", length = 1)
     private String isactive = "Y";
