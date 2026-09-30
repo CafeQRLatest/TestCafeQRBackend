@@ -1,6 +1,9 @@
 package com.restaurant.pos.table.service;
 
 import com.restaurant.pos.auth.service.EmailService;
+import com.restaurant.pos.client.domain.Client;
+import com.restaurant.pos.client.repository.ClientRepository;
+import com.restaurant.pos.client.repository.OrganizationRepository;
 import com.restaurant.pos.common.exception.ResourceNotFoundException;
 import com.restaurant.pos.common.service.BranchContextService;
 import com.restaurant.pos.common.tenant.TenantContext;
@@ -28,6 +31,8 @@ public class RestaurantTableService {
 
     private final RestaurantTableRepository tableRepository;
     private final OrderRepository orderRepository;
+    private final ClientRepository clientRepository;
+    private final OrganizationRepository organizationRepository;
     private final EmailService emailService;
     private final BranchContextService branchContext;
 
@@ -127,7 +132,16 @@ public class RestaurantTableService {
         
         // On creation, automatically send QR mail to owner
         if (isNew) {
-            String qrLink = String.format("%s/menu/%s/%s/%s", frontendUrl, saved.getClientId(), saved.getOrgId(), saved.getId());
+            String clientSlug = clientRepository.findById(saved.getClientId())
+                    .map(Client::getSlug)
+                    .filter(s -> !s.isBlank())
+                    .orElse(saved.getClientId().toString());
+            String branchSlug = organizationRepository.findById(saved.getOrgId())
+                    .map(org -> org.getSlug() != null && !org.getSlug().isBlank() ? org.getSlug() : (org.getBranchCode() != null ? org.getBranchCode().toLowerCase() : null))
+                    .filter(s -> s != null && !s.isBlank())
+                    .orElse(saved.getOrgId().toString());
+            String tableIdent = saved.getId().toString(); // Always use tamper-proof 36-character UUID
+            String qrLink = String.format("%s/menu/%s/%s/%s", frontendUrl, clientSlug, branchSlug, tableIdent);
             sendQRCode(saved.getId(), null, qrLink);
         }
         
