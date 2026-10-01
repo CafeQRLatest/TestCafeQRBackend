@@ -23,6 +23,7 @@ public class PublicCustomerController {
     private final OtpService otpService;
     private final CustomerRepository customerRepository;
     private final EmailService emailService;
+    private final com.restaurant.pos.qrmenu.service.QrTableSessionService qrTableSessionService;
 
     @PostMapping("/send-otp")
     public ResponseEntity<ApiResponse<String>> sendOtp(@RequestBody Map<String, String> payload) {
@@ -66,8 +67,8 @@ public class PublicCustomerController {
             return ResponseEntity.badRequest().body(ApiResponse.error("Invalid or expired OTP"));
         }
 
-        UUID clientId = UUID.fromString(clientIdStr);
-        UUID orgId = (orgIdStr != null && !orgIdStr.isBlank() && !"null".equals(orgIdStr)) ? UUID.fromString(orgIdStr) : null;
+        UUID clientId = qrTableSessionService.resolveClientId(clientIdStr);
+        UUID orgId = qrTableSessionService.resolveOrgId(clientId, orgIdStr);
 
         Optional<Customer> existing = isEmail 
                 ? customerRepository.findByEmailAndClientId(sanitized, clientId)
