@@ -90,4 +90,7 @@ public class UpdateOrderRequest {
 
     @Schema(description = "Transient print kinds that this terminal will print locally, e.g. KOT or BILL")
     private List<String> skipAutoPrintKinds;
+
+    @Schema(description = "Whether to bypass warning-level stock shortage checks if confirmed by cashier")
+    private Boolean confirmStockWarning = false;
 }

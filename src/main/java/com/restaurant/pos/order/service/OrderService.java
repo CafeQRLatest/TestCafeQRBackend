@@ -2008,6 +2008,8 @@ public class OrderService {
             saved.setPaymentSplits(order.getPaymentSplits());
             saved.setRedeemPoints(order.getRedeemPoints());
             saved.setLoyaltyAmount(order.getLoyaltyAmount());
+            saved.setWarnings(order.getWarnings());
+            saved.setConfirmStockWarning(order.getConfirmStockWarning());
 
             diagnosticPhase = "generate_invoice";
             if (shouldGenerateInvoice(saved)) {
@@ -2562,6 +2564,9 @@ public class OrderService {
         newOrder.setDescription(
                 updates.getDescription() != null ? updates.getDescription() : oldOrder.getDescription());
         newOrder.setSkipAutoPrintKinds(updates.getSkipAutoPrintKinds());
+        if (updates.getConfirmStockWarning() != null) {
+            newOrder.setConfirmStockWarning(updates.getConfirmStockWarning());
+        }
 
         // Tenant fields
         newOrder.setClientId(oldOrder.getClientId());
@@ -2611,6 +2616,8 @@ public class OrderService {
         recalculateOrderTotals(newOrder);
         prepareCreditCustomer(newOrder, Boolean.TRUE.equals(newOrder.getIsCredit()));
         prepareCustomerFields(newOrder);
+        validateGstFields(newOrder);
+        validateNonStockSalesPolicy(newOrder);
 
         // SNAPSHOT the old order's lines BEFORE saving the new order,
         // because saveAndFlush will merge and mutate the OrderLine entities in the DB,
@@ -2953,6 +2960,9 @@ public class OrderService {
                 order.getOrgId());
 
         OrderSettleRequest safeRequest = request == null ? new OrderSettleRequest() : request;
+        if (safeRequest.getConfirmStockWarning() != null) {
+            order.setConfirmStockWarning(safeRequest.getConfirmStockWarning());
+        }
         String paymentMethod = normalizePaymentMethod(safeRequest.getPaymentMethod());
         if (hasExplicitPaymentSplits(safeRequest)) {
             paymentMethod = "MIXED";
@@ -3102,10 +3112,14 @@ public class OrderService {
             processInventoryForOrder(saved);
         } else if (saved.getOrderType() == OrderType.SALE
                 && !"CANCELLED".equalsIgnoreCase(saved.getOrderStatus())) {
+            if (!Boolean.TRUE.equals(saved.getIsStockDeducted())) {
+                validateNonStockSalesPolicy(saved);
+            }
             deductStockForSale(saved);
         }
 
         Order hydrated = hydrateOrder(saved);
+        hydrated.setWarnings(saved.getWarnings());
         hydrated.setSkipAutoPrintKinds(safeRequest.getSkipAutoPrintKinds());
         enqueueCloudPrintJobs(hydrated);
 
@@ -3132,6 +3146,9 @@ public class OrderService {
         }
 
         OrderCreditCompletionRequest safeRequest = request == null ? new OrderCreditCompletionRequest() : request;
+        if (safeRequest.getConfirmStockWarning() != null) {
+            order.setConfirmStockWarning(safeRequest.getConfirmStockWarning());
+        }
         order.setCreditCustomerId(safeRequest.getCreditCustomerId() != null ? safeRequest.getCreditCustomerId()
                 : order.getCreditCustomerId());
         prepareCreditCustomer(order, true);
@@ -3196,11 +3213,15 @@ public class OrderService {
         // Deduct stock on credit completion (idempotency guard prevents duplicates)
         if (saved.getOrderType() == OrderType.SALE
                 && !"CANCELLED".equalsIgnoreCase(saved.getOrderStatus())) {
+            if (!Boolean.TRUE.equals(saved.getIsStockDeducted())) {
+                validateNonStockSalesPolicy(saved);
+            }
             deductStockForSale(saved);
         }
 
         handleTableStatus(saved);
         Order hydrated = hydrateOrder(saved);
+        hydrated.setWarnings(saved.getWarnings());
         hydrated.setSkipAutoPrintKinds(safeRequest.getSkipAutoPrintKinds());
         enqueueCloudPrintJobs(hydrated);
         return hydrated;
@@ -3865,10 +3886,13 @@ public class OrderService {
             return;
         }
         String policy = config.getNonStockSalesPolicy() != null
-                ? config.getNonStockSalesPolicy()
+                ? config.getNonStockSalesPolicy().trim().toUpperCase()
                 : "NONE";
 
-        if (!"BLOCK".equalsIgnoreCase(policy)) {
+        boolean isBlock = "BLOCK".equalsIgnoreCase(policy);
+        boolean isWarn = "WARNING".equalsIgnoreCase(policy) || "WARN".equalsIgnoreCase(policy);
+
+        if (!isBlock && !isWarn) {
             return;
         }
 
@@ -3881,6 +3905,8 @@ public class OrderService {
         if (warehouseId == null) {
             return;
         }
+
+        List<String> warnings = new ArrayList<>();
 
         for (com.restaurant.pos.order.domain.OrderLine line : order.getLines()) {
             if (line.getProductId() == null) continue;
@@ -3900,9 +3926,12 @@ public class OrderService {
                 BigDecimal available = snapshot != null && snapshot.getCurrentQuantity() != null ? snapshot.getCurrentQuantity() : BigDecimal.ZERO;
                 if (available.compareTo(BigDecimal.ZERO) <= 0 || available.compareTo(reqQty) < 0) {
                     String prodName = line.getProductName() != null ? line.getProductName() : (product != null ? product.getName() : "Item");
-                    throw new BusinessException(
-                            "Cannot sell '" + prodName + "' - out of stock (Available: " + available + ", Required: " + reqQty + ")."
-                    );
+                    String msg = "Cannot sell '" + prodName + "' - out of stock (Available: " + available + ", Required: " + reqQty + ").";
+                    if (isBlock) {
+                        throw new BusinessException(msg);
+                    } else {
+                        warnings.add("'" + prodName + "' is out of stock (Available: " + available + ", Required: " + reqQty + ")");
+                    }
                 }
             } else {
                 for (com.restaurant.pos.product.domain.ProductRecipe recipe : recipes) {
@@ -3914,11 +3943,26 @@ public class OrderService {
                     if (available.compareTo(BigDecimal.ZERO) <= 0 || available.compareTo(needed) < 0) {
                         String ingName = recipe.getIngredient().getName() != null ? recipe.getIngredient().getName() : "Ingredient";
                         String prodName = line.getProductName() != null ? line.getProductName() : (product != null ? product.getName() : "Item");
-                        throw new BusinessException(
-                                "Cannot sell '" + prodName + "' - ingredient '" + ingName + "' is out of stock (Available: " + available + ", Required: " + needed + ")."
-                        );
+                        String msg = "Cannot sell '" + prodName + "' - ingredient '" + ingName + "' is out of stock (Available: " + available + ", Required: " + needed + ").";
+                        if (isBlock) {
+                            throw new BusinessException(msg);
+                        } else {
+                            warnings.add("'" + prodName + "' - ingredient '" + ingName + "' is out of stock (Available: " + available + ", Required: " + needed + ")");
+                        }
                     }
                 }
+            }
+        }
+
+        if (!warnings.isEmpty()) {
+            if (order.getWarnings() == null) {
+                order.setWarnings(new ArrayList<>());
+            }
+            order.getWarnings().addAll(warnings);
+            log.warn("Non-stock sales policy warning for order: {}", warnings);
+
+            if (isWarn && !Boolean.TRUE.equals(order.getConfirmStockWarning())) {
+                throw new com.restaurant.pos.common.exception.StockWarningException(warnings);
             }
         }
     }

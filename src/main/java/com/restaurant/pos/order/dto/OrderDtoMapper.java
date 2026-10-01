@@ -259,6 +259,7 @@ public class OrderDtoMapper {
                 .createdBy(resolveUserDisplayName(order.getCreatedBy()))
                 .updatedBy(resolveUserDisplayName(order.getUpdatedBy()))
                 .timezone(timezoneResolver.resolveTimezone(order.getClientId(), order.getOrgId()).getId())
+                .warnings(order.getWarnings())
                 .createdAt(toInstant(order.getCreatedAt()))
                 .updatedAt(toInstant(order.getUpdatedAt()))
                 .build();
@@ -474,6 +475,9 @@ public class OrderDtoMapper {
         if (request.getPaymentSplits() != null && !request.getPaymentSplits().isEmpty()) {
             order.setPaymentSplits(request.getPaymentSplits());
         }
+        if (request.getConfirmStockWarning() != null) {
+            order.setConfirmStockWarning(request.getConfirmStockWarning());
+        }
 
         return order;
     }
@@ -529,6 +533,8 @@ public class OrderDtoMapper {
             existing.setOrderDiscountValue(request.getOrderDiscountValue());
         if (request.getDiscountSource() != null)
             existing.setDiscountSource(parseDiscountSource(request.getDiscountSource()));
+        if (request.getConfirmStockWarning() != null)
+            existing.setConfirmStockWarning(request.getConfirmStockWarning());
 
         if (request.getLines() != null) {
             existing.getLines().clear();
@@ -599,6 +605,9 @@ public class OrderDtoMapper {
         }
         if (request.getDiscountSource() != null) {
             order.setDiscountSource(parseDiscountSource(request.getDiscountSource()));
+        }
+        if (request.getConfirmStockWarning() != null) {
+            order.setConfirmStockWarning(request.getConfirmStockWarning());
         }
 
         if (request.getLines() != null) {

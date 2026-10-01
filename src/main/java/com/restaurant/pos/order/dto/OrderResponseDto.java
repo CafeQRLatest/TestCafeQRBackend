@@ -188,6 +188,9 @@ public class OrderResponseDto {
     @Schema(description = "Date and time the order was last updated")
     private Instant updatedAt;
 
+    @Schema(description = "Warning messages associated with the order (e.g. negative stock warnings)")
+    private List<String> warnings;
+
     @Data
     @Builder
     @NoArgsConstructor

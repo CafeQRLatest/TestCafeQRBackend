@@ -24,6 +24,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -238,15 +240,21 @@ public class InventoryCommandService {
             }
         }
 
-        if (!"DRAFT".equalsIgnoreCase(transfer.getStatus()) && transfer.getLines() != null) {
-            boolean isNewTransitionToActive = previousStatus == null || "DRAFT".equalsIgnoreCase(previousStatus);
-            if (isNewTransitionToActive) {
+        List<String> warnings = new ArrayList<>();
+        if (transfer.getLines() != null && !transfer.getLines().isEmpty()) {
+            boolean isDraft = "DRAFT".equalsIgnoreCase(transfer.getStatus());
+            boolean alreadyCompleted = "COMPLETED".equalsIgnoreCase(previousStatus);
+            boolean checkStock = !alreadyCompleted;
+            if (checkStock) {
                 com.restaurant.pos.common.dto.ConfigurationDto sysConfig = configurationService.getConfigurationForClientAndBranch(clientId, orgId);
                 boolean isInventoryOn = sysConfig != null && sysConfig.isInventoryEnabled();
                 String transferPolicy = isInventoryOn && sysConfig.getNonStockTransferPolicy() != null
                         ? sysConfig.getNonStockTransferPolicy()
                         : "NONE";
-                if ("BLOCK".equalsIgnoreCase(transferPolicy)) {
+                boolean isBlock = "BLOCK".equalsIgnoreCase(transferPolicy);
+                boolean isWarn = "WARNING".equalsIgnoreCase(transferPolicy) || "WARN".equalsIgnoreCase(transferPolicy);
+
+                if (isBlock || isWarn) {
                     for (StockTransferLine line : transfer.getLines()) {
                         StockSnapshot snapshot = findStockSnapshot(transfer.getSourceWarehouseId(), line.getProductId(), line.getVariantId())
                                 .orElse(null);
@@ -255,22 +263,46 @@ public class InventoryCommandService {
                                     .orElse(null);
                         }
                         BigDecimal available = snapshot != null && snapshot.getCurrentQuantity() != null ? snapshot.getCurrentQuantity() : BigDecimal.ZERO;
+                        String itemName = line.getProductName();
+                        if (itemName == null || itemName.isBlank()) {
+                            itemName = productRepository.findById(line.getProductId()).map(com.restaurant.pos.product.domain.Product::getName).orElse("Item");
+                        }
+                        BigDecimal reqQty = line.getTransferQuantity() != null ? line.getTransferQuantity() : BigDecimal.ONE;
+
                         if (available.compareTo(BigDecimal.ZERO) <= 0) {
-                            throw new com.restaurant.pos.common.exception.BusinessException(
-                                    "Cannot transfer non-stock item. Available stock is 0."
-                            );
+                            String msg = "'" + itemName + "' is out of stock (Available: 0, Required: " + reqQty + ").";
+                            if (isBlock && !isDraft) {
+                                throw new com.restaurant.pos.common.exception.BusinessException(
+                                        "Cannot transfer non-stock item: " + msg
+                                );
+                            } else if (isWarn) {
+                                warnings.add(msg);
+                            }
+                        } else if (reqQty.compareTo(available) > 0) {
+                            String msg = "Transfer quantity (" + reqQty + ") for '" + itemName + "' exceeds available stock (" + available + ").";
+                            if (isBlock && !isDraft) {
+                                throw new com.restaurant.pos.common.exception.BusinessException(msg);
+                            } else if (isWarn) {
+                                warnings.add(msg);
+                            }
                         }
-                        if (line.getTransferQuantity() != null && line.getTransferQuantity().compareTo(available) > 0) {
-                            throw new com.restaurant.pos.common.exception.BusinessException(
-                                    "Transfer quantity (" + line.getTransferQuantity() + ") exceeds available stock (" + available + ")."
-                            );
-                        }
+                    }
+
+                    if (!warnings.isEmpty() && isWarn && !isDraft && !Boolean.TRUE.equals(transfer.getConfirmStockWarning())) {
+                        throw new com.restaurant.pos.common.exception.StockWarningException(warnings);
                     }
                 }
             }
         }
 
+        if (!warnings.isEmpty()) {
+            transfer.setWarnings(warnings);
+        }
+
         StockTransfer saved = stockTransferRepository.save(transfer);
+        if (!warnings.isEmpty()) {
+            saved.setWarnings(warnings);
+        }
 
         if ("COMPLETED".equalsIgnoreCase(saved.getStatus())) {
             boolean alreadyCompleted = "COMPLETED".equalsIgnoreCase(previousStatus);

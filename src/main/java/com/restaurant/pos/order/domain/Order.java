@@ -299,6 +299,15 @@ public class Order extends BaseEntity {
     @Column(name = "is_stock_deducted")
     private Boolean isStockDeducted = false;
 
+    @Transient
+    @Builder.Default
+    private List<String> warnings = new ArrayList<>();
+
+    @Transient
+    @Builder.Default
+    @JsonProperty("confirmStockWarning")
+    private Boolean confirmStockWarning = false;
+
     @Builder.Default
     @JsonProperty("isActive")
     @Column(name = "isactive", length = 1)
