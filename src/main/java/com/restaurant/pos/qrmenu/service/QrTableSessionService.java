@@ -296,7 +296,7 @@ public class QrTableSessionService {
             // Generate official order number using DocumentSequenceService (SALE_ORDER sequence)
             String orderNo;
             try {
-                orderNo = documentSequenceService.generateNextSequence(DocumentType.SALE_ORDER, orgUuid);
+                orderNo = documentSequenceService.generateNextSequenceExplicit(clientId, orgUuid, DocumentType.SALE_ORDER);
             } catch (Exception ex) {
                 log.warn("Failed to generate official sequence for SALE_ORDER, using fallback: {}", ex.getMessage());
                 orderNo = "QR-" + System.currentTimeMillis();
