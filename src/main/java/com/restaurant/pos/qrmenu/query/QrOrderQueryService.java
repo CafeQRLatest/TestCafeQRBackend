@@ -101,6 +101,27 @@ public class QrOrderQueryService {
             );
         }
 
+        if (table.getIsactive() != null && "N".equalsIgnoreCase(table.getIsactive())) {
+            return Map.of(
+                    "found", false,
+                    "message", "This table is currently inactive. Please contact restaurant staff."
+            );
+        }
+
+        String tableStatus = table.getStatus() != null ? table.getStatus().toUpperCase() : "AVAILABLE";
+        if ("MAINTENANCE".equals(tableStatus) || "HOLD".equals(tableStatus)) {
+            return Map.of(
+                    "found", false,
+                    "message", "This table is currently on hold / maintenance. Please contact restaurant staff."
+            );
+        }
+        if ("RESERVED".equals(tableStatus)) {
+            return Map.of(
+                    "found", false,
+                    "message", "This table is currently reserved. Please contact restaurant staff."
+            );
+        }
+
         Map<String, Object> info = new LinkedHashMap<>();
         info.put("found", true);
         info.put("id", table.getId());

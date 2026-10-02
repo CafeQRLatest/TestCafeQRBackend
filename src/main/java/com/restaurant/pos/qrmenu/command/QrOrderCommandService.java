@@ -127,10 +127,22 @@ public class QrOrderCommandService {
 
         String tableIdStr = (String) payload.get("tableId");
         RestaurantTable table = findTable(clientId, orgId, tableIdStr != null ? tableIdStr : tableNumber);
-        UUID tableId = table != null ? table.getId() : null;
-        if (table != null && table.getTableNumber() != null) {
-            tableNumber = table.getTableNumber();
+        if (table != null) {
+            if (table.getIsactive() != null && "N".equalsIgnoreCase(table.getIsactive())) {
+                throw new BusinessException("This table is currently inactive and cannot accept orders.");
+            }
+            String tableStatus = table.getStatus() != null ? table.getStatus().toUpperCase() : "AVAILABLE";
+            if ("MAINTENANCE".equals(tableStatus) || "HOLD".equals(tableStatus)) {
+                throw new BusinessException("This table is currently on hold / maintenance and cannot accept orders.");
+            }
+            if ("RESERVED".equals(tableStatus)) {
+                throw new BusinessException("This table is currently reserved and cannot accept orders.");
+            }
+            if (table.getTableNumber() != null) {
+                tableNumber = table.getTableNumber();
+            }
         }
+        UUID tableId = table != null ? table.getId() : null;
 
         ZoneId branchZone = timezoneResolver.resolveTimezone(clientId, orgId);
         LocalDateTime branchNow = LocalDateTime.now(branchZone);
