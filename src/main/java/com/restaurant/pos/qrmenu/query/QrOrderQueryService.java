@@ -47,6 +47,7 @@ public class QrOrderQueryService {
     private final OrganizationRepository organizationRepository;
     private final SystemConfigurationService systemConfigurationService;
     private final com.restaurant.pos.common.context.TimezoneResolver timezoneResolver;
+    private final com.restaurant.pos.inventory.repository.StockSnapshotRepository stockSnapshotRepository;
 
     /**
      * Resolves client UUID from either a raw UUID string or a human-readable slug string.
@@ -202,7 +203,7 @@ public class QrOrderQueryService {
         // If table is explicitly AVAILABLE, previous tab has been cleared/settled.
         boolean isTableAvailable = "AVAILABLE".equalsIgnoreCase(String.valueOf(table.getStatus()));
         ZoneId branchZone = timezoneResolver.resolveTimezone(effectiveClientId, effectiveOrgId);
-        LocalDateTime sessionCutoff = LocalDateTime.now(branchZone).minusHours(16);
+         LocalDateTime sessionCutoff = LocalDateTime.now(branchZone).minusHours(16);
         List<Order> activeOrders = isTableAvailable
                 ? Collections.emptyList()
                 : qrOrderRepository.findActiveOrdersByTable(clientId, orgUuid, table.getId(), table.getTableNumber(), sessionCutoff);
@@ -265,6 +266,35 @@ public class QrOrderQueryService {
         List<Product> products = productRepository
                 .findByClientIdAndOrgIdOrGlobalAndIsActiveTrue(clientId, orgId);
 
+        // Build stock lookup map when inventory is enabled
+        ConfigurationDto config = systemConfigurationService
+                .getConfigurationForClientAndBranch(clientId, orgId);
+        boolean inventoryEnabled = config.isInventoryEnabled();
+        Map<String, java.math.BigDecimal> stockMap = new HashMap<>();
+        if (inventoryEnabled) {
+            try {
+                List<com.restaurant.pos.inventory.domain.StockSnapshot> snapshots =
+                        stockSnapshotRepository.findByClientIdAndOrgId(clientId, orgId);
+                if (snapshots == null || snapshots.isEmpty()) {
+                    snapshots = stockSnapshotRepository.findByClientId(clientId);
+                }
+                for (com.restaurant.pos.inventory.domain.StockSnapshot snap : snapshots) {
+                    String productKey = snap.getProductId().toString().toLowerCase();
+                    if (snap.getVariantId() != null) {
+                        String variantKey = productKey + "_" + snap.getVariantId().toString().toLowerCase();
+                        stockMap.merge(variantKey, snap.getCurrentQuantity(), java.math.BigDecimal::add);
+                    }
+                    // Also aggregate at the product level (sum of all variant stocks for this product)
+                    stockMap.merge(productKey, snap.getCurrentQuantity(), java.math.BigDecimal::add);
+                }
+            } catch (Exception e) {
+                log.warn("Failed to load stock snapshots for QR menu, proceeding without stock info", e);
+            }
+        }
+
+        final boolean invEnabled = inventoryEnabled;
+        final Map<String, java.math.BigDecimal> finalStockMap = stockMap;
+
         return products.stream()
                 .filter(Product::isAvailable)
                 .filter(p -> !p.isIngredient())
@@ -277,11 +307,82 @@ public class QrOrderQueryService {
                     item.put("price", p.getPrice());
                     item.put("imageUrl", p.getImageUrl());
                     item.put("category", p.getCategory() != null ? p.getCategory().getName() : "Others");
-                    item.put("isVeg", !p.isPackagedGood());
+                    boolean isVeg = "VEG".equalsIgnoreCase(p.getProductType())
+                            || "Vegetarian".equalsIgnoreCase(p.getProductType())
+                            || (!p.isPackagedGood() && p.getProductType() == null);
+                    item.put("isVeg", isVeg);
+                    item.put("isVegetarian", isVeg);
                     item.put("isAvailable", p.isAvailable());
                     item.put("productType", p.getProductType());
                     item.put("taxRate", p.getTaxRate());
                     item.put("taxCode", p.getTaxCode());
+
+                    // Check recipe lines for ingredients
+                    List<com.restaurant.pos.product.domain.ProductRecipe> activeRecipes = Collections.emptyList();
+                    try {
+                        if (p.getRecipeLines() != null) {
+                            activeRecipes = p.getRecipeLines().stream()
+                                    .filter(com.restaurant.pos.product.domain.ProductRecipe::isActive)
+                                    .filter(r -> r.getIngredient() != null && r.getIngredient().getId() != null
+                                            && r.getQuantity() != null && r.getQuantity().signum() > 0)
+                                    .collect(Collectors.toList());
+                        }
+                    } catch (Exception e) {
+                        log.warn("Failed to read recipe lines for product {}: {}", p.getId(), e.getMessage());
+                    }
+
+                    boolean hasRecipes = !activeRecipes.isEmpty();
+                    boolean productOutOfStock = false;
+                    java.math.BigDecimal productStock = null;
+
+                    if (invEnabled) {
+                        if (hasRecipes) {
+                            // Evaluate base recipes (common ingredients required for all variants or standalone dish)
+                            List<com.restaurant.pos.product.domain.ProductRecipe> baseRecipes = activeRecipes.stream()
+                                    .filter(r -> r.getVariantOption() == null)
+                                    .collect(Collectors.toList());
+
+                            java.math.BigDecimal minBasePortions = null;
+                            boolean baseIngOutOfStock = false;
+
+                            for (com.restaurant.pos.product.domain.ProductRecipe br : baseRecipes) {
+                                String ingKey = br.getIngredient().getId().toString().toLowerCase();
+                                java.math.BigDecimal ingStock = finalStockMap.getOrDefault(ingKey, java.math.BigDecimal.ZERO);
+                                if (ingStock.compareTo(br.getQuantity()) < 0 || ingStock.compareTo(java.math.BigDecimal.ZERO) <= 0) {
+                                    baseIngOutOfStock = true;
+                                    minBasePortions = java.math.BigDecimal.ZERO;
+                                    break;
+                                } else {
+                                    java.math.BigDecimal portions = ingStock.divide(br.getQuantity(), 0, java.math.RoundingMode.FLOOR);
+                                    if (minBasePortions == null || portions.compareTo(minBasePortions) < 0) {
+                                        minBasePortions = portions;
+                                    }
+                                }
+                            }
+
+                            if (baseIngOutOfStock) {
+                                productOutOfStock = true;
+                                productStock = java.math.BigDecimal.ZERO;
+                            } else {
+                                productStock = minBasePortions;
+                            }
+                        } else {
+                            // Direct product stock (packaged good or non-recipe item)
+                            String pKey = p.getId().toString().toLowerCase();
+                            java.math.BigDecimal qty = finalStockMap.get(pKey);
+                            if (qty != null) {
+                                productStock = qty;
+                                productOutOfStock = qty.compareTo(java.math.BigDecimal.ZERO) <= 0;
+                            } else if (p.isPackagedGood()) {
+                                // Packaged goods with no inventory snapshot are treated as zero stock
+                                productStock = java.math.BigDecimal.ZERO;
+                                productOutOfStock = true;
+                            } else {
+                                productStock = null;
+                                productOutOfStock = false;
+                            }
+                        }
+                    }
 
                     List<Map<String, Object>> variants = new ArrayList<>();
                     try {
@@ -305,6 +406,56 @@ public class QrOrderQueryService {
                                             }
                                             vMap.put("price", finalPrice);
                                             vMap.put("groupName", mapping.getVariantGroup().getName());
+
+                                            // Per-variant stock info
+                                            if (invEnabled) {
+                                                if (hasRecipes) {
+                                                    // If base ingredients are out of stock, this variant is out of stock too
+                                                    if (productOutOfStock) {
+                                                        vMap.put("outOfStock", true);
+                                                        vMap.put("currentStock", java.math.BigDecimal.ZERO);
+                                                    } else {
+                                                        // Check variant-specific recipe lines
+                                                        List<com.restaurant.pos.product.domain.ProductRecipe> varRecipes = activeRecipes.stream()
+                                                                .filter(r -> r.getVariantOption() != null && r.getVariantOption().getId().equals(opt.getId()))
+                                                                .collect(Collectors.toList());
+
+                                                        boolean varIngOutOfStock = false;
+                                                        java.math.BigDecimal minVarPortions = productStock;
+
+                                                        for (com.restaurant.pos.product.domain.ProductRecipe vr : varRecipes) {
+                                                            String vIngKey = vr.getIngredient().getId().toString().toLowerCase();
+                                                            java.math.BigDecimal vIngStock = finalStockMap.getOrDefault(vIngKey, java.math.BigDecimal.ZERO);
+                                                            if (vIngStock.compareTo(vr.getQuantity()) < 0 || vIngStock.compareTo(java.math.BigDecimal.ZERO) <= 0) {
+                                                                varIngOutOfStock = true;
+                                                                minVarPortions = java.math.BigDecimal.ZERO;
+                                                                break;
+                                                            } else {
+                                                                java.math.BigDecimal vPortions = vIngStock.divide(vr.getQuantity(), 0, java.math.RoundingMode.FLOOR);
+                                                                if (minVarPortions == null || vPortions.compareTo(minVarPortions) < 0) {
+                                                                    minVarPortions = vPortions;
+                                                                }
+                                                            }
+                                                        }
+
+                                                        vMap.put("outOfStock", varIngOutOfStock);
+                                                        vMap.put("currentStock", minVarPortions);
+                                                    }
+                                                } else {
+                                                    String vKey = p.getId().toString().toLowerCase() + "_" + opt.getId().toString().toLowerCase();
+                                                    java.math.BigDecimal vQty = finalStockMap.get(vKey);
+                                                    if (vQty != null) {
+                                                        vMap.put("currentStock", vQty);
+                                                        vMap.put("outOfStock", vQty.compareTo(java.math.BigDecimal.ZERO) <= 0);
+                                                    } else {
+                                                        vMap.put("currentStock", productStock);
+                                                        vMap.put("outOfStock", productOutOfStock);
+                                                    }
+                                                }
+                                            } else {
+                                                vMap.put("outOfStock", false);
+                                            }
+
                                             variants.add(vMap);
                                         }
                                     }
@@ -313,6 +464,18 @@ public class QrOrderQueryService {
                         }
                     } catch (Exception ignored) {
                     }
+
+                    // If product has variants, and all variants are out of stock, mark product out of stock
+                    if (!variants.isEmpty() && invEnabled) {
+                        boolean allVariantsOutOfStock = variants.stream()
+                                .allMatch(v -> Boolean.TRUE.equals(v.get("outOfStock")));
+                        if (allVariantsOutOfStock) {
+                            productOutOfStock = true;
+                        }
+                    }
+
+                    item.put("outOfStock", productOutOfStock);
+                    item.put("currentStock", productStock);
                     if (!variants.isEmpty()) {
                         item.put("variants", variants);
                     }
@@ -321,6 +484,7 @@ public class QrOrderQueryService {
                 })
                 .collect(Collectors.toList());
     }
+
 
     /**
      * Returns the default organization for a given client (for legacy QR code redirects).
