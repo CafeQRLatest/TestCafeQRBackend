@@ -23,12 +23,14 @@ public interface QrOrderRepository extends JpaRepository<Order, UUID> {
               AND (cast(:orgId as uuid) IS NULL OR o.orgId = :orgId)
               AND ((cast(:tableId as uuid) IS NOT NULL AND o.tableId = :tableId) OR (:tableNumber IS NOT NULL AND o.tableNumber = :tableNumber))
               AND o.isactive = 'Y'
-              AND (o.orderStatus IS NULL OR UPPER(o.orderStatus) NOT IN ('COMPLETED', 'CANCELLED', 'VOID', 'PAID'))
+              AND (o.orderStatus IS NULL OR UPPER(o.orderStatus) NOT IN ('COMPLETED', 'CANCELLED', 'VOID', 'PAID', 'SETTLED', 'CLOSED'))
+              AND (cast(:since as java.time.LocalDateTime) IS NULL OR o.createdAt >= :since)
             ORDER BY o.createdAt DESC
             """)
     List<Order> findActiveOrdersByTable(
             @Param("clientId") UUID clientId,
             @Param("orgId") UUID orgId,
             @Param("tableId") UUID tableId,
-            @Param("tableNumber") String tableNumber);
+            @Param("tableNumber") String tableNumber,
+            @Param("since") java.time.LocalDateTime since);
 }

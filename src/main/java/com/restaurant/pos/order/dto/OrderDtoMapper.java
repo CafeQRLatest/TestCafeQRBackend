@@ -22,10 +22,11 @@ public class OrderDtoMapper {
     private final com.restaurant.pos.order.repository.PaymentSplitRepository paymentSplitRepository;
     private final com.restaurant.pos.client.repository.TerminalRepository terminalRepository;
 
-    private java.time.Instant toInstant(java.time.LocalDateTime ldt) {
+    private java.time.Instant toInstant(java.time.LocalDateTime ldt, java.time.ZoneId zone) {
         if (ldt == null)
             return null;
-        return ldt.atZone(java.time.ZoneId.systemDefault()).toInstant();
+        java.time.ZoneId effective = zone != null ? zone : java.time.ZoneId.systemDefault();
+        return ldt.atZone(effective).toInstant();
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -118,6 +119,9 @@ public class OrderDtoMapper {
     private String resolveUserDisplayName(String uidStr) {
         if (uidStr == null || uidStr.isBlank() || "SYSTEM".equalsIgnoreCase(uidStr)) {
             return "SYSTEM";
+        }
+        if (uidStr.contains("(customer)")) {
+            return uidStr;
         }
         java.util.Map<String, String> cache = userNameCache.get();
         if (cache.containsKey(uidStr)) {
@@ -235,6 +239,7 @@ public class OrderDtoMapper {
                 .customerId(order.getCustomerId() != null ? order.getCustomerId() : (order.getCustomers() != null && !order.getCustomers().isEmpty() ? order.getCustomers().get(0).getId() : null))
                 .isCredit(order.getIsCredit())
                 .isReceived(order.getIsReceived())
+                .isStockDeducted(order.getIsStockDeducted())
                 .creditCustomerId(order.getCreditCustomerId())
                 .customerName(order.getCustomerName() != null ? order.getCustomerName() : (order.getCustomers() != null && !order.getCustomers().isEmpty() ? order.getCustomers().get(0).getName() : null))
                 .customerPhone(order.getCustomerPhone() != null ? order.getCustomerPhone() : (order.getCustomers() != null && !order.getCustomers().isEmpty() ? order.getCustomers().get(0).getPhone() : null))
@@ -260,9 +265,24 @@ public class OrderDtoMapper {
                 .updatedBy(resolveUserDisplayName(order.getUpdatedBy()))
                 .timezone(timezoneResolver.resolveTimezone(order.getClientId(), order.getOrgId()).getId())
                 .warnings(order.getWarnings())
-                .createdAt(toInstant(order.getCreatedAt()))
-                .updatedAt(toInstant(order.getUpdatedAt()))
+                .cancelReason(resolveCancelReason(order))
+                .createdAt(toInstant(order.getCreatedAt(), timezoneResolver.resolveTimezone(order.getClientId(), order.getOrgId())))
+                .updatedAt(toInstant(order.getUpdatedAt(), timezoneResolver.resolveTimezone(order.getClientId(), order.getOrgId())))
                 .build();
+    }
+
+    private String resolveCancelReason(Order order) {
+        if (order == null || !"CANCELLED".equalsIgnoreCase(order.getOrderStatus())) {
+            return null;
+        }
+        String combined = (order.getDescription() != null ? order.getDescription() : "")
+                + "\n"
+                + (order.getRemarks() != null ? order.getRemarks() : "");
+        java.util.regex.Matcher cm = java.util.regex.Pattern.compile("(?i)Cancel(?:lation)? reason:\\s*([^\\n\\r|]+)").matcher(combined);
+        if (cm.find()) {
+            return cm.group(1).trim();
+        }
+        return null;
     }
 
     public OrderResponseDto.OrderLineResponseDto toLineResponseDto(OrderLine line) {

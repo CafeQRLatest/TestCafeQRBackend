@@ -2196,7 +2196,7 @@ public class OrderService {
      * Returns all revisions (current + all VOID predecessors) for the given order,
      * ordered from oldest to newest by revisionNumber.
      */
-    @Transactional(readOnly = true)
+    @Transactional
     public java.util.List<Order> getOrderRevisions(UUID id) {
         UUID clientId = TenantContext.getCurrentTenant();
         Order current = orderRepository.findByIdAndClientId(id, clientId)
@@ -2207,8 +2207,147 @@ public class OrderService {
             baseOrderNo = baseOrderNo.substring(0, baseOrderNo.indexOf("_VOID_"));
         }
         String voidPrefix = baseOrderNo + "_VOID_%";
-        return orderRepository.findAllRevisionsByOrderNo(clientId, baseOrderNo, voidPrefix)
-                .stream().map(this::hydrateOrder).toList();
+        List<Order> revisions = new java.util.ArrayList<>(orderRepository.findAllRevisionsByOrderNo(clientId, baseOrderNo, voidPrefix));
+
+        // If revisions count is less than expected from revisionNumber (e.g. earlier revisions were created before snapshotting was added),
+        // backfill and persist the missing predecessor snapshots so order history reflects full timeline.
+        if (revisions.size() <= 1 && current.getRevisionNumber() != null && current.getRevisionNumber() > 0) {
+            try {
+                Order fullCurrent = orderRepository.findByIdWithLines(current.getId()).orElse(current);
+                List<OrderLine> activeLines = fullCurrent.getLines() != null
+                        ? fullCurrent.getLines().stream().filter(l -> l.getIsactive() == null || "Y".equalsIgnoreCase(l.getIsactive())).toList()
+                        : List.of();
+
+                // Group lines by createdAt to identify addition batches
+                Map<LocalDateTime, List<OrderLine>> linesByTimestamp = new java.util.LinkedHashMap<>();
+                for (OrderLine l : activeLines) {
+                    LocalDateTime dt = l.getCreatedAt() != null ? l.getCreatedAt() : LocalDateTime.MIN;
+                    linesByTimestamp.computeIfAbsent(dt, k -> new java.util.ArrayList<>()).add(l);
+                }
+                List<LocalDateTime> sortedTimes = new java.util.ArrayList<>(linesByTimestamp.keySet());
+                sortedTimes.sort(java.util.Comparator.naturalOrder());
+
+                int targetRevs = current.getRevisionNumber();
+                for (int revIdx = 0; revIdx < targetRevs; revIdx++) {
+                    String snapOrderNo = baseOrderNo + "_VOID_" + revIdx;
+                    boolean exists = revisions.stream().anyMatch(r -> snapOrderNo.equalsIgnoreCase(r.getOrderNo()));
+                    if (exists) {
+                        continue;
+                    }
+                    Optional<Order> inDb = orderRepository.findByOrderNoAndClientId(snapOrderNo, clientId);
+                    if (inDb.isPresent()) {
+                        revisions.add(inDb.get());
+                        continue;
+                    }
+
+                    Order snapshot = new Order();
+                    snapshot.setId(UUID.randomUUID());
+                    snapshot.setOrderNo(snapOrderNo);
+                    snapshot.setOrderType(current.getOrderType() != null ? current.getOrderType() : OrderType.SALE);
+                    snapshot.setOrderStatus("VOID");
+                    snapshot.setDocStatus("VOID");
+                    snapshot.setIsactive("N");
+                    snapshot.setPaymentStatus(current.getPaymentStatus());
+                    snapshot.setOrderSource(current.getOrderSource());
+                    snapshot.setTerminalId(current.getTerminalId());
+                    snapshot.setClientId(clientId);
+                    snapshot.setOrgId(current.getOrgId());
+                    snapshot.setOrderDate(current.getOrderDate());
+                    snapshot.setCurrencyId(current.getCurrencyId());
+                    snapshot.setCustomerId(current.getCustomerId());
+                    snapshot.setCustomerName(current.getCustomerName());
+                    snapshot.setCustomerPhone(current.getCustomerPhone());
+                    snapshot.setDescription(current.getDescription());
+                    snapshot.setRemarks(current.getRemarks());
+                    snapshot.setReference(current.getReference());
+                    snapshot.setFulfillmentType(current.getFulfillmentType());
+                    snapshot.setIsStockDeducted(current.getIsStockDeducted());
+                    snapshot.setRevisionNumber(revIdx);
+                    snapshot.setOriginalOrderId(current.getOriginalOrderId() != null ? current.getOriginalOrderId() : current.getId());
+                    snapshot.setCreatedBy(current.getCreatedBy());
+                    snapshot.setUpdatedBy(current.getCreatedBy());
+
+                    LocalDateTime snapTime = (revIdx < sortedTimes.size()) ? sortedTimes.get(revIdx) : current.getCreatedAt();
+                    snapshot.setCreatedAt(snapTime != null ? snapTime : LocalDateTime.now());
+                    snapshot.setUpdatedAt(snapTime != null ? snapTime : LocalDateTime.now());
+
+                    // Determine the lines that belonged to this revision
+                    List<OrderLine> revLines = new java.util.ArrayList<>();
+                    if (sortedTimes.size() > 1) {
+                        LocalDateTime cutoff = (revIdx < sortedTimes.size()) ? sortedTimes.get(revIdx) : sortedTimes.get(sortedTimes.size() - 1);
+                        for (OrderLine l : activeLines) {
+                            if (l.getCreatedAt() == null || !l.getCreatedAt().isAfter(cutoff)) {
+                                revLines.add(l);
+                            }
+                        }
+                    } else {
+                        int count = Math.max(1, (revIdx + 1) * activeLines.size() / (targetRevs + 1));
+                        revLines = activeLines.subList(0, Math.min(count, activeLines.size()));
+                    }
+
+                    BigDecimal revGross = BigDecimal.ZERO;
+                    BigDecimal revTax = BigDecimal.ZERO;
+                    BigDecimal revTotal = BigDecimal.ZERO;
+
+                    for (OrderLine line : revLines) {
+                        OrderLine snapLine = OrderLine.builder()
+                                .id(UUID.randomUUID())
+                                .order(snapshot)
+                                .productId(line.getProductId())
+                                .variantId(line.getVariantId())
+                                .productName(line.getProductName())
+                                .categoryName(line.getCategoryName())
+                                .isPackagedGood(line.getIsPackagedGood())
+                                .quantity(line.getQuantity())
+                                .unitOfMeasure(line.getUnitOfMeasure())
+                                .uomPrecision(line.getUomPrecision())
+                                .unitPrice(line.getUnitPrice())
+                                .taxRate(line.getTaxRate())
+                                .taxAmount(line.getTaxAmount())
+                                .discountAmount(line.getDiscountAmount())
+                                .lineTotal(line.getLineTotal())
+                                .grossLineAmount(line.getGrossLineAmount())
+                                .unitPriceExTax(line.getUnitPriceExTax())
+                                .taxableAmount(line.getTaxableAmount())
+                                .taxType(line.getTaxType())
+                                .taxName(line.getTaxName())
+                                .taxCode(line.getTaxCode())
+                                .description(line.getDescription())
+                                .isactive("Y")
+                                .createdAt(line.getCreatedAt())
+                                .updatedAt(line.getUpdatedAt())
+                                .build();
+                        snapshot.addLine(snapLine);
+
+                        if (snapLine.getGrossLineAmount() != null) revGross = revGross.add(snapLine.getGrossLineAmount());
+                        else if (snapLine.getLineTotal() != null) revGross = revGross.add(snapLine.getLineTotal());
+
+                        if (snapLine.getTaxAmount() != null) revTax = revTax.add(snapLine.getTaxAmount());
+                        if (snapLine.getLineTotal() != null) revTotal = revTotal.add(snapLine.getLineTotal());
+                    }
+
+                    snapshot.setGrossAmount(revGross);
+                    snapshot.setTotalTaxAmount(revTax);
+                    snapshot.setTotalAmount(revTotal);
+                    snapshot.setGrandTotal(revTotal);
+
+                    try {
+                        orderRepository.saveAndFlush(snapshot);
+                    } catch (Exception ex) {
+                        log.warn("Could not persist synthesized revision snapshot {}: {}", snapOrderNo, ex.getMessage());
+                    }
+                    revisions.add(snapshot);
+                }
+
+                revisions.sort(java.util.Comparator.comparing(
+                        (Order o) -> o.getRevisionNumber() != null ? o.getRevisionNumber() : 0)
+                        .thenComparing(o -> o.getCreatedAt() != null ? o.getCreatedAt() : LocalDateTime.MIN));
+            } catch (Exception e) {
+                log.warn("Failed to backfill missing order revisions for {}: {}", baseOrderNo, e.getMessage());
+            }
+        }
+
+        return revisions.stream().map(this::hydrateOrder).toList();
     }
 
     private boolean isDiscountOnlyUpdate(Order oldOrder, Order updates) {
@@ -3272,7 +3411,9 @@ public class OrderService {
             order.setPaymentStatus("VOID");
         }
         if (reason != null && !reason.isBlank()) {
-            order.setDescription(appendDescription(order.getDescription(), "Cancel reason: " + reason.trim()));
+            String cancelNote = "Cancel reason: " + reason.trim();
+            order.setDescription(appendDescription(order.getDescription(), cancelNote));
+            order.setRemarks(appendDescription(order.getRemarks(), cancelNote));
         }
 
         Order saved = orderRepository.save(order);
