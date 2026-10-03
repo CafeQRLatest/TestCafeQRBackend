@@ -326,9 +326,8 @@ public class DeliveryQueryService {
 
     @Transactional(readOnly = true)
     public List<Map<String, Object>> getMenu(UUID clientId, String orgIdStr) {
-        validateSubscription(clientId);
-
         UUID orgUuid = parseOrgId(orgIdStr);
+        validateSubscription(clientId, orgUuid);
         List<Product> products = productRepository
                 .findByClientIdAndOrgIdOrGlobalAndIsActiveTrue(clientId, orgUuid);
 
@@ -471,33 +470,31 @@ public class DeliveryQueryService {
                 .collect(Collectors.toList());
     }
 
-    private void validateSubscription(UUID clientId) {
+    private void validateSubscription(UUID clientId, UUID orgId) {
         if (clientId == null) {
             throw new BusinessException("Client ID is required");
         }
-        var clientOpt = clientRepository.findById(clientId);
-        if (clientOpt.isPresent()) {
-            Client client = clientOpt.get();
-            if (!"ACTIVE".equalsIgnoreCase(client.getSubscriptionStatus()) && !"TRIAL".equalsIgnoreCase(client.getSubscriptionStatus())) {
-                throw new BusinessException("Restaurant subscription is inactive.");
-            }
+        if (!isRestaurantSubscriptionActive(clientId, orgId)) {
+            throw new BusinessException("Restaurant subscription is inactive.");
         }
     }
 
     private boolean isRestaurantSubscriptionActive(UUID clientId, UUID orgUuid) {
-        if (clientId == null) return false;
-        var clientOpt = clientRepository.findById(clientId);
-        if (clientOpt.isPresent()) {
-            Client client = clientOpt.get();
-            return "ACTIVE".equalsIgnoreCase(client.getSubscriptionStatus()) || "TRIAL".equalsIgnoreCase(client.getSubscriptionStatus());
+        if (clientId != null) {
+            var clientOpt = clientRepository.findById(clientId);
+            if (clientOpt.isPresent()) {
+                Client client = clientOpt.get();
+                if ("ACTIVE".equalsIgnoreCase(client.getSubscriptionStatus()) || "TRIAL".equalsIgnoreCase(client.getSubscriptionStatus())) {
+                    return true;
+                }
+            }
         }
         if (orgUuid != null) {
             var orgOpt = organizationRepository.findById(orgUuid);
             if (orgOpt.isPresent()) {
-                var parentClient = clientRepository.findById(orgOpt.get().getClientId());
-                if (parentClient.isPresent()) {
-                    Client c = parentClient.get();
-                    return "ACTIVE".equalsIgnoreCase(c.getSubscriptionStatus()) || "TRIAL".equalsIgnoreCase(c.getSubscriptionStatus());
+                Organization org = orgOpt.get();
+                if ("ACTIVE".equalsIgnoreCase(org.getSubscriptionStatus()) || "TRIAL".equalsIgnoreCase(org.getSubscriptionStatus())) {
+                    return true;
                 }
             }
         }

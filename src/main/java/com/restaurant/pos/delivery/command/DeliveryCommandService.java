@@ -55,9 +55,9 @@ public class DeliveryCommandService {
     @Transactional
     public Map<String, Object> createPaymentOrder(CreateDeliveryPaymentCommand command) {
         UUID clientId = command.getClientId();
-        validateSubscription(clientId);
-
         UUID orgUuid = parseOrgId(command.getOrgId());
+        validateSubscription(clientId, orgUuid);
+
         var clientOpt = clientRepository.findById(clientId);
         if (clientOpt.isEmpty()) {
             var orgOpt = organizationRepository.findById(clientId);
@@ -112,9 +112,9 @@ public class DeliveryCommandService {
     public Map<String, Object> placeOrder(CreateDeliveryOrderCommand command) {
         try {
             UUID clientId = command.getClientId();
-            validateSubscription(clientId);
-
             UUID orgUuid = parseOrgId(command.getOrgId());
+            validateSubscription(clientId, orgUuid);
+
             var clientOpt = clientRepository.findById(clientId);
             if (clientOpt.isEmpty()) {
                 var orgOpt = organizationRepository.findById(clientId);
@@ -585,16 +585,18 @@ public class DeliveryCommandService {
         return normalized.isBlank() ? null : normalized;
     }
 
-    private void validateSubscription(UUID clientId) {
+    private void validateSubscription(UUID clientId, UUID orgId) {
         if (clientId == null) {
             throw new BusinessException("Client ID is required");
         }
-        var clientOpt = clientRepository.findById(clientId);
-        if (clientOpt.isPresent()) {
-            Client client = clientOpt.get();
-            if (!"ACTIVE".equalsIgnoreCase(client.getSubscriptionStatus()) && !"TRIAL".equalsIgnoreCase(client.getSubscriptionStatus())) {
-                throw new BusinessException("Restaurant subscription is inactive.");
-            }
+        Client client = clientRepository.findById(clientId).orElse(null);
+        Organization org = orgId != null ? organizationRepository.findById(orgId).orElse(null) : null;
+        
+        boolean clientActive = client != null && ("ACTIVE".equalsIgnoreCase(client.getSubscriptionStatus()) || "TRIAL".equalsIgnoreCase(client.getSubscriptionStatus()));
+        boolean orgActive = org != null && ("ACTIVE".equalsIgnoreCase(org.getSubscriptionStatus()) || "TRIAL".equalsIgnoreCase(org.getSubscriptionStatus()));
+
+        if (!clientActive && !orgActive) {
+            throw new BusinessException("Restaurant subscription is inactive.");
         }
     }
 
