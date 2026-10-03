@@ -240,11 +240,14 @@ public class QrOrderCommandService {
             BigDecimal taxableAmount;
             BigDecimal finalLineTotal;
 
+            boolean isPackaged = product.isPackagedGood();
+            boolean itemPricesIncludeTax = pricesIncludeTax || isPackaged;
+
             if (!taxEnabled || itemTaxRate.compareTo(BigDecimal.ZERO) <= 0) {
                 taxableAmount = lineGross;
                 lineTax = BigDecimal.ZERO;
                 finalLineTotal = lineGross;
-            } else if (pricesIncludeTax) {
+            } else if (itemPricesIncludeTax) {
                 finalLineTotal = lineGross;
                 taxableAmount = lineGross.divide(BigDecimal.ONE.add(lineRate), 2, RoundingMode.HALF_UP);
                 lineTax = lineGross.subtract(taxableAmount);
@@ -254,7 +257,7 @@ public class QrOrderCommandService {
                 finalLineTotal = lineGross.add(lineTax);
             }
 
-            BigDecimal unitPriceExTax = pricesIncludeTax && lineRate.compareTo(BigDecimal.ZERO) > 0
+            BigDecimal unitPriceExTax = itemPricesIncludeTax && lineRate.compareTo(BigDecimal.ZERO) > 0
                     ? price.divide(BigDecimal.ONE.add(lineRate), 4, RoundingMode.HALF_UP)
                     : price;
 
@@ -278,7 +281,7 @@ public class QrOrderCommandService {
                     .variantId(variantId)
                     .productName(productName)
                     .categoryName(categoryName)
-                    .isPackagedGood(product.isPackagedGood())
+                    .isPackagedGood(isPackaged)
                     .quantity(BigDecimal.valueOf(qty))
                     .unitPrice(price)
                     .unitPriceExTax(unitPriceExTax)
@@ -287,7 +290,7 @@ public class QrOrderCommandService {
                     .taxRate(itemTaxRate)
                     .taxAmount(lineTax)
                     .lineTotal(finalLineTotal)
-                    .taxType(taxEnabled ? (pricesIncludeTax ? TaxType.INCLUSIVE : TaxType.EXCLUSIVE) : TaxType.NONE)
+                    .taxType(taxEnabled ? (itemPricesIncludeTax ? TaxType.INCLUSIVE : TaxType.EXCLUSIVE) : TaxType.NONE)
                     .taxName(defaultTaxName)
                     .taxCode(product.getTaxCode())
                     .description(itemNote)

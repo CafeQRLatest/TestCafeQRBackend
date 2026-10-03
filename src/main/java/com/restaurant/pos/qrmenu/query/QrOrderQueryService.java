@@ -337,6 +337,8 @@ public class QrOrderQueryService {
                     item.put("productType", p.getProductType());
                     item.put("taxRate", p.getTaxRate());
                     item.put("taxCode", p.getTaxCode());
+                    item.put("isPackagedGood", p.isPackagedGood());
+                    item.put("isPackaged", p.isPackagedGood());
 
                     // Check recipe lines for ingredients
                     List<com.restaurant.pos.product.domain.ProductRecipe> activeRecipes = Collections.emptyList();
