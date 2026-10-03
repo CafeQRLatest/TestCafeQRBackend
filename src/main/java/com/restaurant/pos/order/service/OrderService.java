@@ -115,6 +115,7 @@ public class OrderService {
     private final PaymentAllocationRepository paymentAllocationRepository;
     private final AccountingPostingService accountingPostingService;
     private final InventoryService inventoryService;
+    private final com.restaurant.pos.inventory.repository.StockLedgerRepository stockLedgerRepository;
     private final RestaurantTableRepository tableRepository;
     private final DocumentSequenceService sequenceService;
     private final OfflineSequenceLeaseService offlineSequenceLeaseService;
@@ -2861,7 +2862,7 @@ public class OrderService {
         // Inventory Hook: PURCHASE=add stock, SALE=deduct stock on creation
         if (saved.getOrderType() == OrderType.PURCHASE && "COMPLETED".equalsIgnoreCase(saved.getOrderStatus())) {
             processInventoryForOrder(saved);
-        } else if (saved.getOrderType() == OrderType.SALE
+        } else if (isSaleOrder(saved)
                 && !"CANCELLED".equalsIgnoreCase(saved.getOrderStatus())) {
             deductStockForSale(saved);
         }
@@ -2963,7 +2964,7 @@ public class OrderService {
 
         if (result.getOrderType() == OrderType.PURCHASE && "COMPLETED".equalsIgnoreCase(result.getOrderStatus())) {
             processInventoryForOrder(result);
-        } else if (result.getOrderType() == OrderType.SALE
+        } else if (isSaleOrder(result)
                 && !"CANCELLED".equalsIgnoreCase(result.getOrderStatus())) {
             deductStockForSale(result);
         }
@@ -3249,7 +3250,7 @@ public class OrderService {
 
         if (saved.getOrderType() == OrderType.PURCHASE && "COMPLETED".equalsIgnoreCase(saved.getOrderStatus())) {
             processInventoryForOrder(saved);
-        } else if (saved.getOrderType() == OrderType.SALE
+        } else if (isSaleOrder(saved)
                 && !"CANCELLED".equalsIgnoreCase(saved.getOrderStatus())) {
             if (!Boolean.TRUE.equals(saved.getIsStockDeducted())) {
                 validateNonStockSalesPolicy(saved);
@@ -3350,7 +3351,7 @@ public class OrderService {
         accountingPostingService.postSaleCogs(saved);
 
         // Deduct stock on credit completion (idempotency guard prevents duplicates)
-        if (saved.getOrderType() == OrderType.SALE
+        if (isSaleOrder(saved)
                 && !"CANCELLED".equalsIgnoreCase(saved.getOrderStatus())) {
             if (!Boolean.TRUE.equals(saved.getIsStockDeducted())) {
                 validateNonStockSalesPolicy(saved);
@@ -3401,7 +3402,10 @@ public class OrderService {
         ConfigurationDto config = configurationService.getConfigurationForClientAndBranch(order.getClientId(),
                 order.getOrgId());
 
-        boolean wasStockDeducted = isSaleOrder(order) && Boolean.TRUE.equals(order.getIsStockDeducted());
+        boolean wasStockDeducted = isSaleOrder(order) && (
+                Boolean.TRUE.equals(order.getIsStockDeducted())
+                || hasStockDeductionLedger(order.getId())
+        );
         boolean wasCompletedPurchase = order.getOrderType() == OrderType.PURCHASE
                 && "COMPLETED".equalsIgnoreCase(order.getOrderStatus());
 
@@ -3426,10 +3430,10 @@ public class OrderService {
                 saved.setIsStockDeducted(false);
                 orderRepository.save(saved);
             }
-            // ── Publish loyalty reversal event (only if loyalty is enabled) ───
-            if (config != null && config.isLoyaltyEnabled()) {
-                eventPublisher.publishEvent(new LoyaltyOrderCancelledEvent(this, saved));
-            }
+            // ── Publish loyalty reversal event ───
+            // Always publish when cancelling a sale order: the listener/command service
+            // checks whether actual transactions exist for this order and reverses them.
+            eventPublisher.publishEvent(new LoyaltyOrderCancelledEvent(this, saved));
         } else {
             voidUnpaidLinkedInvoices(saved, "Order cancelled");
             if (wasCompletedPurchase) {
@@ -4137,6 +4141,10 @@ public class OrderService {
             return;
         }
 
+        if (order.getWarehouseId() == null) {
+            order.setWarehouseId(warehouseId);
+        }
+
         for (com.restaurant.pos.order.domain.OrderLine line : order.getLines()) {
             if (line.getProductId() == null) {
                 continue;
@@ -4156,7 +4164,7 @@ public class OrderService {
 
             if (recipes.isEmpty()) {
                 deductStock(warehouseId, line.getProductId(), line.getVariantId(),
-                        soldQty, order, orgId);
+                        soldQty, order, orgId, clientId);
                 continue;
             }
 
@@ -4198,7 +4206,8 @@ public class OrderService {
                         null,
                         soldQty.multiply(recipe.getQuantity()),
                         order,
-                        orgId);
+                        orgId,
+                        clientId);
             }
         }
 
@@ -4226,7 +4235,8 @@ public class OrderService {
             UUID variantId,
             BigDecimal quantity,
             Order order,
-            UUID orgId) {
+            UUID orgId,
+            UUID clientId) {
 
         try {
             inventoryService.updateStock(
@@ -4237,7 +4247,8 @@ public class OrderService {
                     "SALE_DEDUCTION",
                     order.getId(),
                     BigDecimal.ZERO,
-                    orgId);
+                    orgId,
+                    clientId);
 
             log.debug("Deducted {} of stock item {} for order {}",
                     quantity, stockItemId, order.getId());
@@ -4248,21 +4259,78 @@ public class OrderService {
         }
     }
 
-    private void restoreStockForSale(Order order) {
-        if (order.getLines() == null || order.getLines().isEmpty()) {
-            return;
+    boolean hasStockDeductionLedger(UUID orderId) {
+        if (orderId == null || stockLedgerRepository == null) {
+            return false;
         }
+        try {
+            List<com.restaurant.pos.inventory.domain.StockLedger> ledgers = stockLedgerRepository.findByReferenceId(orderId);
+            return ledgers != null && ledgers.stream()
+                    .anyMatch(l -> "SALE_DEDUCTION".equalsIgnoreCase(l.getTransactionType()));
+        } catch (Exception ex) {
+            log.warn("Failed to check stock ledger for orderId={}", orderId, ex);
+            return false;
+        }
+    }
 
+    void restoreStockForSale(Order order) {
         UUID clientId = order.getClientId() != null
                 ? order.getClientId()
                 : TenantContext.getCurrentTenant();
         UUID orgId = order.getOrgId();
-        UUID warehouseId = order.getWarehouseId();
 
+        // 1. Check if we have exact SALE_DEDUCTION ledger entries recorded for this order
+        List<com.restaurant.pos.inventory.domain.StockLedger> ledgers = null;
+        try {
+            ledgers = stockLedgerRepository.findByReferenceId(order.getId());
+        } catch (Exception ex) {
+            log.warn("Could not query stock ledgers for orderId={}", order.getId(), ex);
+        }
+
+        if (ledgers != null && !ledgers.isEmpty()) {
+            boolean alreadyRestored = ledgers.stream()
+                    .anyMatch(l -> "SALE_VOID_RESTORE".equalsIgnoreCase(l.getTransactionType()));
+            if (alreadyRestored) {
+                log.info("Stock for order {} already restored in ledger — skipping duplicate restoration", order.getId());
+                return;
+            }
+
+            List<com.restaurant.pos.inventory.domain.StockLedger> deductions = ledgers.stream()
+                    .filter(l -> "SALE_DEDUCTION".equalsIgnoreCase(l.getTransactionType()))
+                    .toList();
+
+            if (!deductions.isEmpty()) {
+                log.info("Restoring stock for order {} directly from {} stock ledger deduction entries",
+                        order.getId(), deductions.size());
+                for (com.restaurant.pos.inventory.domain.StockLedger deduction : deductions) {
+                    BigDecimal returnQty = deduction.getQuantityChange() != null
+                            ? deduction.getQuantityChange().abs()
+                            : BigDecimal.ZERO;
+                    if (returnQty.signum() <= 0) continue;
+
+                    UUID effectiveOrg = deduction.getOrgId() != null ? deduction.getOrgId() : orgId;
+                    UUID effectiveClient = deduction.getClientId() != null ? deduction.getClientId() : clientId;
+
+                    restoreStock(deduction.getWarehouseId(), deduction.getProductId(), deduction.getVariantId(),
+                            returnQty, order, effectiveOrg, effectiveClient);
+                }
+                return;
+            }
+        }
+
+        // 2. Fallback: line-by-line / recipe BOM restoration if no ledger entries were found
+        if (order.getLines() == null || order.getLines().isEmpty()) {
+            return;
+        }
+
+        UUID warehouseId = order.getWarehouseId();
         if (warehouseId == null) {
             warehouseId = inventoryService.findDefaultWarehouse(clientId, orgId)
                     .map(com.restaurant.pos.warehouse.domain.Warehouse::getId)
                     .orElse(null);
+            if (warehouseId != null) {
+                order.setWarehouseId(warehouseId);
+            }
         }
 
         if (warehouseId == null) {
@@ -4290,7 +4358,7 @@ public class OrderService {
 
             if (recipes.isEmpty()) {
                 restoreStock(warehouseId, line.getProductId(), line.getVariantId(),
-                        returnQty, order, orgId);
+                        returnQty, order, orgId, clientId);
                 continue;
             }
 
@@ -4332,7 +4400,8 @@ public class OrderService {
                         null,
                         returnQty.multiply(recipe.getQuantity()),
                         order,
-                        orgId);
+                        orgId,
+                        clientId);
             }
         }
     }
@@ -4343,7 +4412,8 @@ public class OrderService {
             UUID variantId,
             BigDecimal quantity,
             Order order,
-            UUID orgId) {
+            UUID orgId,
+            UUID clientId) {
 
         try {
             inventoryService.updateStock(
@@ -4354,7 +4424,8 @@ public class OrderService {
                     "SALE_VOID_RESTORE",
                     order.getId(),
                     BigDecimal.ZERO,
-                    orgId);
+                    orgId,
+                    clientId);
 
             log.info("Restored {} of stock item {} for voided order {}",
                     quantity, stockItemId, order.getId());

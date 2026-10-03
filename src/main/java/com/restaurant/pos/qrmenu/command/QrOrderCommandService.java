@@ -34,6 +34,9 @@ import com.restaurant.pos.sequence.service.DocumentSequenceService;
 import com.restaurant.pos.subscription.domain.ModuleName;
 import com.restaurant.pos.table.domain.RestaurantTable;
 import com.restaurant.pos.table.repository.RestaurantTableRepository;
+import com.restaurant.pos.inventory.domain.StockSnapshot;
+import com.restaurant.pos.inventory.repository.StockSnapshotRepository;
+import com.restaurant.pos.product.domain.ProductRecipe;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
@@ -81,6 +84,7 @@ public class QrOrderCommandService {
     private final InvoiceRepository invoiceRepository;
     private final PaymentRepository paymentRepository;
     private final AccountingPostingService accountingPostingService;
+    private final StockSnapshotRepository stockSnapshotRepository;
 
     /**
      * Processes QR order placement.
@@ -124,6 +128,9 @@ public class QrOrderCommandService {
         if (items == null || items.isEmpty()) {
             throw new BusinessException("No items in order");
         }
+
+        // Validate stock availability before proceeding if inventory is enabled
+        validateStockAvailability(clientId, orgId, items);
 
         String tableIdStr = (String) payload.get("tableId");
         RestaurantTable table = findTable(clientId, orgId, tableIdStr != null ? tableIdStr : tableNumber);
@@ -425,7 +432,7 @@ public class QrOrderCommandService {
                     .description(customerNote.isBlank() ? null : customerNote)
                     .remarks(customerNote.isBlank() ? null : customerNote)
                     .reference(buildPaymentReference(paymentMethod, razorpayPaymentId, razorpayOrderId))
-                    .orderDate(Instant.now())
+                    .orderDate(branchNow.atZone(branchZone).toInstant())
                     .isactive("Y")
                     .build();
 
@@ -885,6 +892,128 @@ public class QrOrderCommandService {
             log.info("Saved order revision snapshot {} for base order {}", snapshotOrderNo, baseOrderNo);
         } catch (Exception ex) {
             log.warn("Failed to create revision snapshot for order {}: {}", targetOrder.getOrderNo(), ex.getMessage());
+        }
+    }
+
+    /**
+     * Validates that requested items and ingredients do not exceed available stock
+     * when the inventory tracking module is enabled for the client and branch.
+     */
+    private void validateStockAvailability(UUID clientId, UUID orgId, List<Map<String, Object>> items) {
+        if (items == null || items.isEmpty()) return;
+
+        ConfigurationDto config = systemConfigurationService.getConfigurationForClientAndBranch(clientId, orgId);
+        if (config == null || !config.isInventoryEnabled()) {
+            return;
+        }
+
+        Map<String, BigDecimal> stockMap = new HashMap<>();
+        try {
+            List<StockSnapshot> snapshots = stockSnapshotRepository.findByClientIdAndOrgIdOrGlobal(clientId, orgId);
+            if (snapshots == null || snapshots.isEmpty()) {
+                snapshots = stockSnapshotRepository.findByClientId(clientId);
+            }
+            if (snapshots != null) {
+                for (StockSnapshot snap : snapshots) {
+                    if (snap == null || snap.getProductId() == null) continue;
+                    BigDecimal qty = snap.getCurrentQuantity() != null ? snap.getCurrentQuantity() : BigDecimal.ZERO;
+                    String productKey = snap.getProductId().toString().toLowerCase();
+                    if (snap.getVariantId() != null) {
+                        String variantKey = productKey + "_" + snap.getVariantId().toString().toLowerCase();
+                        stockMap.merge(variantKey, qty, BigDecimal::add);
+                    }
+                    stockMap.merge(productKey, qty, BigDecimal::add);
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Failed to load stock snapshots for QR order validation: {}", e.getMessage());
+            return;
+        }
+
+        Map<String, BigDecimal> requestedDirectStock = new HashMap<>();
+        Map<String, BigDecimal> requestedIngredientStock = new HashMap<>();
+
+        for (Map<String, Object> cartItem : items) {
+            if (cartItem.get("productId") == null) continue;
+            UUID productId;
+            try {
+                productId = UUID.fromString(String.valueOf(cartItem.get("productId")));
+            } catch (Exception e) {
+                continue;
+            }
+
+            int qty = 1;
+            if (cartItem.get("quantity") instanceof Number) {
+                qty = ((Number) cartItem.get("quantity")).intValue();
+            } else if (cartItem.get("quantity") != null) {
+                try {
+                    qty = Integer.parseInt(String.valueOf(cartItem.get("quantity")));
+                } catch (Exception ignored) {}
+            }
+            if (qty <= 0) continue;
+
+            String variantIdStr = (String) cartItem.get("variantId");
+            UUID variantId = (variantIdStr != null && !variantIdStr.isBlank()) ? UUID.fromString(variantIdStr) : null;
+
+            Product product = productRepository.findWithCategoryById(productId).orElse(null);
+            if (product == null) continue;
+
+            String customName = (String) cartItem.get("name");
+            String productName = (customName != null && !customName.isBlank()) ? customName : (product.getName() != null ? product.getName() : "Item");
+
+            List<ProductRecipe> activeRecipes = Collections.emptyList();
+            try {
+                if (product.getRecipeLines() != null) {
+                    activeRecipes = product.getRecipeLines().stream()
+                            .filter(ProductRecipe::isActive)
+                            .filter(r -> r.getIngredient() != null && r.getIngredient().getId() != null
+                                    && r.getQuantity() != null && r.getQuantity().signum() > 0)
+                            .collect(java.util.stream.Collectors.toList());
+                }
+            } catch (Exception ignored) {}
+
+            if (!activeRecipes.isEmpty()) {
+                List<ProductRecipe> applicableRecipes = activeRecipes.stream()
+                        .filter(r -> r.getVariantOption() == null || (variantId != null && variantId.equals(r.getVariantOption().getId())))
+                        .collect(java.util.stream.Collectors.toList());
+
+                for (ProductRecipe r : applicableRecipes) {
+                    UUID ingId = r.getIngredient().getId();
+                    String ingKey = ingId.toString().toLowerCase();
+                    BigDecimal needed = r.getQuantity().multiply(BigDecimal.valueOf(qty));
+                    BigDecimal cumNeeded = requestedIngredientStock.merge(ingKey, needed, BigDecimal::add);
+
+                    BigDecimal available = stockMap.getOrDefault(ingKey, BigDecimal.ZERO);
+                    if (available.compareTo(cumNeeded) < 0) {
+                        BigDecimal maxPortions = available.divide(r.getQuantity(), 0, RoundingMode.FLOOR);
+                        if (maxPortions.compareTo(BigDecimal.ZERO) <= 0) {
+                            throw new BusinessException("'" + productName + "' is currently out of stock.");
+                        } else {
+                            throw new BusinessException("Only " + maxPortions.intValue() + " available for '" + productName + "' (requested: " + qty + ").");
+                        }
+                    }
+                }
+            } else {
+                String pKey = productId.toString().toLowerCase();
+                String directKey = (variantId != null) ? pKey + "_" + variantId.toString().toLowerCase() : pKey;
+
+                BigDecimal available = stockMap.get(directKey);
+                if (available == null && variantId != null) {
+                    available = stockMap.get(pKey);
+                }
+
+                if (available != null || product.isPackagedGood()) {
+                    BigDecimal availQty = available != null ? available : BigDecimal.ZERO;
+                    BigDecimal cumReq = requestedDirectStock.merge(directKey, BigDecimal.valueOf(qty), BigDecimal::add);
+                    if (availQty.compareTo(cumReq) < 0) {
+                        if (availQty.compareTo(BigDecimal.ZERO) <= 0) {
+                            throw new BusinessException("'" + productName + "' is currently out of stock.");
+                        } else {
+                            throw new BusinessException("Only " + availQty.intValue() + " available for '" + productName + "' (requested: " + cumReq.intValue() + ").");
+                        }
+                    }
+                }
+            }
         }
     }
 }

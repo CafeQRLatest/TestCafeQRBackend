@@ -64,10 +64,12 @@ public class QrOrderInventoryListener {
                 return;
             }
 
-            TenantContext.setCurrentTenant(clientId);
-            TenantContext.setCurrentOrg(orgId);
-            boolean deductedAny = false;
+            UUID prevTenant = TenantContext.getCurrentTenant();
+            UUID prevOrg = TenantContext.getCurrentOrg();
             try {
+                TenantContext.setCurrentTenant(clientId);
+                TenantContext.setCurrentOrg(orgId);
+                boolean deductedAny = false;
                 for (OrderLine line : lines) {
                     if (line.getProductId() == null) continue;
                     BigDecimal soldQty = line.getQuantity() != null ? line.getQuantity() : BigDecimal.ONE;
@@ -115,12 +117,14 @@ public class QrOrderInventoryListener {
                 }
                 if (deductedAny) {
                     order.setIsStockDeducted(true);
+                    order.setWarehouseId(warehouseId);
                     orderRepository.save(order);
                 }
                 log.info("EventListener: Stock deducted (isStockDeducted={}) for QR order {} ({} lines) in warehouse {}",
                         order.getIsStockDeducted(), order.getId(), lines.size(), warehouseId);
             } finally {
-                TenantContext.clear();
+                TenantContext.setCurrentTenant(prevTenant);
+                TenantContext.setCurrentOrg(prevOrg);
             }
         } catch (Exception ex) {
             log.warn("EventListener: Failed to deduct stock for QR order {} — order committed, stock skipped: {}",
@@ -152,7 +156,8 @@ public class QrOrderInventoryListener {
                     "SALE_DEDUCTION",
                     order.getId(),
                     BigDecimal.ZERO,
-                    orgId);
+                    orgId,
+                    order.getClientId());
 
             log.debug("QR order inventory listener: deducted {} of stock item {} for order {}",
                     quantity, stockItemId, order.getId());

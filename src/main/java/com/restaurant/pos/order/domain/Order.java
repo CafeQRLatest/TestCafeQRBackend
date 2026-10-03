@@ -337,4 +337,15 @@ public class Order extends BaseEntity {
     public void deactivate() {
         this.isactive = "N";
     }
+
+    @PrePersist
+    @Override
+    protected void onCreate() {
+        super.onCreate();
+        if (this.orderDate == null) {
+            this.orderDate = this.getCreatedAt() != null
+                    ? this.getCreatedAt().atZone(java.time.ZoneId.systemDefault()).toInstant()
+                    : java.time.Instant.now();
+        }
+    }
 }

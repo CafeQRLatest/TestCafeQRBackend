@@ -224,7 +224,7 @@ public class QrOrderQueryService {
         // If table is explicitly AVAILABLE, previous tab has been cleared/settled.
         boolean isTableAvailable = "AVAILABLE".equalsIgnoreCase(String.valueOf(table.getStatus()));
         ZoneId branchZone = timezoneResolver.resolveTimezone(effectiveClientId, effectiveOrgId);
-         LocalDateTime sessionCutoff = LocalDateTime.now(branchZone).minusHours(16);
+          LocalDateTime sessionCutoff = LocalDateTime.now(branchZone).minusHours(16);
         List<Order> activeOrders = isTableAvailable
                 ? Collections.emptyList()
                 : qrOrderRepository.findActiveOrdersByTable(clientId, orgUuid, table.getId(), table.getTableNumber(), sessionCutoff);
@@ -246,6 +246,7 @@ public class QrOrderQueryService {
             activeOrderMap.put("revisionNumber", activeOrder.getRevisionNumber());
             activeOrderMap.put("createdAt", activeOrder.getCreatedAt());
             activeOrderMap.put("updatedAt", activeOrder.getUpdatedAt());
+            activeOrderMap.put("orderDate", activeOrder.getOrderDate());
             activeOrderMap.put("isStockDeducted", activeOrder.getIsStockDeducted());
             activeOrderMap.put("currencyId", activeOrder.getCurrencyId());
 
@@ -295,18 +296,20 @@ public class QrOrderQueryService {
         if (inventoryEnabled) {
             try {
                 List<com.restaurant.pos.inventory.domain.StockSnapshot> snapshots =
-                        stockSnapshotRepository.findByClientIdAndOrgId(clientId, orgId);
+                        stockSnapshotRepository.findByClientIdAndOrgIdOrGlobal(clientId, orgId);
                 if (snapshots == null || snapshots.isEmpty()) {
                     snapshots = stockSnapshotRepository.findByClientId(clientId);
                 }
                 for (com.restaurant.pos.inventory.domain.StockSnapshot snap : snapshots) {
+                    if (snap == null || snap.getProductId() == null) continue;
+                    java.math.BigDecimal qty = snap.getCurrentQuantity() != null ? snap.getCurrentQuantity() : java.math.BigDecimal.ZERO;
                     String productKey = snap.getProductId().toString().toLowerCase();
                     if (snap.getVariantId() != null) {
                         String variantKey = productKey + "_" + snap.getVariantId().toString().toLowerCase();
-                        stockMap.merge(variantKey, snap.getCurrentQuantity(), java.math.BigDecimal::add);
+                        stockMap.merge(variantKey, qty, java.math.BigDecimal::add);
                     }
                     // Also aggregate at the product level (sum of all variant stocks for this product)
-                    stockMap.merge(productKey, snap.getCurrentQuantity(), java.math.BigDecimal::add);
+                    stockMap.merge(productKey, qty, java.math.BigDecimal::add);
                 }
             } catch (Exception e) {
                 log.warn("Failed to load stock snapshots for QR menu, proceeding without stock info", e);

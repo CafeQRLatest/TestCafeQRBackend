@@ -73,7 +73,7 @@ public class InventoryCommandService {
 
     public void updateStock(UUID warehouseId, UUID productId, UUID variantId, BigDecimal quantityChange,
                             String transactionType, UUID referenceId, BigDecimal unitCost) {
-        updateStock(warehouseId, productId, variantId, quantityChange, transactionType, referenceId, unitCost, null);
+        updateStock(warehouseId, productId, variantId, quantityChange, transactionType, referenceId, unitCost, null, null);
     }
 
     public void updateStock(
@@ -85,11 +85,40 @@ public class InventoryCommandService {
             UUID referenceId,
             BigDecimal unitCost,
             UUID explicitOrgId) {
+        updateStock(warehouseId, productId, variantId, quantityChange, transactionType, referenceId, unitCost, explicitOrgId, null);
+    }
 
-        UUID clientId = TenantContext.getCurrentTenant();
-        UUID orgId = explicitOrgId != null
+    public void updateStock(
+            UUID warehouseId,
+            UUID productId,
+            UUID variantId,
+            BigDecimal quantityChange,
+            String transactionType,
+            UUID referenceId,
+            BigDecimal unitCost,
+            UUID explicitOrgId,
+            UUID explicitClientId) {
+
+        UUID resolvedClientId = explicitClientId != null
+                ? explicitClientId
+                : TenantContext.getCurrentTenant();
+        UUID resolvedOrgId = explicitOrgId != null
                 ? explicitOrgId
-                : branchContext.requireWriteOrgId(TenantContext.getCurrentOrg());
+                : TenantContext.getCurrentOrg();
+
+        if (resolvedClientId == null && warehouseId != null) {
+            resolvedClientId = warehouseRepository.findById(warehouseId)
+                    .map(Warehouse::getClientId)
+                    .orElse(null);
+        }
+        if (resolvedOrgId == null && warehouseId != null) {
+            resolvedOrgId = warehouseRepository.findById(warehouseId)
+                    .map(Warehouse::getOrgId)
+                    .orElse(null);
+        }
+
+        final UUID clientId = resolvedClientId;
+        final UUID orgId = resolvedOrgId;
 
         StockSnapshot snapshot = findStockSnapshot(warehouseId, productId, variantId)
                 .orElseGet(() -> StockSnapshot.builder()
@@ -100,6 +129,13 @@ public class InventoryCommandService {
                         .variantId(variantId)
                         .currentQuantity(BigDecimal.ZERO)
                         .build());
+
+        if (snapshot.getClientId() == null && clientId != null) {
+            snapshot.setClientId(clientId);
+        }
+        if (snapshot.getOrgId() == null && orgId != null) {
+            snapshot.setOrgId(orgId);
+        }
 
         BigDecimal newBalance = snapshot.getCurrentQuantity().add(quantityChange);
 
@@ -160,7 +196,8 @@ public class InventoryCommandService {
             if (!alreadyCompleted) {
                 for (StockAdjustmentLine line : saved.getLines()) {
                     updateStock(saved.getWarehouseId(), line.getProductId(), line.getVariantId(), 
-                            line.getQuantityChange(), "ADJUSTMENT", saved.getId(), line.getUnitCost());
+                            line.getQuantityChange(), "ADJUSTMENT", saved.getId(), line.getUnitCost(),
+                            saved.getOrgId(), saved.getClientId());
                 }
             }
         }
