@@ -283,6 +283,28 @@ public class QrOrderCommandService {
                 itemNote = String.valueOf(cartItem.get("description")).trim();
             }
 
+            String lineTaxName = null;
+            if (qrConfig.getTaxRates() != null && !qrConfig.getTaxRates().isEmpty()) {
+                final BigDecimal finalRate = itemTaxRate;
+                for (Object rObj : qrConfig.getTaxRates()) {
+                    if (rObj instanceof Map) {
+                        @SuppressWarnings("unchecked")
+                        Map<String, Object> rMap = (Map<String, Object>) rObj;
+                        if (rMap.get("value") != null) {
+                            try {
+                                if (new BigDecimal(String.valueOf(rMap.get("value"))).compareTo(finalRate) == 0) {
+                                    lineTaxName = String.valueOf(rMap.get("name"));
+                                    break;
+                                }
+                            } catch (Exception ignored) {}
+                        }
+                    }
+                }
+            }
+            if (lineTaxName == null) {
+                lineTaxName = itemTaxRate.compareTo(defaultTaxRate) == 0 ? defaultTaxName : (taxLabelGlobal + " " + itemTaxRate.stripTrailingZeros().toPlainString() + "%");
+            }
+
             OrderLine line = OrderLine.builder()
                     .productId(productId)
                     .variantId(variantId)
@@ -298,7 +320,7 @@ public class QrOrderCommandService {
                     .taxAmount(lineTax)
                     .lineTotal(finalLineTotal)
                     .taxType(taxEnabled ? (itemPricesIncludeTax ? TaxType.INCLUSIVE : TaxType.EXCLUSIVE) : TaxType.NONE)
-                    .taxName(defaultTaxName)
+                    .taxName(lineTaxName)
                     .taxCode(product.getTaxCode())
                     .description(itemNote)
                     .createdAt(branchNow)
