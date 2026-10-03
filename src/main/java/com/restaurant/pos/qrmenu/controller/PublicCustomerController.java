@@ -25,6 +25,8 @@ public class PublicCustomerController {
     private final CustomerRepository customerRepository;
     private final EmailService emailService;
     private final com.restaurant.pos.qrmenu.query.QrOrderQueryService qrOrderQueryService;
+    private final com.restaurant.pos.client.repository.ClientRepository clientRepository;
+    private final com.restaurant.pos.client.repository.OrganizationRepository organizationRepository;
 
     @PostMapping("/check-email")
     public ResponseEntity<ApiResponse<Map<String, Object>>> checkEmail(@RequestBody Map<String, String> payload) {
@@ -34,8 +36,18 @@ public class PublicCustomerController {
             return ResponseEntity.badRequest().body(ApiResponse.error("Email and clientId are required"));
         }
         UUID clientId = qrOrderQueryService.resolveClientId(clientIdStr);
+        if (clientId != null) {
+            var clientOpt = clientRepository.findById(clientId);
+            if (clientOpt.isEmpty()) {
+                var orgOpt = organizationRepository.findById(clientId);
+                if (orgOpt.isPresent()) {
+                    clientId = orgOpt.get().getClientId();
+                }
+            }
+        }
+
         String sanitized = email.trim().toLowerCase();
-        Optional<Customer> existing = customerRepository.findByEmailAndClientId(sanitized, clientId);
+        Optional<Customer> existing = customerRepository.findFirstByEmailIgnoreCaseAndClientId(sanitized, clientId);
         if (existing.isPresent()) {
             Customer c = existing.get();
             return ResponseEntity.ok(ApiResponse.success(Map.of(
@@ -100,28 +112,54 @@ public class PublicCustomerController {
         UUID clientId = qrOrderQueryService.resolveClientId(clientIdStr);
         UUID orgId = qrOrderQueryService.resolveOrgId(clientId, orgIdStr);
 
+        // If clientId is an organization ID, resolve parent client
+        if (clientId != null) {
+            var clientOpt = clientRepository.findById(clientId);
+            if (clientOpt.isEmpty()) {
+                var orgOpt = organizationRepository.findById(clientId);
+                if (orgOpt.isPresent()) {
+                    clientId = orgOpt.get().getClientId();
+                    if (orgId == null) {
+                        orgId = orgOpt.get().getId();
+                    }
+                }
+            }
+        }
+
         Optional<Customer> existing = isEmail 
-                ? customerRepository.findByEmailAndClientId(sanitized, clientId)
+                ? customerRepository.findFirstByEmailIgnoreCaseAndClientId(sanitized, clientId)
                 : customerRepository.findFirstByPhoneAndClientIdOrderByCreatedAtAsc(sanitized, clientId);
                 
         Customer customer;
         if (existing.isPresent()) {
             customer = existing.get();
             boolean updated = false;
-            if (name != null && !name.isBlank() && (customer.getName() == null || "Guest".equalsIgnoreCase(customer.getName()))) {
-                customer.setName(name.trim());
-                updated = true;
+            // Update name only if current name is missing/Guest, or a valid non-Guest name is supplied on signup
+            if (name != null && !name.isBlank() && !name.equalsIgnoreCase("Guest")) {
+                if (customer.getName() == null || customer.getName().isBlank() || "Guest".equalsIgnoreCase(customer.getName())) {
+                    customer.setName(name.trim());
+                    updated = true;
+                }
             }
-            if (phone != null && !phone.isBlank() && (customer.getPhone() == null || customer.getPhone().isBlank())) {
-                customer.setPhone(normalizePhone(phone));
-                updated = true;
+            // Update phone only if missing or if a valid phone number is supplied
+            if (phone != null && !phone.isBlank()) {
+                String cleanPhone = normalizePhone(phone);
+                if (customer.getPhone() == null || customer.getPhone().isBlank()) {
+                    customer.setPhone(cleanPhone);
+                    updated = true;
+                }
             }
             if (updated) {
                 customer = customerRepository.save(customer);
             }
         } else {
+            String initialName = (name != null && !name.isBlank()) 
+                    ? name.trim() 
+                    : (isEmail && sanitized.contains("@") ? sanitized.split("@")[0] : "Guest");
             customer = Customer.builder()
-                    .name(name != null && !name.isBlank() ? name.trim() : "Guest")
+                    .name(initialName)
+                    .customerCategory("REGULAR")
+                    .isactive("Y")
                     .build();
             if (isEmail) {
                 customer.setEmail(sanitized);
@@ -133,7 +171,7 @@ public class PublicCustomerController {
             }
             
             customer.setClientId(clientId);
-            customer.setOrgId(orgId);
+            customer.setOrgId(null);
             customer = customerRepository.save(customer);
         }
 
