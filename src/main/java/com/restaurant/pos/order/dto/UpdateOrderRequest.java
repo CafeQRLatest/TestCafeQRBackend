@@ -98,4 +98,9 @@ public class UpdateOrderRequest {
 
     @Schema(description = "Whether to bypass warning-level stock shortage checks if confirmed by cashier")
     private Boolean confirmStockWarning = false;
+
+    @Schema(description = "Daily bill number to retain across edits", example = "42")
+    @JsonProperty("dailyBillNo")
+    @com.fasterxml.jackson.annotation.JsonAlias({"daily_bill_no", "dailyBillNo"})
+    private Integer dailyBillNo;
 }

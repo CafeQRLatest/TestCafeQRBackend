@@ -377,7 +377,7 @@ public class QrOrderCommandService {
 
             targetOrder.setRevisionNumber((targetOrder.getRevisionNumber() != null ? targetOrder.getRevisionNumber() : 0) + 1);
             for (OrderLine newLine : newLines) {
-                targetOrder.addLine(newLine);
+                mergeOrAddOrderLine(targetOrder, newLine, branchNow);
             }
 
             BigDecimal currentTotal = targetOrder.getGrandTotal() != null ? targetOrder.getGrandTotal() : BigDecimal.ZERO;
@@ -477,7 +477,7 @@ public class QrOrderCommandService {
             order.setOrgId(orgId);
 
             for (OrderLine newLine : newLines) {
-                order.addLine(newLine);
+                mergeOrAddOrderLine(order, newLine, branchNow);
             }
 
             order.setGrossAmount(addedGross);
@@ -675,9 +675,29 @@ public class QrOrderCommandService {
 
         List<Invoice> existingInvoices = invoiceRepository.findByOrderId(saved.getId());
 
-        if (existingInvoices.isEmpty()) {
+        List<Invoice> activeInvoices = existingInvoices.stream()
+                .filter(inv -> !"VOID".equalsIgnoreCase(inv.getStatus()))
+                .toList();
+
+        if (activeInvoices.isEmpty()) {
             try {
-                Invoice generatedInvoice = orderService.generateInvoice(saved);
+                Integer existingDailyBillNo = existingInvoices.stream()
+                        .map(Invoice::getDailyBillNo)
+                        .filter(n -> n != null && n > 0)
+                        .findFirst()
+                        .orElse(saved.getDailyBillNo());
+
+                if (existingDailyBillNo == null && saved.getOriginalOrderId() != null) {
+                    List<Invoice> prevInvoices = invoiceRepository.findByOrderId(saved.getOriginalOrderId());
+                    for (Invoice prevInv : prevInvoices) {
+                        if (prevInv.getDailyBillNo() != null && prevInv.getDailyBillNo() > 0) {
+                            existingDailyBillNo = prevInv.getDailyBillNo();
+                            break;
+                        }
+                    }
+                }
+
+                Invoice generatedInvoice = orderService.generateInvoice(saved, null, null, existingDailyBillNo);
                 if (generatedInvoice != null) {
                     saved.setInvoiceNo(generatedInvoice.getInvoiceNo());
                     saved.setDailyBillNo(generatedInvoice.getDailyBillNo());
@@ -686,80 +706,56 @@ public class QrOrderCommandService {
                 log.error("Failed to generate invoice for QR order {}: {}", saved.getOrderNo(), ex.getMessage(), ex);
             }
         } else {
-            for (Invoice existingInv : existingInvoices) {
-                if (!"VOID".equalsIgnoreCase(existingInv.getStatus())) {
-                    existingInv.setTotalAmount(saved.getGrandTotal());
-                    existingInv.setGrossAmount(saved.getGrossAmount());
-                    existingInv.setTotalTaxAmount(saved.getTotalTaxAmount());
-                    existingInv.setTaxableAmount(computeTaxableSum(saved.getLines()));
+            for (Invoice existingInv : activeInvoices) {
+                if (existingInv.getDailyBillNo() == null || existingInv.getDailyBillNo() <= 0) {
+                    if (saved.getDailyBillNo() != null && saved.getDailyBillNo() > 0) {
+                        existingInv.setDailyBillNo(saved.getDailyBillNo());
+                    }
+                }
 
-                    // Synchronize amount due
-                    if (isPaid) {
+                existingInv.setTotalAmount(saved.getGrandTotal());
+                existingInv.setGrossAmount(saved.getGrossAmount());
+                existingInv.setTotalTaxAmount(saved.getTotalTaxAmount());
+                existingInv.setTaxableAmount(computeTaxableSum(saved.getLines()));
+
+                // Synchronize amount due
+                if (isPaid) {
+                    existingInv.setStatus("PAID");
+                    existingInv.setIsPaid(true);
+                    existingInv.setAmountDue(BigDecimal.ZERO);
+                } else {
+                    BigDecimal due = saved.getGrandTotal();
+                    if (existingInv.getAmountDue() != null && existingInv.getTotalAmount() != null) {
+                        BigDecimal previousPaid = existingInv.getTotalAmount().subtract(existingInv.getAmountDue()).max(BigDecimal.ZERO);
+                        due = saved.getGrandTotal().subtract(previousPaid).max(BigDecimal.ZERO);
+                    }
+                    existingInv.setAmountDue(due);
+                    if (due.compareTo(BigDecimal.ZERO) == 0) {
                         existingInv.setStatus("PAID");
                         existingInv.setIsPaid(true);
-                        existingInv.setAmountDue(BigDecimal.ZERO);
-                    } else {
-                        BigDecimal due = saved.getGrandTotal();
-                        if (existingInv.getAmountDue() != null && existingInv.getTotalAmount() != null) {
-                            BigDecimal previousPaid = existingInv.getTotalAmount().subtract(existingInv.getAmountDue()).max(BigDecimal.ZERO);
-                            due = saved.getGrandTotal().subtract(previousPaid).max(BigDecimal.ZERO);
-                        }
-                        existingInv.setAmountDue(due);
-                        if (due.compareTo(BigDecimal.ZERO) == 0) {
-                            existingInv.setStatus("PAID");
-                            existingInv.setIsPaid(true);
-                        } else if (Boolean.TRUE.equals(existingInv.getIsPaid())) {
-                            existingInv.setStatus("PARTIAL");
-                            existingInv.setIsPaid(false);
-                        }
+                    } else if (Boolean.TRUE.equals(existingInv.getIsPaid())) {
+                        existingInv.setStatus("PARTIAL");
+                        existingInv.setIsPaid(false);
                     }
+                }
 
-                    // Append new invoice lines for newly added items
-                    if (newLines != null && !newLines.isEmpty()) {
-                        for (OrderLine ol : newLines) {
-                            if (!"Y".equalsIgnoreCase(ol.getIsactive())) continue;
-                            InvoiceLine il = InvoiceLine.builder()
-                                    .orderLineId(ol.getId())
-                                    .productId(ol.getProductId())
-                                    .variantId(ol.getVariantId())
-                                    .productName(ol.getProductName())
-                                    .categoryName(ol.getCategoryName())
-                                    .isPackagedGood(ol.getIsPackagedGood())
-                                    .quantity(ol.getQuantity())
-                                    .unitOfMeasure(ol.getUnitOfMeasure())
-                                    .unitPrice(ol.getUnitPrice())
-                                    .taxRate(ol.getTaxRate())
-                                    .taxAmount(ol.getTaxAmount())
-                                    .discountAmount(ol.getDiscountAmount())
-                                    .lineTotal(ol.getLineTotal())
-                                    .isactive(ol.getIsactive())
-                                    .createdBy(ol.getCreatedBy() != null ? ol.getCreatedBy().toString() : null)
-                                    .updatedBy(ol.getUpdatedBy() != null ? ol.getUpdatedBy().toString() : null)
-                                    .grossLineAmount(ol.getGrossLineAmount())
-                                    .unitPriceExTax(ol.getUnitPriceExTax())
-                                    .taxableAmount(ol.getTaxableAmount())
-                                    .taxType(ol.getTaxType())
-                                    .taxSnapshotRate(ol.getTaxSnapshotRate())
-                                    .taxCode(ol.getTaxCode())
-                                    .taxName(ol.getTaxName())
-                                    .manualDiscountAmount(ol.getManualDiscountAmount())
-                                    .manualDiscountPercent(ol.getManualDiscountPercent())
-                                    .allocatedOrderDiscount(ol.getAllocatedOrderDiscount())
-                                    .build();
-                            existingInv.addLine(il);
-                        }
+                // Append or merge new invoice lines for newly added items
+                if (newLines != null && !newLines.isEmpty()) {
+                    for (OrderLine ol : newLines) {
+                        if (!"Y".equalsIgnoreCase(ol.getIsactive())) continue;
+                        mergeOrAddInvoiceLine(existingInv, ol);
                     }
+                }
 
-                    invoiceRepository.save(existingInv);
-                    saved.setInvoiceNo(existingInv.getInvoiceNo());
-                    saved.setDailyBillNo(existingInv.getDailyBillNo());
+                invoiceRepository.save(existingInv);
+                saved.setInvoiceNo(existingInv.getInvoiceNo());
+                saved.setDailyBillNo(existingInv.getDailyBillNo());
 
-                    try {
-                        accountingPostingService.replaceInvoiceJournal(saved, existingInv,
-                                "Invoice updated with newly added items from QR customer");
-                    } catch (Exception ex) {
-                        log.warn("Accounting posting failed for updated invoice: {}", ex.getMessage());
-                    }
+                try {
+                    accountingPostingService.replaceInvoiceJournal(saved, existingInv,
+                            "Invoice updated with newly added items from QR customer");
+                } catch (Exception ex) {
+                    log.warn("Accounting posting failed for updated invoice: {}", ex.getMessage());
                 }
             }
         }
@@ -790,6 +786,128 @@ public class QrOrderCommandService {
             } catch (Exception ex) {
                 log.error("Failed to generate/update payment record for paid QR order {}: {}", saved.getOrderNo(), ex.getMessage(), ex);
             }
+        }
+    }
+
+    private void mergeOrAddOrderLine(
+            Order targetOrder,
+            OrderLine newLine,
+            LocalDateTime branchNow) {
+        OrderLine existingLine = null;
+        if (targetOrder.getLines() != null) {
+            existingLine = targetOrder.getLines().stream()
+                    .filter(ol -> (ol.getIsactive() == null || "Y".equalsIgnoreCase(ol.getIsactive()))
+                            && Objects.equals(ol.getProductId(), newLine.getProductId())
+                            && Objects.equals(ol.getVariantId(), newLine.getVariantId()))
+                    .findFirst()
+                    .orElse(null);
+        }
+
+        if (existingLine != null) {
+            existingLine.setQuantity(
+                    (existingLine.getQuantity() != null ? existingLine.getQuantity() : BigDecimal.ZERO)
+                            .add(newLine.getQuantity() != null ? newLine.getQuantity() : BigDecimal.ZERO));
+            existingLine.setGrossLineAmount(
+                    (existingLine.getGrossLineAmount() != null ? existingLine.getGrossLineAmount() : BigDecimal.ZERO)
+                            .add(newLine.getGrossLineAmount() != null ? newLine.getGrossLineAmount() : BigDecimal.ZERO));
+            existingLine.setTaxableAmount(
+                    (existingLine.getTaxableAmount() != null ? existingLine.getTaxableAmount() : BigDecimal.ZERO)
+                            .add(newLine.getTaxableAmount() != null ? newLine.getTaxableAmount() : BigDecimal.ZERO));
+            existingLine.setTaxAmount(
+                    (existingLine.getTaxAmount() != null ? existingLine.getTaxAmount() : BigDecimal.ZERO)
+                            .add(newLine.getTaxAmount() != null ? newLine.getTaxAmount() : BigDecimal.ZERO));
+            existingLine.setLineTotal(
+                    (existingLine.getLineTotal() != null ? existingLine.getLineTotal() : BigDecimal.ZERO)
+                            .add(newLine.getLineTotal() != null ? newLine.getLineTotal() : BigDecimal.ZERO));
+
+            if (newLine.getDiscountAmount() != null) {
+                existingLine.setDiscountAmount(
+                        (existingLine.getDiscountAmount() != null ? existingLine.getDiscountAmount() : BigDecimal.ZERO)
+                                .add(newLine.getDiscountAmount()));
+            }
+
+            if (newLine.getDescription() != null && !newLine.getDescription().isBlank()) {
+                String curDesc = existingLine.getDescription();
+                if (curDesc == null || curDesc.isBlank()) {
+                    existingLine.setDescription(newLine.getDescription().trim());
+                } else if (!curDesc.contains(newLine.getDescription().trim())) {
+                    existingLine.setDescription(curDesc + " | " + newLine.getDescription().trim());
+                }
+            }
+
+            existingLine.setUpdatedAt(branchNow);
+        } else {
+            targetOrder.addLine(newLine);
+        }
+    }
+
+    private void mergeOrAddInvoiceLine(
+            Invoice existingInv,
+            OrderLine ol) {
+        InvoiceLine existingInvLine = null;
+        if (existingInv.getLines() != null) {
+            existingInvLine = existingInv.getLines().stream()
+                    .filter(il -> (il.getIsactive() == null || "Y".equalsIgnoreCase(il.getIsactive()))
+                            && Objects.equals(il.getProductId(), ol.getProductId())
+                            && Objects.equals(il.getVariantId(), ol.getVariantId()))
+                    .findFirst()
+                    .orElse(null);
+        }
+
+        if (existingInvLine != null) {
+            existingInvLine.setQuantity(
+                    (existingInvLine.getQuantity() != null ? existingInvLine.getQuantity() : BigDecimal.ZERO)
+                            .add(ol.getQuantity() != null ? ol.getQuantity() : BigDecimal.ZERO));
+            existingInvLine.setGrossLineAmount(
+                    (existingInvLine.getGrossLineAmount() != null ? existingInvLine.getGrossLineAmount() : BigDecimal.ZERO)
+                            .add(ol.getGrossLineAmount() != null ? ol.getGrossLineAmount() : BigDecimal.ZERO));
+            existingInvLine.setTaxableAmount(
+                    (existingInvLine.getTaxableAmount() != null ? existingInvLine.getTaxableAmount() : BigDecimal.ZERO)
+                            .add(ol.getTaxableAmount() != null ? ol.getTaxableAmount() : BigDecimal.ZERO));
+            existingInvLine.setTaxAmount(
+                    (existingInvLine.getTaxAmount() != null ? existingInvLine.getTaxAmount() : BigDecimal.ZERO)
+                            .add(ol.getTaxAmount() != null ? ol.getTaxAmount() : BigDecimal.ZERO));
+            existingInvLine.setLineTotal(
+                    (existingInvLine.getLineTotal() != null ? existingInvLine.getLineTotal() : BigDecimal.ZERO)
+                            .add(ol.getLineTotal() != null ? ol.getLineTotal() : BigDecimal.ZERO));
+            if (ol.getDiscountAmount() != null) {
+                existingInvLine.setDiscountAmount(
+                        (existingInvLine.getDiscountAmount() != null ? existingInvLine.getDiscountAmount() : BigDecimal.ZERO)
+                                .add(ol.getDiscountAmount()));
+            }
+            if (ol.getUpdatedBy() != null) {
+                existingInvLine.setUpdatedBy(ol.getUpdatedBy().toString());
+            }
+        } else {
+            InvoiceLine il = InvoiceLine.builder()
+                    .orderLineId(ol.getId())
+                    .productId(ol.getProductId())
+                    .variantId(ol.getVariantId())
+                    .productName(ol.getProductName())
+                    .categoryName(ol.getCategoryName())
+                    .isPackagedGood(ol.getIsPackagedGood())
+                    .quantity(ol.getQuantity())
+                    .unitOfMeasure(ol.getUnitOfMeasure())
+                    .unitPrice(ol.getUnitPrice())
+                    .taxRate(ol.getTaxRate())
+                    .taxAmount(ol.getTaxAmount())
+                    .discountAmount(ol.getDiscountAmount())
+                    .lineTotal(ol.getLineTotal())
+                    .isactive(ol.getIsactive())
+                    .createdBy(ol.getCreatedBy() != null ? ol.getCreatedBy().toString() : null)
+                    .updatedBy(ol.getUpdatedBy() != null ? ol.getUpdatedBy().toString() : null)
+                    .grossLineAmount(ol.getGrossLineAmount())
+                    .unitPriceExTax(ol.getUnitPriceExTax())
+                    .taxableAmount(ol.getTaxableAmount())
+                    .taxType(ol.getTaxType())
+                    .taxSnapshotRate(ol.getTaxSnapshotRate())
+                    .taxCode(ol.getTaxCode())
+                    .taxName(ol.getTaxName())
+                    .manualDiscountAmount(ol.getManualDiscountAmount())
+                    .manualDiscountPercent(ol.getManualDiscountPercent())
+                    .allocatedOrderDiscount(ol.getAllocatedOrderDiscount())
+                    .build();
+            existingInv.addLine(il);
         }
     }
 

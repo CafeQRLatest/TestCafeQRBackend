@@ -2590,16 +2590,37 @@ public class OrderService {
         // 2. VOID the linked invoice
         List<UUID> oldInvoiceIdList = new java.util.ArrayList<>();
         String originalInvoiceNo = null;
+        Integer originalDailyBillNo = null;
         for (Invoice inv : invoiceRepository.findByOrderId(id)) {
             oldInvoiceIdList.add(inv.getId());
-            if (originalInvoiceNo == null) {
-                originalInvoiceNo = inv.getInvoiceNo();
+            if (originalInvoiceNo == null && inv.getInvoiceNo() != null) {
+                String rawNo = inv.getInvoiceNo();
+                originalInvoiceNo = rawNo.contains("_VOID_") ? rawNo.substring(0, rawNo.indexOf("_VOID_")) : rawNo;
+            }
+            if (originalDailyBillNo == null && inv.getDailyBillNo() != null && inv.getDailyBillNo() > 0) {
+                originalDailyBillNo = inv.getDailyBillNo();
             }
             accountingPostingService.reverseInvoice(inv, "Order revised");
             inv.setInvoiceNo(inv.getInvoiceNo() + "_VOID_"
                     + (oldOrder.getRevisionNumber() != null ? oldOrder.getRevisionNumber() : 0));
             inv.setStatus("VOID");
             invoiceRepository.saveAndFlush(inv);
+        }
+
+        if (originalDailyBillNo == null && oldOrder.getDailyBillNo() != null && oldOrder.getDailyBillNo() > 0) {
+            originalDailyBillNo = oldOrder.getDailyBillNo();
+        }
+        if (originalDailyBillNo == null && updates.getDailyBillNo() != null && updates.getDailyBillNo() > 0) {
+            originalDailyBillNo = updates.getDailyBillNo();
+        }
+        if (originalDailyBillNo == null && oldOrder.getOriginalOrderId() != null) {
+            List<Invoice> prevInvs = invoiceRepository.findByOrderId(oldOrder.getOriginalOrderId());
+            for (Invoice prevInv : prevInvs) {
+                if (prevInv.getDailyBillNo() != null && prevInv.getDailyBillNo() > 0) {
+                    originalDailyBillNo = prevInv.getDailyBillNo();
+                    break;
+                }
+            }
         }
 
         List<Payment> oldPayments = new java.util.ArrayList<>();
@@ -2637,6 +2658,8 @@ public class OrderService {
         newOrder.setOrderSource(oldOrder.getOrderSource());
         newOrder.setOriginalOrderId(oldOrder.getId());
         newOrder.setRevisionNumber((oldOrder.getRevisionNumber() != null ? oldOrder.getRevisionNumber() : 0) + 1);
+        newOrder.setDailyBillNo(originalDailyBillNo);
+        newOrder.setInvoiceNo(originalInvoiceNo);
 
         newOrder.setSourceDeviceId(oldOrder.getSourceDeviceId());
         newOrder.setSourceTerminalId(oldOrder.getSourceTerminalId());
@@ -2796,7 +2819,7 @@ public class OrderService {
         // 4. Generate new ERP documents (Invoice/Payment)
         UUID oldInvId = oldInvoiceIdList.isEmpty() ? null : oldInvoiceIdList.get(0);
         if (shouldGenerateInvoice(saved)) {
-            generateInvoice(saved, oldInvId, originalInvoiceNo);
+            generateInvoice(saved, oldInvId, originalInvoiceNo, originalDailyBillNo);
         }
         // Resolve payment method safely
         String paymentMethod = newOrder.getPaymentMethod();
@@ -3460,6 +3483,11 @@ public class OrderService {
 
     @Transactional
     public Invoice generateInvoice(Order order, UUID originalInvoiceId, String requestedInvoiceNo) {
+        return generateInvoice(order, originalInvoiceId, requestedInvoiceNo, null);
+    }
+
+    @Transactional
+    public Invoice generateInvoice(Order order, UUID originalInvoiceId, String requestedInvoiceNo, Integer requestedDailyBillNo) {
         if (!invoiceRepository.findByOrderId(order.getId()).isEmpty())
             return null;
 
@@ -3483,11 +3511,38 @@ public class OrderService {
             default -> InvoiceType.CUSTOMER_INVOICE;
         };
 
+        Integer dailyBillNo = (requestedDailyBillNo != null && requestedDailyBillNo > 0)
+                ? requestedDailyBillNo
+                : null;
+
+        if (dailyBillNo == null && originalInvoiceId != null) {
+            dailyBillNo = invoiceRepository.findById(originalInvoiceId)
+                    .map(Invoice::getDailyBillNo)
+                    .filter(n -> n != null && n > 0)
+                    .orElse(null);
+        }
+
+        if (dailyBillNo == null && order.getDailyBillNo() != null && order.getDailyBillNo() > 0) {
+            dailyBillNo = order.getDailyBillNo();
+        }
+
+        if (dailyBillNo == null && order.getOriginalOrderId() != null) {
+            List<Invoice> prevInvoices = invoiceRepository.findByOrderId(order.getOriginalOrderId());
+            for (Invoice prevInv : prevInvoices) {
+                if (prevInv.getDailyBillNo() != null && prevInv.getDailyBillNo() > 0) {
+                    dailyBillNo = prevInv.getDailyBillNo();
+                    break;
+                }
+            }
+        }
+
         LocalDateTime invoiceDate = sourceBusinessDateTime(order);
-        LocalDateTime start = invoiceDate.toLocalDate().atStartOfDay();
-        LocalDateTime end = invoiceDate.toLocalDate().atTime(23, 59, 59, 999999999);
-        int maxNo = invoiceRepository.findMaxDailyBillNo(clientId, orgId, start, end);
-        int dailyBillNo = maxNo + 1;
+        if (dailyBillNo == null) {
+            LocalDateTime start = invoiceDate.toLocalDate().atStartOfDay();
+            LocalDateTime end = invoiceDate.toLocalDate().atTime(23, 59, 59, 999999999);
+            int maxNo = invoiceRepository.findMaxDailyBillNo(clientId, orgId, start, end);
+            dailyBillNo = maxNo + 1;
+        }
 
         Invoice invoice = Invoice.builder()
                 .invoiceType(invoiceType)

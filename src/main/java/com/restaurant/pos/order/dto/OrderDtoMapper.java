@@ -631,6 +631,9 @@ public class OrderDtoMapper {
         if (request.getConfirmStockWarning() != null) {
             order.setConfirmStockWarning(request.getConfirmStockWarning());
         }
+        if (request.getDailyBillNo() != null) {
+            order.setDailyBillNo(request.getDailyBillNo());
+        }
 
         if (request.getLines() != null) {
             for (CreateOrderRequest.CreateOrderLineRequest lineReq : request.getLines()) {

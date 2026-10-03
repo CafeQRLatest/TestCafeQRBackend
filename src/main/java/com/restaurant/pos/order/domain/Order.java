@@ -269,10 +269,10 @@ public class Order extends BaseEntity {
     @Column(name = "version", nullable = false)
     private long version;
 
-    @Formula("(SELECT i.invoice_no FROM invoices i WHERE i.order_id = id LIMIT 1)")
+    @Formula("(SELECT i.invoice_no FROM invoices i WHERE i.order_id = id ORDER BY (CASE WHEN UPPER(COALESCE(i.status, '')) != 'VOID' THEN 0 ELSE 1 END), i.created_at DESC LIMIT 1)")
     private String invoiceNo;
 
-    @Formula("(SELECT i.daily_bill_no FROM invoices i WHERE i.order_id = id LIMIT 1)")
+    @Formula("(SELECT i.daily_bill_no FROM invoices i WHERE i.order_id = id ORDER BY (CASE WHEN UPPER(COALESCE(i.status, '')) != 'VOID' AND i.daily_bill_no IS NOT NULL THEN 0 WHEN i.daily_bill_no IS NOT NULL THEN 1 ELSE 2 END), i.created_at DESC LIMIT 1)")
     @JsonProperty("dailyBillNo")
     private Integer dailyBillNo;
 
