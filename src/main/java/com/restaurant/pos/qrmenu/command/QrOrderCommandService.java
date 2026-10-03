@@ -907,6 +907,16 @@ public class QrOrderCommandService {
             return;
         }
 
+        String nonStockPolicy = config.getNonStockSalesPolicy() != null
+                ? config.getNonStockSalesPolicy().trim().toUpperCase()
+                : "NONE";
+        boolean isBlockOrWarn = "BLOCK".equalsIgnoreCase(nonStockPolicy)
+                || "WARNING".equalsIgnoreCase(nonStockPolicy)
+                || "WARN".equalsIgnoreCase(nonStockPolicy);
+        if (!isBlockOrWarn) {
+            return;
+        }
+
         Map<String, BigDecimal> stockMap = new HashMap<>();
         try {
             List<StockSnapshot> snapshots = stockSnapshotRepository.findByClientIdAndOrgIdOrGlobal(clientId, orgId);

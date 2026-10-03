@@ -29,10 +29,10 @@ public abstract class AuditableEntity {
     @PrePersist
     protected void onCreate() {
         if (this.createdAt == null) {
-            this.createdAt = LocalDateTime.now();
+            this.createdAt = LocalDateTime.now(java.time.ZoneOffset.UTC);
         }
         if (this.updatedAt == null) {
-            this.updatedAt = LocalDateTime.now();
+            this.updatedAt = LocalDateTime.now(java.time.ZoneOffset.UTC);
         }
         
         String currentUser = resolveCurrentUser();
@@ -48,7 +48,7 @@ public abstract class AuditableEntity {
 
     @PreUpdate
     protected void onUpdate() {
-        this.updatedAt = LocalDateTime.now();
+        this.updatedAt = LocalDateTime.now(java.time.ZoneOffset.UTC);
         String currentUser = resolveCurrentUser();
         if (!"SYSTEM".equals(currentUser)) {
             // Preserve customer user if customer was the creator or last editor

@@ -44,6 +44,11 @@ public class UpdateOrderRequest {
     @Schema(description = "Payment method/mode (CASH, BANK_TRANSFER, UPI, CARD, etc.)")
     private String paymentMethod;
 
+    @Schema(description = "Order date/time (ISO-8601 UTC Instant)", example = "2026-05-26T10:00:00Z")
+    @JsonProperty("orderDate")
+    @com.fasterxml.jackson.annotation.JsonAlias({"order_date", "orderDate"})
+    private java.time.Instant orderDate;
+
     @Schema(description = "Fulfillment type (DINE_IN, TAKEAWAY, DELIVERY)", example = "DINE_IN")
     private String fulfillmentType;
 

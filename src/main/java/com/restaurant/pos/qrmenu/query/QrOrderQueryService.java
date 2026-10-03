@@ -244,8 +244,8 @@ public class QrOrderQueryService {
             activeOrderMap.put("totalDiscountAmount", activeOrder.getTotalDiscountAmount());
             activeOrderMap.put("tableNumber", activeOrder.getTableNumber());
             activeOrderMap.put("revisionNumber", activeOrder.getRevisionNumber());
-            activeOrderMap.put("createdAt", activeOrder.getCreatedAt());
-            activeOrderMap.put("updatedAt", activeOrder.getUpdatedAt());
+            activeOrderMap.put("createdAt", activeOrder.getCreatedAt() != null ? activeOrder.getCreatedAt().toInstant(java.time.ZoneOffset.UTC) : null);
+            activeOrderMap.put("updatedAt", activeOrder.getUpdatedAt() != null ? activeOrder.getUpdatedAt().toInstant(java.time.ZoneOffset.UTC) : null);
             activeOrderMap.put("orderDate", activeOrder.getOrderDate());
             activeOrderMap.put("isStockDeducted", activeOrder.getIsStockDeducted());
             activeOrderMap.put("currencyId", activeOrder.getCurrencyId());
@@ -288,10 +288,18 @@ public class QrOrderQueryService {
         List<Product> products = productRepository
                 .findByClientIdAndOrgIdOrGlobalAndIsActiveTrue(clientId, orgId);
 
-        // Build stock lookup map when inventory is enabled
+        // Build stock lookup map when inventory is enabled and policy is BLOCK or WARNING.
+        // If nonStockSalesPolicy is NONE (or inventory disabled), non-stock sales are allowed freely,
+        // so items should NOT be marked out-of-stock or blacked out in QR.
         ConfigurationDto config = systemConfigurationService
                 .getConfigurationForClientAndBranch(clientId, orgId);
-        boolean inventoryEnabled = config.isInventoryEnabled();
+        String nonStockPolicy = config != null && config.getNonStockSalesPolicy() != null
+                ? config.getNonStockSalesPolicy().trim().toUpperCase()
+                : "NONE";
+        boolean isBlockOrWarn = "BLOCK".equalsIgnoreCase(nonStockPolicy)
+                || "WARNING".equalsIgnoreCase(nonStockPolicy)
+                || "WARN".equalsIgnoreCase(nonStockPolicy);
+        boolean inventoryEnabled = config != null && config.isInventoryEnabled() && isBlockOrWarn;
         Map<String, java.math.BigDecimal> stockMap = new HashMap<>();
         if (inventoryEnabled) {
             try {

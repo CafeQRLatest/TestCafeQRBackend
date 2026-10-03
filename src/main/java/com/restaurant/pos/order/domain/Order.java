@@ -181,8 +181,7 @@ public class Order extends BaseEntity {
     private UUID warehouseId;
 
     @Column(name = "order_date")
-    @Builder.Default
-    private Instant orderDate = Instant.now();
+    private Instant orderDate;
 
     @Builder.Default
     @Column(name = "total_tax_amount", precision = 15, scale = 2)
@@ -344,7 +343,7 @@ public class Order extends BaseEntity {
         super.onCreate();
         if (this.orderDate == null) {
             this.orderDate = this.getCreatedAt() != null
-                    ? this.getCreatedAt().atZone(java.time.ZoneId.systemDefault()).toInstant()
+                    ? this.getCreatedAt().toInstant(java.time.ZoneOffset.UTC)
                     : java.time.Instant.now();
         }
     }

@@ -2438,6 +2438,8 @@ public class OrderService {
                 oldOrder.setRoundOffAmount(updates.getRoundOffAmount());
             if (updates.getRoundOffMode() != null)
                 oldOrder.setRoundOffMode(updates.getRoundOffMode());
+            if (updates.getOrderDate() != null)
+                oldOrder.setOrderDate(updates.getOrderDate());
 
             if (updates.getLines() != null) {
                 for (OrderLine upLine : updates.getLines()) {

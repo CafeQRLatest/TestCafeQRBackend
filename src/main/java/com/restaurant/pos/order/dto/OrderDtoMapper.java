@@ -25,8 +25,7 @@ public class OrderDtoMapper {
     private java.time.Instant toInstant(java.time.LocalDateTime ldt, java.time.ZoneId zone) {
         if (ldt == null)
             return null;
-        java.time.ZoneId effective = zone != null ? zone : java.time.ZoneId.systemDefault();
-        return ldt.atZone(effective).toInstant();
+        return ldt.toInstant(java.time.ZoneOffset.UTC);
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -594,6 +593,9 @@ public class OrderDtoMapper {
         order.setRemarks(request.getRemarks());
         order.setReference(request.getReference());
         order.setPaymentMethod(request.getPaymentMethod());
+        if (request.getOrderDate() != null) {
+            order.setOrderDate(request.getOrderDate());
+        }
         order.setFulfillmentType(request.getFulfillmentType());
         order.setCustomerIds(request.getCustomerIds());
         order.setIsCredit(request.getIsCredit());
