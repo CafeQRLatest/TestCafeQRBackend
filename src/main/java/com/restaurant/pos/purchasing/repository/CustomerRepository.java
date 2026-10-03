@@ -47,6 +47,12 @@ public interface CustomerRepository extends JpaRepository<Customer, UUID> {
         return list.isEmpty() ? Optional.empty() : Optional.of(list.get(0));
     }
 
+    @Query("SELECT COUNT(c) > 0 FROM Customer c WHERE c.clientId = :clientId AND LOWER(TRIM(c.email)) = LOWER(TRIM(:email))")
+    boolean existsByClientIdAndEmailIgnoreCase(@Param("clientId") UUID clientId, @Param("email") String email);
+
+    @Query("SELECT COUNT(c) > 0 FROM Customer c WHERE c.clientId = :clientId AND LOWER(TRIM(c.email)) = LOWER(TRIM(:email)) AND c.id != :id")
+    boolean existsByClientIdAndEmailIgnoreCaseAndIdNot(@Param("clientId") UUID clientId, @Param("email") String email, @Param("id") UUID id);
+
     @Query("""
             SELECT c.id
             FROM Customer c
