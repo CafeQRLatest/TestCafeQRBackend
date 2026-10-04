@@ -68,6 +68,13 @@ public class PayrollEngineService {
             throw new BusinessException("A payroll run with the name '" + dto.getName().trim() + "' already exists.");
         }
 
+        List<PayrollRun> overlappingRuns = payrollRunRepository.findOverlappingRuns(clientId, orgId, dto.getStartDate(), dto.getEndDate());
+        if (!overlappingRuns.isEmpty()) {
+            PayrollRun existing = overlappingRuns.get(0);
+            throw new BusinessException("Payroll has already been processed (or is currently processing) for an overlapping period (" 
+                    + existing.getStartDate() + " to " + existing.getEndDate() + " - Run: '" + existing.getName() + "'). Duplicate payroll runs for an already completed period are not allowed.");
+        }
+
         PayrollRun run = new PayrollRun();
         run.setName(dto.getName().trim());
         run.setStartDate(dto.getStartDate());
