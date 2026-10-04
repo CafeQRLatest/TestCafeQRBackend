@@ -178,10 +178,14 @@ public class PayrollEngineService {
 
             BigDecimal totalHours = normalHours.add(overtimeHours);
             slip.setTotalWorkedHours(totalHours);
+            slip.setRegularHours(normalHours);
+            slip.setOvertimeHours(overtimeHours);
 
             // 5. Calculate Base Pay
             BigDecimal grossPay = BigDecimal.ZERO;
             BigDecimal unpaidLeaveDeductionAmount = BigDecimal.ZERO;
+            BigDecimal computedOtPay = BigDecimal.ZERO;
+
             if ("HOURLY".equals(emp.getEmploymentType())) {
                 BigDecimal otMultiplier = new BigDecimal("1.50");
                 try {
@@ -195,8 +199,8 @@ public class PayrollEngineService {
                 }
 
                 BigDecimal normalPay = emp.getHourlyRate().multiply(normalHours);
-                BigDecimal overtimePay = emp.getHourlyRate().multiply(otMultiplier).multiply(overtimeHours);
-                grossPay = normalPay.add(overtimePay);
+                computedOtPay = emp.getHourlyRate().multiply(otMultiplier).multiply(overtimeHours).setScale(2, RoundingMode.HALF_UP);
+                grossPay = normalPay.add(computedOtPay);
             } else {
                 // Monthly salaried - calculate base pay proportional to the date range (daysInPeriod / 30)
                 BigDecimal dailyRate = emp.getBaseSalary().divide(new BigDecimal("30"), 4, RoundingMode.HALF_UP);
@@ -222,10 +226,11 @@ public class PayrollEngineService {
                         }
                     } catch (Exception ignored) {}
                     BigDecimal effectiveHourlyRate = dailyRate.divide(standardHoursPerDay, 4, RoundingMode.HALF_UP);
-                    BigDecimal monthlyOvertimePay = effectiveHourlyRate.multiply(otMultiplier).multiply(overtimeHours).setScale(2, RoundingMode.HALF_UP);
-                    grossPay = grossPay.add(monthlyOvertimePay);
+                    computedOtPay = effectiveHourlyRate.multiply(otMultiplier).multiply(overtimeHours).setScale(2, RoundingMode.HALF_UP);
+                    grossPay = grossPay.add(computedOtPay);
                 }
             }
+            slip.setOvertimePay(computedOtPay);
 
             // 6. Apply Rules Engine (Employee Specific Components)
             BigDecimal totalDeductions = BigDecimal.ZERO.add(unpaidLeaveDeductionAmount);
@@ -400,12 +405,20 @@ public class PayrollEngineService {
     }
     
     private SalarySlipDto mapToSlipDto(SalarySlip entity) {
+        BigDecimal totalWorked = entity.getTotalWorkedHours() != null ? entity.getTotalWorkedHours() : BigDecimal.ZERO;
+        BigDecimal otHours = entity.getOvertimeHours() != null ? entity.getOvertimeHours() : BigDecimal.ZERO;
+        BigDecimal regHours = entity.getRegularHours() != null ? entity.getRegularHours() : totalWorked.subtract(otHours).max(BigDecimal.ZERO);
+        BigDecimal otPay = entity.getOvertimePay() != null ? entity.getOvertimePay() : BigDecimal.ZERO;
+
         return SalarySlipDto.builder()
                 .id(entity.getId())
                 .employeeId(entity.getEmployee().getId())
-                .employeeName(entity.getEmployee().getFirstName() + " " + entity.getEmployee().getLastName())
+                .employeeName(entity.getEmployee().getFirstName() + " " + (entity.getEmployee().getLastName() != null ? entity.getEmployee().getLastName() : ""))
                 .payrollRunId(entity.getPayrollRun().getId())
-                .totalWorkedHours(entity.getTotalWorkedHours())
+                .totalWorkedHours(totalWorked)
+                .regularHours(regHours)
+                .overtimeHours(otHours)
+                .overtimePay(otPay)
                 .totalUnpaidLeaveDays(entity.getTotalUnpaidLeaveDays())
                 .grossPay(entity.getGrossPay())
                 .totalDeductions(entity.getTotalDeductions())
