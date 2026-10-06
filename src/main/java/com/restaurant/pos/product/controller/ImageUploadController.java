@@ -24,6 +24,37 @@ public class ImageUploadController {
     private final R2StorageService storageService;
     private final ProductRepository productRepository;
 
+    @GetMapping("/status")
+    public ResponseEntity<Map<String, Object>> getUploadStatus() {
+        List<Product> products = productRepository.findAll();
+        long totalProducts = products.size();
+        long r2MigratedCount = 0;
+        long remainingBase64Count = 0;
+        long noImageCount = 0;
+
+        for (Product p : products) {
+            String url = p.getImageUrl();
+            if (url == null || url.isBlank()) {
+                noImageCount++;
+            } else if (url.startsWith("data:image/")) {
+                remainingBase64Count++;
+            } else if (url.startsWith("http://") || url.startsWith("https://")) {
+                r2MigratedCount++;
+            }
+        }
+
+        boolean fullyMigrated = (remainingBase64Count == 0);
+
+        return ResponseEntity.ok(Map.of(
+                "r2Configured", storageService.isConfigured(),
+                "totalProducts", totalProducts,
+                "r2MigratedCount", r2MigratedCount,
+                "remainingBase64Count", remainingBase64Count,
+                "noImageCount", noImageCount,
+                "fullyMigrated", fullyMigrated
+        ));
+    }
+
     @PostMapping("/product-image")
     public ResponseEntity<Map<String, Object>> uploadProductImage(@RequestParam("file") MultipartFile file) {
         if (!storageService.isConfigured()) {
