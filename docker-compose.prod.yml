@@ -58,6 +58,8 @@ services:
       - SPRING_DATA_REDIS_SSL=false
       - SPRING_DATASOURCE_HIKARI_MAX_POOL_SIZE=${SPRING_DATASOURCE_HIKARI_MAX_POOL_SIZE:-25}
       - SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE=${SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE:-5}
+      - WHATSAPP_GATEWAY_URL=${WHATSAPP_GATEWAY_URL:-http://whatsapp-gateway:3005}
+      - MANAGEMENT_HEALTH_MAIL_ENABLED=false
     volumes:
       - backend_backups:/app/data/backups
     depends_on:
@@ -66,7 +68,7 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/actuator/health >/dev/null || exit 1"]
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/actuator/health/readiness >/dev/null || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 15
@@ -151,6 +153,22 @@ services:
         limits:
           memory: 192M
 
+  # ── WhatsApp Companion Gateway (Baileys Multi-Tenant Microservice) ──
+  whatsapp-gateway:
+    build:
+      context: ./whatsapp-gateway
+      dockerfile: Dockerfile
+    container_name: cafeqr-whatsapp-gateway
+    restart: unless-stopped
+    volumes:
+      - whatsapp_auth_data:/app/auth_sessions
+    networks:
+      - frontend_net
+    deploy:
+      resources:
+        limits:
+          memory: 192M
+
 # ── Networks ──
 # Two isolated networks ensure the database/cache/queue
 # are NEVER reachable from the public internet.
@@ -170,3 +188,4 @@ volumes:
   postgres_data:
   redis_data:
   backend_backups:
+  whatsapp_auth_data:

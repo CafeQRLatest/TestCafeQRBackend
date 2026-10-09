@@ -136,6 +136,10 @@ public class OrderService {
     private final org.springframework.context.ApplicationContext applicationContext;
     private final org.springframework.context.ApplicationEventPublisher eventPublisher;
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    @org.springframework.context.annotation.Lazy
+    private com.restaurant.pos.whatsapp.service.WhatsAppService whatsAppService;
+
     /**
      * Per-thread user display name cache. Each request thread gets its own map so
      * that
@@ -3319,6 +3323,14 @@ public class OrderService {
             log.error("Failed to send push notification for settled order {}", hydrated.getId(), ex);
         }
 
+        try {
+            if (whatsAppService != null) {
+                whatsAppService.sendOrderSettledBillAsync(hydrated);
+            }
+        } catch (Exception ex) {
+            log.warn("Failed to dispatch WhatsApp bill for settled order {}", hydrated.getId(), ex);
+        }
+
         publishLoyaltyEventIfApplicable(hydrated);
 
         publishOrderStatusUpdate(saved);
@@ -3412,6 +3424,15 @@ public class OrderService {
         hydrated.setWarnings(saved.getWarnings());
         hydrated.setSkipAutoPrintKinds(safeRequest.getSkipAutoPrintKinds());
         enqueueCloudPrintJobs(hydrated);
+
+        try {
+            if (whatsAppService != null) {
+                whatsAppService.sendOrderSettledBillAsync(hydrated);
+            }
+        } catch (Exception ex) {
+            log.warn("Failed to dispatch WhatsApp bill for credit completed order {}", hydrated.getId(), ex);
+        }
+
         return hydrated;
     }
 

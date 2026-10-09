@@ -41,6 +41,7 @@ public class NotificationEventConsumer {
 
     private final OutboxProcessor outboxProcessor;
     private final PushNotificationService pushNotificationService;
+    private final com.restaurant.pos.whatsapp.service.WhatsAppService whatsAppService;
     private final OrderRepository orderRepository;
     private final ProcessedEventRepository processedEventRepository;
     private final ApplicationEventPublisher eventPublisher;
@@ -89,6 +90,13 @@ public class NotificationEventConsumer {
             pushNotificationService.sendOrderSettledPush(order);
             broadcastSse(event, order);
             log.info("[NotificationConsumer] Sent settled push for order {}", order.getId());
+
+            try {
+                whatsAppService.sendOrderSettledBill(order);
+            } catch (Exception waEx) {
+                log.warn("[NotificationConsumer] Failed to send WhatsApp bill for order {}: {}", order.getId(), waEx.getMessage());
+            }
+
             markProcessed(event);
         } finally {
             TenantContext.clear();

@@ -102,6 +102,8 @@ management:
       enabled: false
     rabbit:
       enabled: false
+    mail:
+      enabled: false
 
 springdoc:
   api-docs:
