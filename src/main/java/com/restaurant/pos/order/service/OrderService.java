@@ -1462,6 +1462,8 @@ public class OrderService {
                 .lines(toOrderLineSummaries(hydrated.getLines()))
                 .warehouseId(hydrated.getWarehouseId())
                 .vendorId(hydrated.getVendorId())
+                .orgId(hydrated.getOrgId())
+                .clientId(hydrated.getClientId())
                 .build();
     }
 
@@ -3200,10 +3202,11 @@ public class OrderService {
 
         recalculateOrderTotals(order);
 
-        // Attach customer from settle request if not already attached (e.g. kitchen/table orders settled from payment popup)
-        if (order.getCustomerId() == null && (safeRequest.getCustomerId() != null
+        // Attach or update customer from settle request (e.g. kitchen/table orders settled from payment popup)
+        boolean hasSettleCustomer = safeRequest.getCustomerId() != null
                 || (safeRequest.getCustomerPhone() != null && !safeRequest.getCustomerPhone().isBlank())
-                || (safeRequest.getCustomerName() != null && !safeRequest.getCustomerName().isBlank()))) {
+                || (safeRequest.getCustomerName() != null && !safeRequest.getCustomerName().isBlank());
+        if (hasSettleCustomer) {
             if (safeRequest.getCustomerId() != null) {
                 order.setCustomerId(safeRequest.getCustomerId());
             }
