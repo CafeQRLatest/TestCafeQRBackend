@@ -15,6 +15,15 @@ const pino = require('pino');
 const path = require('path');
 const fs = require('fs');
 
+// Ensure global crypto / WebCrypto is available in all Node environments for Baileys
+const nodeCrypto = require('crypto');
+if (typeof globalThis.crypto === 'undefined') {
+  globalThis.crypto = nodeCrypto.webcrypto || nodeCrypto;
+}
+if (typeof global.crypto === 'undefined') {
+  global.crypto = nodeCrypto.webcrypto || nodeCrypto;
+}
+
 const {
   default: makeWASocket,
   useMultiFileAuthState,
@@ -98,7 +107,7 @@ async function initSession(sessionObj) {
     const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
 
     // Fetch version safely with a 2-second timeout to prevent hanging if GitHub raw is slow/unreachable
-    let version = [2, 3000, 1015901307];
+    let version = [2, 3000, 1043857760];
     try {
       const v = await Promise.race([
         fetchLatestBaileysVersion(),
