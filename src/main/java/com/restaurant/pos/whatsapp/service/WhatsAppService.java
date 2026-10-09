@@ -38,6 +38,7 @@ public class WhatsAppService {
     private final ClientRepository clientRepository;
     private final InvoiceRepository invoiceRepository;
     private final CustomerRepository customerRepository;
+    private final OrderRepository orderRepository;
     private final RestTemplate restTemplate = createRestTemplate();
     private final Map<java.util.UUID, Long> recentlySentOrders = new java.util.concurrent.ConcurrentHashMap<>();
 
