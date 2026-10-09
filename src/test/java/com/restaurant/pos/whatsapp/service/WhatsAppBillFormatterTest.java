@@ -83,8 +83,6 @@ class WhatsAppBillFormatterTest {
         Order order = Order.builder()
                 .id(UUID.randomUUID())
                 .orderNo("SO-2026-0000243-HQ")
-                .clientId(clientId)
-                .orgId(orgId)
                 .currencyId(currencyId)
                 .customerName("Riyas")
                 .customerPhone("7012120844")
@@ -96,8 +94,10 @@ class WhatsAppBillFormatterTest {
                 .grandTotal(new BigDecimal("84.00"))
                 .paymentStatus("PAID")
                 .reference("CASH")
-                .createdAt(LocalDateTime.of(2026, 10, 9, 22, 0))
                 .build();
+        order.setClientId(clientId);
+        order.setOrgId(orgId);
+        order.setCreatedAt(LocalDateTime.of(2026, 10, 9, 22, 0));
 
         Invoice invoice = Invoice.builder()
                 .invoiceNo("INV-2026-0000233-HQ")
@@ -153,8 +153,6 @@ class WhatsAppBillFormatterTest {
         Order order = Order.builder()
                 .id(UUID.randomUUID())
                 .orderNo("SO-001")
-                .clientId(clientId)
-                .orgId(orgId)
                 .currencyId(null)
                 .customerName("Walk-in Guest")
                 .lines(List.of(line1))
@@ -163,8 +161,10 @@ class WhatsAppBillFormatterTest {
                 .grandTotal(new BigDecimal("300.00"))
                 .paymentStatus("PAID")
                 .reference("UPI")
-                .createdAt(LocalDateTime.now())
                 .build();
+        order.setClientId(clientId);
+        order.setOrgId(orgId);
+        order.setCreatedAt(LocalDateTime.now());
 
         String message = formatter.formatBillMessage(order, null, organization, client);
 
@@ -196,8 +196,6 @@ class WhatsAppBillFormatterTest {
         Order order = Order.builder()
                 .id(UUID.randomUUID())
                 .orderNo("SO-002")
-                .clientId(clientId)
-                .orgId(orgId)
                 .tableNumber("T-4")
                 .fulfillmentType("DINE_IN")
                 .lines(List.of(line))
@@ -205,8 +203,10 @@ class WhatsAppBillFormatterTest {
                 .totalAmount(new BigDecimal("250.00"))
                 .grandTotal(new BigDecimal("250.00"))
                 .paymentStatus("PAID")
-                .createdAt(LocalDateTime.now())
                 .build();
+        order.setClientId(clientId);
+        order.setOrgId(orgId);
+        order.setCreatedAt(LocalDateTime.now());
 
         String message = formatter.formatBillMessage(order, null, organization, client);
         assertTrue(message.contains("*Type:* 🍽️ Dine-In (Table T-4)"));
