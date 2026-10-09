@@ -2,8 +2,11 @@ FROM node:18-alpine
 
 WORKDIR /app
 
+# Install git and tools required by Baileys npm dependencies
+RUN apk add --no-cache git python3 make g++
+
 COPY package*.json ./
-RUN npm install --production
+RUN npm install --omit=dev
 
 COPY server.js ./
 

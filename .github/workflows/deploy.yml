@@ -72,17 +72,18 @@ jobs:
           command_timeout: 15m
           script: |
             set -euo pipefail
+            cd /home/ubuntu
             
             # Log in to GHCR on the Oracle server to pull the package
             echo "${{ secrets.GITHUB_TOKEN }}" | sudo docker login ghcr.io -u ${{ github.actor }} --password-stdin
             
             # Pull backend & whatsapp-gateway images
-            sudo docker compose pull test-backend 2>/dev/null || sudo docker-compose pull test-backend 2>/dev/null || sudo docker compose pull backend 2>/dev/null || sudo docker-compose pull backend || true
-            sudo docker compose pull whatsapp-gateway 2>/dev/null || sudo docker-compose pull whatsapp-gateway 2>/dev/null || true
+            sudo docker-compose pull test-backend || sudo docker compose pull test-backend || true
+            sudo docker-compose pull whatsapp-gateway || sudo docker compose pull whatsapp-gateway || true
             
             # Restart backend & whatsapp-gateway services (leaving DB and Redis untouched)
-            sudo docker compose up -d test-backend 2>/dev/null || sudo docker-compose up -d test-backend 2>/dev/null || sudo docker compose up -d backend 2>/dev/null || sudo docker-compose up -d backend || true
-            sudo docker compose up -d whatsapp-gateway 2>/dev/null || sudo docker-compose up -d whatsapp-gateway 2>/dev/null || true
+            sudo docker-compose up -d test-backend || sudo docker compose up -d test-backend || true
+            sudo docker-compose up -d whatsapp-gateway || sudo docker compose up -d whatsapp-gateway || true
             
             # Clean up old unused images to save disk space
             sudo docker image prune -f
