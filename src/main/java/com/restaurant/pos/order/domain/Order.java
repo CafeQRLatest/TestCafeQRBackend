@@ -168,6 +168,9 @@ public class Order extends BaseEntity {
     @Builder.Default
     private List<String> skipAutoPrintKinds = new ArrayList<>();
 
+    @Transient
+    private String invoicePdfBase64;
+
     @Column(name = "vendor_id")
     private UUID vendorId;
 

@@ -15,4 +15,5 @@ public class OrderCreditCompletionRequest {
     private String description;
     private List<String> skipAutoPrintKinds;
     private Boolean confirmStockWarning = false;
+    private String pdfBase64;
 }

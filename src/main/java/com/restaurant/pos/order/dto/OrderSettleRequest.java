@@ -56,6 +56,9 @@ public class OrderSettleRequest {
     @Schema(description = "Customer phone to attach during settlement")
     private String customerPhone;
 
+    @Schema(description = "Base64-encoded PDF invoice attachment to dispatch with WhatsApp bill")
+    private String pdfBase64;
+
     @Schema(description = "User confirmation to proceed despite stock shortage warning")
     private Boolean confirmStockWarning = false;
 

@@ -2121,10 +2121,20 @@ public class OrderService {
             diagnosticPhase = "handle_table_status";
             handleTableStatus(saved);
 
-            diagnosticPhase = "hydrate_saved_order";
             Order hydrated = hydrateOrder(saved);
             hydrated.setSkipAutoPrintKinds(order.getSkipAutoPrintKinds());
+            hydrated.setInvoicePdfBase64(order.getInvoicePdfBase64());
             enqueueCloudPrintJobs(hydrated);
+            if ("COMPLETED".equalsIgnoreCase(saved.getOrderStatus())
+                    && "PAID".equalsIgnoreCase(saved.getPaymentStatus())) {
+                try {
+                    if (whatsAppService != null) {
+                        whatsAppService.sendOrderSettledBillAsync(hydrated);
+                    }
+                } catch (Exception ex) {
+                    log.warn("Failed to dispatch WhatsApp bill for direct settled order {}", hydrated.getId(), ex);
+                }
+            }
             logCreditOrderCreateSuccess(logCreditDiagnostics, hydrated);
 
             return hydrated;
@@ -3313,6 +3323,7 @@ public class OrderService {
         Order hydrated = hydrateOrder(saved);
         hydrated.setWarnings(saved.getWarnings());
         hydrated.setSkipAutoPrintKinds(safeRequest.getSkipAutoPrintKinds());
+        hydrated.setInvoicePdfBase64(safeRequest.getPdfBase64());
         enqueueCloudPrintJobs(hydrated);
 
         try {
@@ -3423,6 +3434,7 @@ public class OrderService {
         Order hydrated = hydrateOrder(saved);
         hydrated.setWarnings(saved.getWarnings());
         hydrated.setSkipAutoPrintKinds(safeRequest.getSkipAutoPrintKinds());
+        hydrated.setInvoicePdfBase64(safeRequest.getPdfBase64());
         enqueueCloudPrintJobs(hydrated);
 
         try {

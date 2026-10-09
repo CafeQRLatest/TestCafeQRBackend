@@ -8,6 +8,7 @@ import com.restaurant.pos.invoice.domain.Invoice;
 import com.restaurant.pos.invoice.repository.InvoiceRepository;
 import com.restaurant.pos.order.domain.Order;
 import com.restaurant.pos.order.dto.OrderCustomerDto;
+import com.restaurant.pos.order.repository.OrderRepository;
 import com.restaurant.pos.purchasing.domain.Customer;
 import com.restaurant.pos.purchasing.repository.CustomerRepository;
 import com.restaurant.pos.whatsapp.dto.WhatsAppSendRequestDto;
@@ -37,6 +38,7 @@ public class WhatsAppService {
     private final ClientRepository clientRepository;
     private final InvoiceRepository invoiceRepository;
     private final CustomerRepository customerRepository;
+    private final OrderRepository orderRepository;
     private final RestTemplate restTemplate = new RestTemplate();
     private final Map<java.util.UUID, Long> recentlySentOrders = new java.util.concurrent.ConcurrentHashMap<>();
 
@@ -104,11 +106,35 @@ public class WhatsAppService {
         String fallbackSessionId = order.getClientId() != null ? "client_" + order.getClientId() : null;
         String primarySessionId = branchSessionId != null ? branchSessionId : fallbackSessionId;
 
-        boolean dispatched = dispatchToGateway(primarySessionId, fallbackSessionId, normalizedPhone, billMessage, null, null);
+        String pdfBase64 = order.getInvoicePdfBase64();
+        String filename = null;
+        if (pdfBase64 != null && !pdfBase64.isBlank()) {
+            String invoiceNo = invoice != null && invoice.getInvoiceNo() != null ? invoice.getInvoiceNo() : order.getOrderNo();
+            filename = "Invoice-" + (invoiceNo != null ? invoiceNo.replaceAll("[^\\w\\-]", "_") : "Receipt") + ".pdf";
+        }
+
+        boolean dispatched = dispatchToGateway(primarySessionId, fallbackSessionId, normalizedPhone, billMessage, pdfBase64, filename);
         if (dispatched) {
             recentlySentOrders.put(order.getId(), now);
         }
         return dispatched;
+    }
+
+    public boolean sendOrderBillWithAttachment(java.util.UUID orderId, String explicitPhone, String pdfBase64) {
+        if (orderId == null) return false;
+        Order order = orderRepository.findById(orderId).orElse(null);
+        if (order == null) {
+            log.warn("[WhatsAppService] Order not found for id {}", orderId);
+            return false;
+        }
+        if (pdfBase64 != null && !pdfBase64.isBlank()) {
+            order.setInvoicePdfBase64(pdfBase64);
+        }
+        if (explicitPhone != null && !explicitPhone.isBlank()) {
+            order.setCustomerPhone(explicitPhone);
+        }
+        recentlySentOrders.remove(order.getId());
+        return sendOrderSettledBill(order);
     }
 
     public boolean dispatchToGateway(String phone, String text, String pdfBase64, String filename) {

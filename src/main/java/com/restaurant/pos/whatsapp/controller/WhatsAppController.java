@@ -46,6 +46,33 @@ public class WhatsAppController {
         return ResponseEntity.ok(ApiResponse.success(whatsAppService.sendTestMessage(resolveSessionId(explicitSessionId), phone)));
     }
 
+    @PostMapping("/send-order-bill")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> sendOrderBill(
+            @RequestBody Map<String, String> body) {
+        String orderIdStr = body != null ? body.get("orderId") : null;
+        String phone = body != null ? body.get("phone") : null;
+        String pdfBase64 = body != null ? body.get("pdfBase64") : null;
+
+        if (orderIdStr == null || orderIdStr.isBlank()) {
+            return ResponseEntity.badRequest().body(ApiResponse.error("orderId is required"));
+        }
+
+        UUID orderId;
+        try {
+            orderId = UUID.fromString(orderIdStr.trim());
+        } catch (IllegalArgumentException ex) {
+            return ResponseEntity.badRequest().body(ApiResponse.error("Invalid orderId format"));
+        }
+
+        boolean sent = whatsAppService.sendOrderBillWithAttachment(orderId, phone, pdfBase64);
+        Map<String, Object> result = Map.of(
+                "success", sent,
+                "orderId", orderId,
+                "message", sent ? "WhatsApp bill dispatched successfully" : "Failed to dispatch WhatsApp bill"
+        );
+        return ResponseEntity.ok(ApiResponse.success(result));
+    }
+
     private String resolveSessionId(String explicitSessionId) {
         if (explicitSessionId != null && !explicitSessionId.isBlank()) {
             return explicitSessionId.trim();
