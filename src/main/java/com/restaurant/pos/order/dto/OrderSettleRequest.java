@@ -62,6 +62,9 @@ public class OrderSettleRequest {
     @Schema(description = "User confirmation to proceed despite stock shortage warning")
     private Boolean confirmStockWarning = false;
 
+    @Schema(description = "If true, skips immediate WhatsApp dispatch on settlement so client can dispatch official post-settlement PDF")
+    private Boolean deferWhatsAppDispatch = false;
+
     @Data
     @Schema(description = "Split payment item details")
     public static class PaymentSplitRequest {

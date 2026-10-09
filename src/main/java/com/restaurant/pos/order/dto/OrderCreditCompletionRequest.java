@@ -16,4 +16,5 @@ public class OrderCreditCompletionRequest {
     private List<String> skipAutoPrintKinds;
     private Boolean confirmStockWarning = false;
     private String pdfBase64;
+    private Boolean deferWhatsAppDispatch = false;
 }

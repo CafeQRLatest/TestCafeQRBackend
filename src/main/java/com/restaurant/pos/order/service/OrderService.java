@@ -3338,7 +3338,8 @@ public class OrderService {
         }
 
         try {
-            if (whatsAppService != null) {
+            boolean deferWhatsApp = Boolean.TRUE.equals(safeRequest.getDeferWhatsAppDispatch());
+            if (whatsAppService != null && !deferWhatsApp) {
                 whatsAppService.sendOrderSettledBillAsync(hydrated);
             }
         } catch (Exception ex) {
@@ -3441,7 +3442,8 @@ public class OrderService {
         enqueueCloudPrintJobs(hydrated);
 
         try {
-            if (whatsAppService != null) {
+            boolean deferWhatsApp = Boolean.TRUE.equals(safeRequest.getDeferWhatsAppDispatch());
+            if (whatsAppService != null && !deferWhatsApp) {
                 whatsAppService.sendOrderSettledBillAsync(hydrated);
             }
         } catch (Exception ex) {
