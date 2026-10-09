@@ -50,6 +50,21 @@ const logger = pino({ level: 'info' });
 // In-memory registry of active branch/client sessions
 const sessions = new Map();
 
+// Bounded in-memory store for recent messages to resolve WhatsApp E2EE retryRequests ('Waiting for this message')
+const messageStore = new Map();
+const MAX_CACHED_MESSAGES = 1000;
+
+function cacheMessage(key, messageContent) {
+  if (!key || !key.id || !messageContent) return;
+  const storeKey = `${key.remoteJid || ''}:${key.id}`;
+  if (messageStore.size >= MAX_CACHED_MESSAGES) {
+    const oldest = messageStore.keys().next().value;
+    messageStore.delete(oldest);
+  }
+  messageStore.set(storeKey, messageContent);
+  messageStore.set(key.id, messageContent);
+}
+
 /**
  * Normalizes input sessionId into a safe, valid filesystem directory name.
  */
@@ -131,12 +146,31 @@ async function initSession(sessionObj) {
       browser: Browsers.ubuntu('Chrome'),
       connectTimeoutMs: 60000,
       defaultQueryTimeoutMs: 60000,
-      syncFullHistory: false
+      syncFullHistory: false,
+      getMessage: async (key) => {
+        if (!key) return undefined;
+        const storeKey = `${key.remoteJid || ''}:${key.id}`;
+        if (messageStore.has(storeKey)) {
+          return messageStore.get(storeKey);
+        }
+        if (key.id && messageStore.has(key.id)) {
+          return messageStore.get(key.id);
+        }
+        return undefined;
+      }
     });
 
     sessionObj.sock = sock;
 
     sock.ev.on('creds.update', saveCreds);
+
+    sock.ev.on('messages.upsert', async ({ messages }) => {
+      for (const msg of messages || []) {
+        if (msg?.key && msg?.message) {
+          cacheMessage(msg.key, msg.message);
+        }
+      }
+    });
 
     sock.ev.on('connection.update', async (update) => {
       const { connection, lastDisconnect, qr } = update;
@@ -310,18 +344,24 @@ app.post('/api/send-bill', async (req, res) => {
     // Send formatted digital receipt
     if (text) {
       sentMsg = await activeSession.sock.sendMessage(jid, { text: String(text).trim() });
+      if (sentMsg?.key && sentMsg?.message) {
+        cacheMessage(sentMsg.key, sentMsg.message);
+      }
       logger.info(`[WhatsApp Gateway] [${activeSession.id}] Sent digital bill to ${jid}`);
     }
 
     // Optionally send PDF invoice attachment
     if (pdfBase64) {
       const buffer = Buffer.from(pdfBase64, 'base64');
-      await activeSession.sock.sendMessage(jid, {
+      const sentDoc = await activeSession.sock.sendMessage(jid, {
         document: buffer,
         mimetype: 'application/pdf',
         fileName: filename || 'Tax_Invoice.pdf',
         caption: '📄 Official Tax Invoice PDF'
       });
+      if (sentDoc?.key && sentDoc?.message) {
+        cacheMessage(sentDoc.key, sentDoc.message);
+      }
       logger.info(`[WhatsApp Gateway] [${activeSession.id}] Sent PDF attachment to ${jid}`);
     }
 
@@ -361,7 +401,10 @@ app.post('/api/test-message', async (req, res) => {
   try {
     const branchLabel = session.id.replace('org_', 'Branch ');
     const testText = `✅ *Cafe QR WhatsApp Gateway Test*\n\nYour WhatsApp Digital Bill service is connected and active for *${branchLabel}*! 🚀\n\n_Time: ${new Date().toLocaleString()}_`;
-    await session.sock.sendMessage(jid, { text: testText });
+    const testMsg = await session.sock.sendMessage(jid, { text: testText });
+    if (testMsg?.key && testMsg?.message) {
+      cacheMessage(testMsg.key, testMsg.message);
+    }
     return res.json({ success: true, message: `Test message sent to ${targetPhone}` });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
