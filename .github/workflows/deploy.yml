@@ -39,28 +39,15 @@ jobs:
           tags: |
             type=raw,value=latest
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+      - name: Build and push Backend Docker image
+        run: |
+          docker build -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest .
+          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
 
       - name: Build and push WhatsApp Gateway Docker image
-        uses: docker/build-push-action@v6
-        with:
-          context: ./whatsapp-gateway
-          file: ./whatsapp-gateway/Dockerfile
-          push: true
-          tags: ${{ env.REGISTRY }}/cafeqrlatest/testcafeqr-whatsapp-gateway:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+        run: |
+          docker build -t ${{ env.REGISTRY }}/cafeqrlatest/testcafeqr-whatsapp-gateway:latest ./whatsapp-gateway
+          docker push ${{ env.REGISTRY }}/cafeqrlatest/testcafeqr-whatsapp-gateway:latest
 
       - name: Deploy to Oracle Cloud VM
         uses: appleboy/ssh-action@v1
