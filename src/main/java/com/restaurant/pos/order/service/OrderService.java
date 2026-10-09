@@ -2128,7 +2128,7 @@ public class OrderService {
             if ("COMPLETED".equalsIgnoreCase(saved.getOrderStatus())
                     && "PAID".equalsIgnoreCase(saved.getPaymentStatus())) {
                 try {
-                    if (whatsAppService != null) {
+                    if (whatsAppService != null && (hydrated.getInvoicePdfBase64() != null || hydrated.getSourceLocalRef() == null)) {
                         whatsAppService.sendOrderSettledBillAsync(hydrated);
                     }
                 } catch (Exception ex) {

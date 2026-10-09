@@ -155,6 +155,7 @@ services:
 
   # ── WhatsApp Companion Gateway (Baileys Multi-Tenant Microservice) ──
   whatsapp-gateway:
+    image: ${WHATSAPP_GATEWAY_IMAGE:-ghcr.io/cafeqrlatest/testcafeqr-whatsapp-gateway:latest}
     build:
       context: ./whatsapp-gateway
       dockerfile: Dockerfile

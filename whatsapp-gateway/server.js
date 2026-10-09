@@ -30,6 +30,7 @@ const {
   DisconnectReason,
   fetchLatestBaileysVersion,
   makeCacheableSignalKeyStore,
+  makeInMemoryStore,
   Browsers
 } = require('@whiskeysockets/baileys');
 
@@ -49,6 +50,18 @@ const logger = pino({ level: 'info' });
 
 // In-memory registry of active branch/client sessions
 const sessions = new Map();
+
+// Standard in-memory store for Baileys events (if available in Baileys release)
+const store = typeof makeInMemoryStore === 'function' ? makeInMemoryStore({ logger: pino({ level: 'silent' }) }) : null;
+
+// Track message retries across socket lifecycle
+const retryCounterMap = new Map();
+const msgRetryCounterCache = {
+  get: (key) => retryCounterMap.get(key),
+  set: (key, val) => retryCounterMap.set(key, val),
+  del: (key) => retryCounterMap.delete(key),
+  flushAll: () => retryCounterMap.clear()
+};
 
 // Bounded in-memory store for recent messages to resolve WhatsApp E2EE retryRequests ('Waiting for this message')
 const messageStore = new Map();
@@ -141,6 +154,7 @@ async function initSession(sessionObj) {
         creds: state.creds,
         keys: makeCacheableSignalKeyStore(state.keys, logger)
       },
+      msgRetryCounterCache,
       printQRInTerminal: false,
       logger: pino({ level: 'info' }),
       browser: Browsers.ubuntu('Chrome'),
@@ -149,6 +163,15 @@ async function initSession(sessionObj) {
       syncFullHistory: false,
       getMessage: async (key) => {
         if (!key) return undefined;
+        logger.info({ jid: key.remoteJid, id: key.id }, '[WhatsApp Gateway] getMessage retry requested');
+        if (store) {
+          try {
+            const msg = await store.loadMessage(key.remoteJid, key.id);
+            if (msg && msg.message) return msg.message;
+          } catch (e) {
+            // ignore
+          }
+        }
         const storeKey = `${key.remoteJid || ''}:${key.id}`;
         if (messageStore.has(storeKey)) {
           return messageStore.get(storeKey);
@@ -159,6 +182,10 @@ async function initSession(sessionObj) {
         return undefined;
       }
     });
+
+    if (store) {
+      store.bind(sock.ev);
+    }
 
     sessionObj.sock = sock;
 
@@ -341,28 +368,24 @@ app.post('/api/send-bill', async (req, res) => {
   try {
     let sentMsg = null;
 
-    // Send formatted digital receipt
-    if (text) {
+    if (pdfBase64) {
+      const buffer = Buffer.from(pdfBase64, 'base64');
+      sentMsg = await activeSession.sock.sendMessage(jid, {
+        document: buffer,
+        mimetype: 'application/pdf',
+        fileName: filename || 'Tax_Invoice.pdf',
+        caption: text ? String(text).trim() : '📄 Official Tax Invoice PDF'
+      });
+      if (sentMsg?.key && sentMsg?.message) {
+        cacheMessage(sentMsg.key, sentMsg.message);
+      }
+      logger.info(`[WhatsApp Gateway] [${activeSession.id}] Sent PDF invoice with digital receipt caption to ${jid}`);
+    } else if (text) {
       sentMsg = await activeSession.sock.sendMessage(jid, { text: String(text).trim() });
       if (sentMsg?.key && sentMsg?.message) {
         cacheMessage(sentMsg.key, sentMsg.message);
       }
-      logger.info(`[WhatsApp Gateway] [${activeSession.id}] Sent digital bill to ${jid}`);
-    }
-
-    // Optionally send PDF invoice attachment
-    if (pdfBase64) {
-      const buffer = Buffer.from(pdfBase64, 'base64');
-      const sentDoc = await activeSession.sock.sendMessage(jid, {
-        document: buffer,
-        mimetype: 'application/pdf',
-        fileName: filename || 'Tax_Invoice.pdf',
-        caption: '📄 Official Tax Invoice PDF'
-      });
-      if (sentDoc?.key && sentDoc?.message) {
-        cacheMessage(sentDoc.key, sentDoc.message);
-      }
-      logger.info(`[WhatsApp Gateway] [${activeSession.id}] Sent PDF attachment to ${jid}`);
+      logger.info(`[WhatsApp Gateway] [${activeSession.id}] Sent digital bill text to ${jid}`);
     }
 
     return res.json({
