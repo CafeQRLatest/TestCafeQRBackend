@@ -19,7 +19,9 @@ const {
   default: makeWASocket,
   useMultiFileAuthState,
   DisconnectReason,
-  fetchLatestBaileysVersion
+  fetchLatestBaileysVersion,
+  makeCacheableSignalKeyStore,
+  Browsers
 } = require('@whiskeysockets/baileys');
 
 const PORT = process.env.PORT || 3005;
@@ -94,14 +96,33 @@ async function initSession(sessionObj) {
 
   try {
     const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
-    const { version } = await fetchLatestBaileysVersion();
+
+    // Fetch version safely with a 2-second timeout to prevent hanging if GitHub raw is slow/unreachable
+    let version = [2, 3000, 1015901307];
+    try {
+      const v = await Promise.race([
+        fetchLatestBaileysVersion(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 2500))
+      ]);
+      if (v && v.version) {
+        version = v.version;
+      }
+    } catch (verErr) {
+      logger.warn(`[WhatsApp Gateway] Using fallback Baileys version: ${verErr.message}`);
+    }
 
     const sock = makeWASocket({
       version,
-      auth: state,
+      auth: {
+        creds: state.creds,
+        keys: makeCacheableSignalKeyStore(state.keys, logger)
+      },
       printQRInTerminal: false,
-      logger: pino({ level: 'silent' }), // Keep server logs clean
-      browser: ['Cafe QR POS', 'Chrome', '1.0.0']
+      logger: pino({ level: 'info' }),
+      browser: Browsers.ubuntu('Chrome'),
+      connectTimeoutMs: 60000,
+      defaultQueryTimeoutMs: 60000,
+      syncFullHistory: false
     });
 
     sessionObj.sock = sock;
@@ -120,10 +141,10 @@ async function initSession(sessionObj) {
             width: 320,
             color: { dark: '#0f172a', light: '#ffffff' }
           });
+          logger.info(`[WhatsApp Gateway] [${sessionId}] New QR code generated successfully (${sessionObj.qrDataUrl?.length || 0} chars). Waiting for scan...`);
         } catch (e) {
           logger.error({ err: e, sessionId }, 'Failed to convert QR to Data URL');
         }
-        logger.info(`[WhatsApp Gateway] [${sessionId}] New QR code generated. Waiting for scan...`);
       }
 
       if (connection === 'close') {

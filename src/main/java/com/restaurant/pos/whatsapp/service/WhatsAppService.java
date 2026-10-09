@@ -40,7 +40,7 @@ public class WhatsAppService {
     private final RestTemplate restTemplate = new RestTemplate();
     private final Map<java.util.UUID, Long> recentlySentOrders = new java.util.concurrent.ConcurrentHashMap<>();
 
-    @Value("${whatsapp.gateway.url:http://localhost:3005}")
+    @Value("${whatsapp.gateway.url:${WHATSAPP_GATEWAY_URL:http://whatsapp-gateway:3005}}")
     private String defaultGatewayUrl;
 
     /**
