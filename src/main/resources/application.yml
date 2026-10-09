@@ -147,4 +147,8 @@ cloudflare:
     bucket-name: ${CLOUDFLARE_R2_BUCKET_NAME:testcafeqrbucket}
     public-url: ${CLOUDFLARE_R2_PUBLIC_URL:https://pub-bf76bb80bc194145967a7fbfe9147c89.r2.dev}
 
+whatsapp:
+  gateway:
+    url: ${WHATSAPP_GATEWAY_URL:http://whatsapp-gateway:3005}
+
 

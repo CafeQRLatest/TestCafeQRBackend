@@ -52,6 +52,16 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Build and push WhatsApp Gateway Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./whatsapp-gateway
+          file: ./whatsapp-gateway/Dockerfile
+          push: true
+          tags: ${{ env.REGISTRY }}/cafeqrlatest/testcafeqr-whatsapp-gateway:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
       - name: Deploy to Oracle Cloud VM
         uses: appleboy/ssh-action@v1
         with:
@@ -66,11 +76,13 @@ jobs:
             # Log in to GHCR on the Oracle server to pull the package
             echo "${{ secrets.GITHUB_TOKEN }}" | sudo docker login ghcr.io -u ${{ github.actor }} --password-stdin
             
-            # Pull the new backend image
-            sudo docker compose pull test-backend 2>/dev/null || sudo docker-compose pull test-backend 2>/dev/null || sudo docker compose pull backend 2>/dev/null || sudo docker-compose pull backend
+            # Pull backend & whatsapp-gateway images
+            sudo docker compose pull test-backend 2>/dev/null || sudo docker-compose pull test-backend 2>/dev/null || sudo docker compose pull backend 2>/dev/null || sudo docker-compose pull backend || true
+            sudo docker compose pull whatsapp-gateway 2>/dev/null || sudo docker-compose pull whatsapp-gateway 2>/dev/null || true
             
-            # Restart only the backend service, leaving the database and redis untouched
-            sudo docker compose up -d test-backend 2>/dev/null || sudo docker-compose up -d test-backend 2>/dev/null || sudo docker compose up -d backend 2>/dev/null || sudo docker-compose up -d backend
+            # Restart backend & whatsapp-gateway services (leaving DB and Redis untouched)
+            sudo docker compose up -d test-backend 2>/dev/null || sudo docker-compose up -d test-backend 2>/dev/null || sudo docker compose up -d backend 2>/dev/null || sudo docker-compose up -d backend || true
+            sudo docker compose up -d whatsapp-gateway 2>/dev/null || sudo docker-compose up -d whatsapp-gateway 2>/dev/null || true
             
             # Clean up old unused images to save disk space
             sudo docker image prune -f
