@@ -1,3 +1,14 @@
+{
+	# Slowloris protection. No write timeout: SSE streams are long-lived.
+	servers {
+		timeouts {
+			read_header 10s
+			read_body 2m
+			idle 2m
+		}
+	}
+}
+
 {$CADDY_SITE_ADDRESS} {
 	encode gzip
 

@@ -1,6 +1,8 @@
 server:
   port: 8080
   tomcat:
+    # Drop slow/idle connections (Slowloris). Spring Boot's default is also 20s; explicit so it isn't lost.
+    connection-timeout: ${SERVER_TOMCAT_CONNECTION_TIMEOUT:20s}
     # SSE streams are servlet-async (no thread held while idle) but each is an open connection.
     max-connections: ${SERVER_TOMCAT_MAX_CONNECTIONS:10000}
     accept-count: ${SERVER_TOMCAT_ACCEPT_COUNT:200}
@@ -19,6 +21,11 @@ spring:
     allow-bean-definition-overriding: true
   application:
     name: cafe-qr-backend
+
+  servlet:
+    multipart:
+      max-file-size: ${SPRING_SERVLET_MULTIPART_MAX_FILE_SIZE:50MB}
+      max-request-size: ${SPRING_SERVLET_MULTIPART_MAX_REQUEST_SIZE:55MB}
 
   datasource:
     url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/cafeqr_db}
@@ -122,6 +129,10 @@ springdoc:
     path: /swagger-ui.html
 
 app:
+  backup:
+    # Caps applied when reading an uploaded .cqrbak (zip bomb protection).
+    max-extracted-bytes: ${APP_BACKUP_MAX_EXTRACTED_BYTES:209715200}
+    max-entries: ${APP_BACKUP_MAX_ENTRIES:500}
   cors:
     allowed-origins: ${ALLOWED_ORIGINS:http://localhost:3000,http://localhost:3001,http://localhost:3002,http://localhost:5173,http://localhost:5174,http://192.168.29.152:3000,http://192.168.29.152:3001,https://test-cafe-qr-landing.vercel.app,https://cafe-qr-landing.vercel.app,https://test-cafeqr-landing.vercel.app,https://cafeqr-landing.vercel.app,https://cafe-test-qr-frontend.vercel.app,https://cafe-qr-frontend.vercel.app,https://test-cafe-qr-delivery-app.vercel.app,https://cafe-qr-delivery-app.vercel.app,https://test-cafe-qr-delivery-website.vercel.app,https://cafe-qr-delivery-website.vercel.app,https://cafeqr-delivery-website.vercel.app,https://cafeqr-frontend.pages.dev,https://pos.cafeqr.in,https://cafeqr.in,https://*.cafeqr.in}
   frontend-url: ${FRONTEND_URL:http://localhost:3000}
