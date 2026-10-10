@@ -54,6 +54,7 @@ public class WhatsAppController {
         String orderIdStr = body != null ? body.get("orderId") : null;
         String phone = body != null ? body.get("phone") : null;
         String pdfBase64 = body != null ? body.get("pdfBase64") : null;
+        String frontendUrl = body != null ? body.get("frontendUrl") : null;
 
         if (orderIdStr == null || orderIdStr.isBlank()) {
             return ResponseEntity.badRequest().body(ApiResponse.error("orderId is required"));
@@ -67,7 +68,7 @@ public class WhatsAppController {
         }
 
         try {
-            boolean sent = whatsAppService.sendOrderBillWithAttachment(orderId, phone, pdfBase64);
+            boolean sent = whatsAppService.sendOrderBillWithAttachment(orderId, phone, pdfBase64, frontendUrl);
             Map<String, Object> result = Map.of(
                     "success", sent,
                     "orderId", orderId,

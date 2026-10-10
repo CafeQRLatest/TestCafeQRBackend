@@ -59,13 +59,16 @@ public class WhatsAppService {
     @Value("${whatsapp.gateway.url:${WHATSAPP_GATEWAY_URL:http://whatsapp-gateway:3005}}")
     private String defaultGatewayUrl;
 
+    @Value("${app.frontend-url:${FRONTEND_URL:http://localhost:3000}}")
+    private String defaultFrontendUrl;
+
     /**
      * Asynchronously sends the digital bill to the customer's WhatsApp upon order settlement.
      */
     @Async
     public void sendOrderSettledBillAsync(Order order) {
         try {
-            sendOrderSettledBill(order);
+            sendOrderSettledBill(order, null);
         } catch (Exception ex) {
             log.error("[WhatsAppService] Unexpected error sending bill for order {}", order != null ? order.getId() : null, ex);
         }
@@ -73,6 +76,11 @@ public class WhatsAppService {
 
     @Transactional(readOnly = true)
     public boolean sendOrderSettledBill(Order order) {
+        return sendOrderSettledBill(order, null);
+    }
+
+    @Transactional(readOnly = true)
+    public boolean sendOrderSettledBill(Order order, String explicitFrontendUrl) {
         if (order == null || order.getId() == null) return false;
 
         try {
@@ -126,7 +134,19 @@ public class WhatsAppService {
                     .orElse(invoices.get(0));
         }
 
-        String billMessage = billFormatter.formatBillMessage(order, invoice, org, client);
+        // Construct environment-aware public invoice URL
+        String baseUrl = (explicitFrontendUrl != null && !explicitFrontendUrl.isBlank())
+                ? explicitFrontendUrl.trim()
+                : (defaultFrontendUrl != null && !defaultFrontendUrl.isBlank() ? defaultFrontendUrl.trim() : "http://localhost:3000");
+        if (baseUrl.endsWith("/")) {
+            baseUrl = baseUrl.substring(0, baseUrl.length() - 1);
+        }
+        String targetId = (invoice != null && invoice.getId() != null)
+                ? invoice.getId().toString()
+                : order.getId().toString();
+        String publicInvoiceUrl = baseUrl + "/invoice/" + targetId;
+
+        String billMessage = billFormatter.formatZeevStyleBill(order, invoice, org, client, publicInvoiceUrl);
         if (billMessage.isBlank()) {
             log.warn("[WhatsAppService] Formatted bill message was empty for order {}", order.getId());
             return false;
@@ -136,14 +156,8 @@ public class WhatsAppService {
         String fallbackSessionId = order.getClientId() != null ? "client_" + order.getClientId() : null;
         String primarySessionId = branchSessionId != null ? branchSessionId : fallbackSessionId;
 
-        String pdfBase64 = order.getInvoicePdfBase64();
-        String filename = null;
-        if (pdfBase64 != null && !pdfBase64.isBlank()) {
-            String invoiceNo = invoice != null && invoice.getInvoiceNo() != null ? invoice.getInvoiceNo() : order.getOrderNo();
-            filename = "Invoice-" + (invoiceNo != null ? invoiceNo.replaceAll("[^\\w\\-]", "_") : "Receipt") + ".pdf";
-        }
-
-        boolean dispatched = dispatchToGateway(primarySessionId, fallbackSessionId, normalizedPhone, billMessage, pdfBase64, filename);
+        // Dispatch clean, instant text bill containing the public e-bill link (eliminates heavy Baileys PDF decryption stall)
+        boolean dispatched = dispatchToGateway(primarySessionId, fallbackSessionId, normalizedPhone, billMessage, null, null);
         if (dispatched) {
             recentlySentOrders.put(order.getId(), now);
         }
@@ -152,6 +166,11 @@ public class WhatsAppService {
 
     @Transactional(readOnly = true)
     public boolean sendOrderBillWithAttachment(java.util.UUID orderId, String explicitPhone, String pdfBase64) {
+        return sendOrderBillWithAttachment(orderId, explicitPhone, pdfBase64, null);
+    }
+
+    @Transactional(readOnly = true)
+    public boolean sendOrderBillWithAttachment(java.util.UUID orderId, String explicitPhone, String pdfBase64, String explicitFrontendUrl) {
         if (orderId == null) return false;
         Order order = orderRepository.findByIdWithLines(orderId).orElse(null);
         if (order == null) {
@@ -165,7 +184,7 @@ public class WhatsAppService {
             order.setCustomerPhone(explicitPhone);
         }
         recentlySentOrders.remove(order.getId());
-        return sendOrderSettledBill(order);
+        return sendOrderSettledBill(order, explicitFrontendUrl);
     }
 
     public boolean dispatchToGateway(String phone, String text, String pdfBase64, String filename) {

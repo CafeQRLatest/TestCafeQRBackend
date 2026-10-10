@@ -7,6 +7,10 @@ import com.restaurant.pos.common.repository.SystemConfigurationRepository;
 import com.restaurant.pos.invoice.domain.Invoice;
 import com.restaurant.pos.order.domain.Order;
 import com.restaurant.pos.order.domain.OrderLine;
+import com.restaurant.pos.order.domain.Payment;
+import com.restaurant.pos.order.domain.PaymentSplit;
+import com.restaurant.pos.order.repository.PaymentRepository;
+import com.restaurant.pos.order.repository.PaymentSplitRepository;
 import com.restaurant.pos.purchasing.domain.Currency;
 import com.restaurant.pos.purchasing.repository.CurrencyRepository;
 import lombok.extern.slf4j.Slf4j;
@@ -17,6 +21,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -32,6 +37,48 @@ public class WhatsAppBillFormatter {
 
     @Autowired(required = false)
     private SystemConfigurationRepository systemConfigurationRepository;
+
+    @Autowired(required = false)
+    private PaymentRepository paymentRepository;
+
+    @Autowired(required = false)
+    private PaymentSplitRepository paymentSplitRepository;
+
+    /**
+     * Formats Order, Invoice, and Store details into the Zeev-style minimalist smart digital e-bill notification.
+     * Matches the industry standard model with direct "Visit Bill" link.
+     */
+    public String formatZeevStyleBill(Order order, Invoice invoice, Organization org, Client client, String publicInvoiceUrl) {
+        if (order == null) return "";
+
+        String storeName = getStoreName(org, client);
+        String currency = resolveCurrencySymbol(order, org, client);
+        String invNo = (invoice != null && invoice.getInvoiceNo() != null) ? invoice.getInvoiceNo() : order.getOrderNo();
+        Integer dailyBillNo = (invoice != null && invoice.getDailyBillNo() != null)
+                ? invoice.getDailyBillNo()
+                : order.getDailyBillNo();
+        BigDecimal grandTotal = order.getGrandTotal() != null ? order.getGrandTotal() : BigDecimal.ZERO;
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("New Bill Loaded 🧾\n\n");
+        sb.append("Thank you for your recent order at *").append(storeName).append("*.\n\n");
+
+        if (dailyBillNo != null) {
+            sb.append("*Token #").append(dailyBillNo).append("* | #").append(invNo);
+        } else {
+            sb.append("#").append(invNo);
+        }
+        sb.append(" | *").append(formatMoney(grandTotal, currency)).append("* @").append(storeName).append("\n\n");
+
+        if (publicInvoiceUrl != null && !publicInvoiceUrl.isBlank()) {
+            sb.append("👉 *Visit Bill:*\n").append(publicInvoiceUrl.trim()).append("\n\n");
+        }
+
+        sb.append("Go Green – say no to paper bills 🌱\n\n");
+        sb.append("*Powered by Cafe QR POS* ⚡");
+
+        return sb.toString();
+    }
 
     /**
      * Formats Order, Invoice, and Store details into the concrete industry-standard WhatsApp Digital Tax Invoice.
@@ -178,11 +225,50 @@ public class WhatsAppBillFormatter {
         String payMethod = order.getReference() != null && !order.getReference().isBlank() 
                 ? order.getReference().toUpperCase() 
                 : (order.getPaymentMethod() != null ? order.getPaymentMethod().toUpperCase() : "CASH");
-        sb.append("*Payment Mode:* ").append(payMethod);
-        if ("PAID".equalsIgnoreCase(order.getPaymentStatus()) || Boolean.TRUE.equals(order.getIsReceived())) {
-            sb.append(" (PAID)");
+
+        List<PaymentSplit> splits = null;
+        if (paymentRepository != null && paymentSplitRepository != null && order.getId() != null) {
+            try {
+                List<Payment> payments = paymentRepository.findByOrderId(order.getId());
+                for (Payment p : payments) {
+                    if ("Y".equalsIgnoreCase(p.getIsactive()) && !"VOID".equalsIgnoreCase(p.getDocStatus())) {
+                        List<PaymentSplit> psList = paymentSplitRepository.findByPaymentIdOrderByCreatedAtAsc(p.getId());
+                        if (psList != null && !psList.isEmpty()) {
+                            if (splits == null) splits = new ArrayList<>();
+                            splits.addAll(psList);
+                        } else if ("MIXED".equalsIgnoreCase(p.getPaymentMethod()) && p.getAmountPaid() != null) {
+                            if (splits == null) splits = new ArrayList<>();
+                            BigDecimal total = p.getAmountPaid();
+                            BigDecimal half = total.divide(BigDecimal.valueOf(2), 2, RoundingMode.HALF_UP);
+                            BigDecimal rem = total.subtract(half);
+                            splits.add(PaymentSplit.builder().paymentMethod("CASH").amount(half).build());
+                            splits.add(PaymentSplit.builder().paymentMethod("ONLINE").amount(rem).build());
+                        } else if (payments.size() > 1 && p.getAmountPaid() != null && p.getAmountPaid().compareTo(BigDecimal.ZERO) > 0) {
+                            if (splits == null) splits = new ArrayList<>();
+                            splits.add(PaymentSplit.builder()
+                                    .paymentMethod(p.getPaymentMethod() != null ? p.getPaymentMethod().toUpperCase() : "PAYMENT")
+                                    .amount(p.getAmountPaid())
+                                    .build());
+                        }
+                    }
+                }
+            } catch (Exception ignored) {}
         }
-        sb.append("\n");
+
+        if (splits != null && !splits.isEmpty()) {
+            sb.append("*Payment Mode:* MIXED (PAID)\n");
+            sb.append("*Payment Breakdown:*\n");
+            for (PaymentSplit sp : splits) {
+                sb.append("  • ").append(sp.getPaymentMethod() != null ? sp.getPaymentMethod().toUpperCase() : "PAYMENT")
+                  .append(": ").append(formatMoney(sp.getAmount(), currency)).append("\n");
+            }
+        } else {
+            sb.append("*Payment Mode:* ").append(payMethod);
+            if ("PAID".equalsIgnoreCase(order.getPaymentStatus()) || Boolean.TRUE.equals(order.getIsReceived())) {
+                sb.append(" (PAID)");
+            }
+            sb.append("\n");
+        }
         sb.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n");
 
         // 5. Store Details & Compliance Footer

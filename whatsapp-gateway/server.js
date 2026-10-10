@@ -54,11 +54,22 @@ const sessions = new Map();
 // Standard in-memory store for Baileys events (if available in Baileys release)
 const store = typeof makeInMemoryStore === 'function' ? makeInMemoryStore({ logger: pino({ level: 'silent' }) }) : null;
 
-// Track message retries across socket lifecycle
+// Track message retries across socket lifecycle with 15-minute TTL to prevent permanent exhaustion
+const RETRY_TTL_MS = 15 * 60 * 1000;
 const retryCounterMap = new Map();
 const msgRetryCounterCache = {
-  get: (key) => retryCounterMap.get(key),
-  set: (key, val) => retryCounterMap.set(key, val),
+  get: (key) => {
+    const entry = retryCounterMap.get(key);
+    if (!entry) return undefined;
+    if (Date.now() > entry.expiresAt) {
+      retryCounterMap.delete(key);
+      return undefined;
+    }
+    return entry.count;
+  },
+  set: (key, val) => {
+    retryCounterMap.set(key, { count: val, expiresAt: Date.now() + RETRY_TTL_MS });
+  },
   del: (key) => retryCounterMap.delete(key),
   flushAll: () => retryCounterMap.clear()
 };
@@ -67,14 +78,26 @@ const msgRetryCounterCache = {
 const messageStore = new Map();
 const MAX_CACHED_MESSAGES = 1000;
 
+function normalizeJid(rawJid) {
+  if (!rawJid || typeof rawJid !== 'string') return '';
+  const user = rawJid.split(':')[0].split('@')[0];
+  return `${user}@s.whatsapp.net`;
+}
+
 function cacheMessage(key, messageContent) {
   if (!key || !key.id || !messageContent) return;
-  const storeKey = `${key.remoteJid || ''}:${key.id}`;
+  const rawKey = `${key.remoteJid || ''}:${key.id}`;
+  const normJid = normalizeJid(key.remoteJid);
+  const normKey = `${normJid}:${key.id}`;
+
   if (messageStore.size >= MAX_CACHED_MESSAGES) {
     const oldest = messageStore.keys().next().value;
     messageStore.delete(oldest);
   }
-  messageStore.set(storeKey, messageContent);
+  messageStore.set(rawKey, messageContent);
+  if (normKey !== rawKey) {
+    messageStore.set(normKey, messageContent);
+  }
   messageStore.set(key.id, messageContent);
 }
 
@@ -175,6 +198,11 @@ async function initSession(sessionObj) {
         const storeKey = `${key.remoteJid || ''}:${key.id}`;
         if (messageStore.has(storeKey)) {
           return messageStore.get(storeKey);
+        }
+        const normJid = normalizeJid(key.remoteJid);
+        const normKey = `${normJid}:${key.id}`;
+        if (messageStore.has(normKey)) {
+          return messageStore.get(normKey);
         }
         if (key.id && messageStore.has(key.id)) {
           return messageStore.get(key.id);
