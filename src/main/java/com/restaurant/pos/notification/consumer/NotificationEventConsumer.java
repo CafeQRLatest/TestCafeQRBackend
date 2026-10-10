@@ -94,7 +94,9 @@ public class NotificationEventConsumer {
             log.info("[NotificationConsumer] Sent settled push for order {}", order.getId());
 
             try {
-                whatsAppService.sendOrderSettledBill(order);
+                if (order.getSourceLocalRef() == null) {
+                    whatsAppService.sendOrderSettledBill(order);
+                }
             } catch (Exception waEx) {
                 log.warn("[NotificationConsumer] Failed to send WhatsApp bill for order {}: {}", order.getId(), waEx.getMessage());
             }

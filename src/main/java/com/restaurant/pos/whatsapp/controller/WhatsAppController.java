@@ -4,6 +4,7 @@ import com.restaurant.pos.common.dto.ApiResponse;
 import com.restaurant.pos.common.tenant.TenantContext;
 import com.restaurant.pos.whatsapp.service.WhatsAppService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
@@ -11,6 +12,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.Map;
 import java.util.UUID;
 
+@Slf4j
 @RestController
 @RequestMapping("/api/v1/whatsapp")
 @RequiredArgsConstructor
@@ -64,13 +66,18 @@ public class WhatsAppController {
             return ResponseEntity.badRequest().body(ApiResponse.error("Invalid orderId format"));
         }
 
-        boolean sent = whatsAppService.sendOrderBillWithAttachment(orderId, phone, pdfBase64);
-        Map<String, Object> result = Map.of(
-                "success", sent,
-                "orderId", orderId,
-                "message", sent ? "WhatsApp bill dispatched successfully" : "Failed to dispatch WhatsApp bill"
-        );
-        return ResponseEntity.ok(ApiResponse.success(result));
+        try {
+            boolean sent = whatsAppService.sendOrderBillWithAttachment(orderId, phone, pdfBase64);
+            Map<String, Object> result = Map.of(
+                    "success", sent,
+                    "orderId", orderId,
+                    "message", sent ? "WhatsApp bill dispatched successfully" : "Failed to dispatch WhatsApp bill"
+            );
+            return ResponseEntity.ok(ApiResponse.success(result));
+        } catch (Exception ex) {
+            log.error("[WhatsAppController] Failed to dispatch WhatsApp bill with attachment for order {}: {}", orderId, ex.getMessage(), ex);
+            return ResponseEntity.status(500).body(ApiResponse.error("Failed to dispatch WhatsApp bill: " + ex.getMessage()));
+        }
     }
 
     private String resolveSessionId(String explicitSessionId) {

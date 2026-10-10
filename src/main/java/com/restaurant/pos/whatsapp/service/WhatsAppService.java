@@ -23,6 +23,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestTemplate;
 
 import java.util.Collections;
@@ -70,8 +71,24 @@ public class WhatsAppService {
         }
     }
 
+    @Transactional(readOnly = true)
     public boolean sendOrderSettledBill(Order order) {
         if (order == null || order.getId() == null) return false;
+
+        try {
+            if (order.getLines() == null || !org.hibernate.Hibernate.isInitialized(order.getLines())) {
+                Order reloaded = orderRepository.findByIdWithLines(order.getId()).orElse(null);
+                if (reloaded != null) {
+                    reloaded.setInvoicePdfBase64(order.getInvoicePdfBase64());
+                    if (order.getCustomerPhone() != null && !order.getCustomerPhone().isBlank()) {
+                        reloaded.setCustomerPhone(order.getCustomerPhone());
+                    }
+                    order = reloaded;
+                }
+            }
+        } catch (Exception ex) {
+            log.debug("[WhatsAppService] Could not verify line initialization: {}", ex.getMessage());
+        }
 
         Long lastSent = recentlySentOrders.get(order.getId());
         long now = System.currentTimeMillis();
@@ -133,9 +150,10 @@ public class WhatsAppService {
         return dispatched;
     }
 
+    @Transactional(readOnly = true)
     public boolean sendOrderBillWithAttachment(java.util.UUID orderId, String explicitPhone, String pdfBase64) {
         if (orderId == null) return false;
-        Order order = orderRepository.findById(orderId).orElse(null);
+        Order order = orderRepository.findByIdWithLines(orderId).orElse(null);
         if (order == null) {
             log.warn("[WhatsAppService] Order not found for id {}", orderId);
             return false;
