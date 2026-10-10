@@ -97,6 +97,7 @@ public class SecurityConfig {
             "https://cafe-qr-delivery-website.vercel.app," +
             "https://cafeqr-delivery-website.vercel.app," +
             "https://cafeqr-frontend.pages.dev," +
+            "https://testcafeqrscanningapp.pages.dev," +
             "https://pos.cafeqr.in," +
             "https://cafeqr.in," +
             "https://*.cafeqr.in" +
