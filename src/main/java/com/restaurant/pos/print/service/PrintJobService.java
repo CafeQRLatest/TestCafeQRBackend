@@ -2,8 +2,6 @@ package com.restaurant.pos.print.service;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.restaurant.pos.client.domain.Client;
-import com.restaurant.pos.client.domain.Organization;
 import com.restaurant.pos.client.repository.ClientRepository;
 import com.restaurant.pos.client.repository.OrganizationRepository;
 import com.restaurant.pos.common.dto.ConfigurationDto;
@@ -17,6 +15,7 @@ import com.restaurant.pos.order.repository.OrderRepository;
 import com.restaurant.pos.print.domain.PrintJob;
 import com.restaurant.pos.print.domain.PrintJobKind;
 import com.restaurant.pos.print.domain.PrintJobStatus;
+// Event published for real-time printer dispatch
 import com.restaurant.pos.print.event.PrintJobCreatedEvent;
 import com.restaurant.pos.print.repository.PrintJobAttemptRepository;
 import com.restaurant.pos.print.repository.PrintJobRepository;
@@ -32,7 +31,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
-import java.util.Collection;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;

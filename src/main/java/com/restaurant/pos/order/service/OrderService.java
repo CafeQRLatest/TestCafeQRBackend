@@ -62,6 +62,7 @@ import com.restaurant.pos.purchasing.domain.Customer;
 import com.restaurant.pos.purchasing.repository.CustomerRepository;
 import com.restaurant.pos.purchasing.repository.CurrencyRepository;
 import com.restaurant.pos.print.service.PrintConfigurationService;
+import com.restaurant.pos.whatsapp.service.WhatsAppService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import jakarta.persistence.criteria.Predicate;
@@ -86,6 +87,7 @@ import java.util.stream.Collectors;
 @Slf4j
 @Service
 @RequiredArgsConstructor
+@SuppressWarnings("null")
 public class OrderService {
     private static final List<String> CLOSED_SALE_STATUSES = List.of("COMPLETED", "PAID", "CANCELLED", "VOID");
     private static final int DEFAULT_HISTORY_PAGE_SIZE = 20;
@@ -93,8 +95,10 @@ public class OrderService {
     private static final int MAX_SYNC_ORDER_CHANGES = 200;
     private static final Duration DEFAULT_HISTORY_WINDOW = Duration.ofDays(1);
     private static final Duration MAX_HISTORY_WINDOW = Duration.ofDays(31);
+    @SuppressWarnings("unused")
     private static final List<String> PAYMENT_METHODS = List.of("CASH", "ONLINE", "UPI", "CARD", "BANK", "CHEQUE",
             "MIXED");
+    @SuppressWarnings("unused")
     private static final List<String> PAYMENT_SPLIT_METHODS = List.of("CASH", "ONLINE", "UPI", "CARD", "BANK",
             "CHEQUE");
 
@@ -138,7 +142,7 @@ public class OrderService {
 
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     @org.springframework.context.annotation.Lazy
-    private com.restaurant.pos.whatsapp.service.WhatsAppService whatsAppService;
+    private WhatsAppService whatsAppService;
 
     /**
      * Per-thread user display name cache. Each request thread gets its own map so
@@ -502,8 +506,10 @@ public class OrderService {
                             order.getId());
                     return;
                 }
+                boolean hasAdded = addedLines != null && !addedLines.isEmpty();
+                boolean hasRemoved = removedLines != null && !removedLines.isEmpty();
                 if (addedLines != null || removedLines != null) {
-                    if (!addedLines.isEmpty() || !removedLines.isEmpty()) {
+                    if (hasAdded || hasRemoved) {
                         log.info("Calling enqueueKotEditJob for order {}", order.getId());
                         printJobService.enqueueKotEditJob(order, addedLines, removedLines, "edit");
                     } else {
@@ -536,6 +542,7 @@ public class OrderService {
         }
     }
 
+    @SuppressWarnings({"unused", "unchecked"})
     private void dispatchMasterKotJobs(Order order, List<OrderLine> addedLines, List<OrderLine> removedLines) {
         try {
             UUID terminalId = order.getSourceTerminalId() != null ? order.getSourceTerminalId() : order.getTerminalId();
@@ -2963,7 +2970,7 @@ public class OrderService {
     }
 
     @Transactional
-    @org.springframework.retry.annotation.Retryable(value = {
+    @org.springframework.retry.annotation.Retryable(retryFor = {
             org.springframework.orm.ObjectOptimisticLockingFailureException.class }, maxAttempts = 3, backoff = @org.springframework.retry.annotation.Backoff(delay = 50))
     public Order updateOrderStatus(UUID id, String status, String paymentStatus, String description) {
         Order order = getOrder(id);
@@ -3108,13 +3115,13 @@ public class OrderService {
         return null;
     }
 
-    @org.springframework.retry.annotation.Retryable(value = {
+    @org.springframework.retry.annotation.Retryable(retryFor = {
             org.springframework.orm.ObjectOptimisticLockingFailureException.class }, maxAttempts = 3, backoff = @org.springframework.retry.annotation.Backoff(delay = 50))
     public Order updateOrderStatus(UUID id, String status) {
         return updateOrderStatus(id, status, null, null);
     }
 
-    @org.springframework.retry.annotation.Retryable(value = {
+    @org.springframework.retry.annotation.Retryable(retryFor = {
             org.springframework.orm.ObjectOptimisticLockingFailureException.class }, maxAttempts = 3, backoff = @org.springframework.retry.annotation.Backoff(delay = 50))
     public Order updateOrderStatus(UUID id, OrderStatus status, PaymentStatus paymentStatus, String description) {
         return updateOrderStatus(
@@ -3124,7 +3131,7 @@ public class OrderService {
                 description);
     }
 
-    @org.springframework.retry.annotation.Retryable(value = {
+    @org.springframework.retry.annotation.Retryable(retryFor = {
             org.springframework.orm.ObjectOptimisticLockingFailureException.class }, maxAttempts = 3, backoff = @org.springframework.retry.annotation.Backoff(delay = 50))
     public Order updateOrderStatus(UUID id, OrderStatus status) {
         return updateOrderStatus(id, status, null, null);
@@ -3160,8 +3167,6 @@ public class OrderService {
     public Order settleOrder(UUID id, OrderSettleRequest request) {
         Order order = getOrder(id);
         ensureOrderCanChange(order, "settle");
-        ConfigurationDto config = configurationService.getConfigurationForClientAndBranch(order.getClientId(),
-                order.getOrgId());
 
         OrderSettleRequest safeRequest = request == null ? new OrderSettleRequest() : request;
         if (safeRequest.getConfirmStockWarning() != null) {
@@ -3485,8 +3490,6 @@ public class OrderService {
     public Order cancelOrder(UUID id, OrderCancelRequest request) {
         Order order = getOrder(id);
         ensureOrderCanChange(order, "cancel");
-        ConfigurationDto config = configurationService.getConfigurationForClientAndBranch(order.getClientId(),
-                order.getOrgId());
 
         boolean wasStockDeducted = isSaleOrder(order) && (
                 Boolean.TRUE.equals(order.getIsStockDeducted())
@@ -3764,9 +3767,6 @@ public class OrderService {
             accountingPostingService.postInvoice(order, invoice);
         }
 
-        UUID clientId = order.getClientId();
-        UUID orgId = order.getOrgId();
-
         // INBOUND = money received (Sales), OUTBOUND = money paid (Purchase/Expense)
         DocumentType paymentDocType = (order.getOrderType() == null || order.getOrderType() == OrderType.SALE)
                 ? DocumentType.INBOUND_PAYMENT
@@ -3994,6 +3994,7 @@ public class OrderService {
         return paymentMethod.trim().toUpperCase();
     }
 
+    @SuppressWarnings("unused")
     private String normalizePaymentSplitMethod(String paymentMethod) {
         if (paymentMethod == null || paymentMethod.isBlank()) {
             return "CASH";
@@ -4059,6 +4060,7 @@ public class OrderService {
         }
     }
 
+    @SuppressWarnings("unused")
     private BigDecimal calculateUnroundedLinesTotal(Order order) {
         if (order.getLines() == null || order.getLines().isEmpty()) {
             return BigDecimal.ZERO;
@@ -4692,6 +4694,10 @@ public class OrderService {
                         .paymentTypeLabel(pTypeLabel)
                         .paymentMethod(p.getPaymentMethod())
                         .description(p.getDescription())
+                        .createdBy(p.getCreatedBy() != null ? p.getCreatedBy() : (order != null ? order.getCreatedBy() : null))
+                        .createdAt(p.getCreatedAt() != null ? p.getCreatedAt() : (p.getPaymentDate() != null ? p.getPaymentDate() : (order != null ? order.getCreatedAt() : null)))
+                        .updatedBy(p.getUpdatedBy() != null ? p.getUpdatedBy() : (p.getCreatedBy() != null ? p.getCreatedBy() : (order != null ? order.getUpdatedBy() : null)))
+                        .updatedAt(p.getUpdatedAt() != null ? p.getUpdatedAt() : (p.getCreatedAt() != null ? p.getCreatedAt() : (order != null ? order.getUpdatedAt() : null)))
                         .build());
             }
         }
@@ -4724,6 +4730,10 @@ public class OrderService {
                                 .paymentTypeLabel(pTypeLabel)
                                 .paymentMethod(p.getPaymentMethod())
                                 .description(p.getDescription())
+                                .createdBy(p.getCreatedBy() != null ? p.getCreatedBy() : (order != null ? order.getCreatedBy() : null))
+                                .createdAt(p.getCreatedAt() != null ? p.getCreatedAt() : (alloc.getAllocationDate() != null ? alloc.getAllocationDate() : (order != null ? order.getCreatedAt() : null)))
+                                .updatedBy(p.getUpdatedBy() != null ? p.getUpdatedBy() : (p.getCreatedBy() != null ? p.getCreatedBy() : (order != null ? order.getUpdatedBy() : null)))
+                                .updatedAt(p.getUpdatedAt() != null ? p.getUpdatedAt() : (p.getCreatedAt() != null ? p.getCreatedAt() : (order != null ? order.getUpdatedAt() : null)))
                                 .build());
                     }
                 });

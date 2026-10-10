@@ -18,11 +18,20 @@ import java.util.concurrent.CopyOnWriteArrayList;
 public class OrderStatusSseController {
 
     private static final Map<UUID, List<SseEmitter>> emitters = new ConcurrentHashMap<>();
+    private static final int MAX_ORDER_STREAMS = 5_000;
+    private static final int MAX_STREAMS_PER_ORDER = 5;
+    private static final java.util.concurrent.atomic.AtomicInteger openStreams = new java.util.concurrent.atomic.AtomicInteger();
 
     @GetMapping(value = "/{orderId}/sse", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public SseEmitter subscribeOrderStatus(@PathVariable UUID orderId) {
+    public org.springframework.http.ResponseEntity<SseEmitter> subscribeOrderStatus(@PathVariable UUID orderId) {
+        List<SseEmitter> existing = emitters.get(orderId);
+        if (openStreams.get() >= MAX_ORDER_STREAMS || (existing != null && existing.size() >= MAX_STREAMS_PER_ORDER)) {
+            return org.springframework.http.ResponseEntity.status(org.springframework.http.HttpStatus.TOO_MANY_REQUESTS)
+                    .header(org.springframework.http.HttpHeaders.RETRY_AFTER, "30").build();
+        }
         SseEmitter emitter = new SseEmitter(3600000L); // 1 hour timeout
         emitters.computeIfAbsent(orderId, k -> new CopyOnWriteArrayList<>()).add(emitter);
+        openStreams.incrementAndGet();
 
         emitter.onCompletion(() -> removeEmitter(orderId, emitter));
         emitter.onTimeout(() -> removeEmitter(orderId, emitter));
@@ -34,7 +43,7 @@ public class OrderStatusSseController {
             removeEmitter(orderId, emitter);
         }
 
-        return emitter;
+        return org.springframework.http.ResponseEntity.ok(emitter);
     }
 
     public static void publishStatusUpdate(UUID orderId, Object status) {
@@ -57,14 +66,20 @@ public class OrderStatusSseController {
                     deadEmitters.add(emitter);
                 }
             }
-            list.removeAll(deadEmitters);
+            for (SseEmitter dead : deadEmitters) {
+                if (list.remove(dead)) {
+                    openStreams.decrementAndGet();
+                }
+            }
         }
     }
 
     private static void removeEmitter(UUID orderId, SseEmitter emitter) {
         List<SseEmitter> list = emitters.get(orderId);
         if (list != null) {
-            list.remove(emitter);
+            if (list.remove(emitter)) {
+                openStreams.decrementAndGet();
+            }
             if (list.isEmpty()) {
                 emitters.remove(orderId);
             }

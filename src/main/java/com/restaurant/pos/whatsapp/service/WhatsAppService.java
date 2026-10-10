@@ -15,8 +15,10 @@ import com.restaurant.pos.whatsapp.dto.WhatsAppSendRequestDto;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.scheduling.annotation.Async;
@@ -31,6 +33,9 @@ import java.util.Map;
 @Slf4j
 @Service
 @RequiredArgsConstructor
+/**
+ * WhatsApp integration service for asynchronous digital bill delivery.
+ */
 public class WhatsAppService {
 
     private final WhatsAppBillFormatter billFormatter;
@@ -165,7 +170,7 @@ public class WhatsAppService {
             headers.setContentType(MediaType.APPLICATION_JSON);
             HttpEntity<WhatsAppSendRequestDto> entity = new HttpEntity<>(req, headers);
 
-            ResponseEntity<Map> response = restTemplate.postForEntity(url, entity, Map.class);
+            ResponseEntity<String> response = restTemplate.postForEntity(url, entity, String.class);
             if (response.getStatusCode().is2xxSuccessful()) {
                 log.info("[WhatsAppService] Successfully dispatched WhatsApp bill to {} (session: {})", phone, sessionId);
                 return true;
@@ -179,6 +184,9 @@ public class WhatsAppService {
         }
     }
 
+    private static final ParameterizedTypeReference<Map<String, Object>> MAP_RESPONSE_TYPE =
+            new ParameterizedTypeReference<>() {};
+
     public Map<String, Object> getGatewayStatus() {
         return getGatewayStatus(null);
     }
@@ -186,8 +194,9 @@ public class WhatsAppService {
     public Map<String, Object> getGatewayStatus(String sessionId) {
         try {
             String url = defaultGatewayUrl + "/api/status" + (sessionId != null ? "?sessionId=" + sessionId : "");
-            ResponseEntity<Map> resp = restTemplate.getForEntity(url, Map.class);
-            return resp.getBody();
+            ResponseEntity<Map<String, Object>> resp = restTemplate.exchange(url, HttpMethod.GET, null, MAP_RESPONSE_TYPE);
+            Map<String, Object> body = resp.getBody();
+            return body != null ? body : Collections.emptyMap();
         } catch (Exception ex) {
             Map<String, Object> fallback = new HashMap<>();
             fallback.put("success", false);
@@ -204,8 +213,9 @@ public class WhatsAppService {
     public Map<String, Object> getGatewayQr(String sessionId) {
         try {
             String url = defaultGatewayUrl + "/api/qr" + (sessionId != null ? "?sessionId=" + sessionId : "");
-            ResponseEntity<Map> resp = restTemplate.getForEntity(url, Map.class);
-            return resp.getBody();
+            ResponseEntity<Map<String, Object>> resp = restTemplate.exchange(url, HttpMethod.GET, null, MAP_RESPONSE_TYPE);
+            Map<String, Object> body = resp.getBody();
+            return body != null ? body : Collections.emptyMap();
         } catch (Exception ex) {
             Map<String, Object> fallback = new HashMap<>();
             fallback.put("success", false);
@@ -223,8 +233,10 @@ public class WhatsAppService {
         try {
             String url = defaultGatewayUrl + "/api/disconnect";
             Map<String, String> body = sessionId != null ? Collections.singletonMap("sessionId", sessionId) : Collections.emptyMap();
-            ResponseEntity<Map> resp = restTemplate.postForEntity(url, body, Map.class);
-            return resp.getBody();
+            HttpEntity<Map<String, String>> entity = new HttpEntity<>(body);
+            ResponseEntity<Map<String, Object>> resp = restTemplate.exchange(url, HttpMethod.POST, entity, MAP_RESPONSE_TYPE);
+            Map<String, Object> bodyMap = resp.getBody();
+            return bodyMap != null ? bodyMap : Collections.emptyMap();
         } catch (Exception ex) {
             Map<String, Object> fallback = new HashMap<>();
             fallback.put("success", false);
@@ -243,8 +255,10 @@ public class WhatsAppService {
             Map<String, String> body = new HashMap<>();
             if (sessionId != null) body.put("sessionId", sessionId);
             if (phone != null) body.put("phone", phone);
-            ResponseEntity<Map> resp = restTemplate.postForEntity(url, body, Map.class);
-            return resp.getBody();
+            HttpEntity<Map<String, String>> entity = new HttpEntity<>(body);
+            ResponseEntity<Map<String, Object>> resp = restTemplate.exchange(url, HttpMethod.POST, entity, MAP_RESPONSE_TYPE);
+            Map<String, Object> bodyMap = resp.getBody();
+            return bodyMap != null ? bodyMap : Collections.emptyMap();
         } catch (Exception ex) {
             Map<String, Object> fallback = new HashMap<>();
             fallback.put("success", false);

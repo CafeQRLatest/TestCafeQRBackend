@@ -10,6 +10,7 @@ import com.restaurant.pos.outbox.domain.ProcessedEvent;
 import com.restaurant.pos.outbox.processor.OutboxProcessor;
 import com.restaurant.pos.outbox.repository.ProcessedEventRepository;
 import com.restaurant.pos.push.service.PushNotificationService;
+import com.restaurant.pos.whatsapp.service.WhatsAppService;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -41,7 +42,8 @@ public class NotificationEventConsumer {
 
     private final OutboxProcessor outboxProcessor;
     private final PushNotificationService pushNotificationService;
-    private final com.restaurant.pos.whatsapp.service.WhatsAppService whatsAppService;
+    // WhatsApp integration for sending settled bills
+    private final WhatsAppService whatsAppService;
     private final OrderRepository orderRepository;
     private final ProcessedEventRepository processedEventRepository;
     private final ApplicationEventPublisher eventPublisher;

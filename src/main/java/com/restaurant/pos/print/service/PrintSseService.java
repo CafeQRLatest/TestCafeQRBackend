@@ -20,6 +20,9 @@ import java.util.concurrent.CopyOnWriteArrayList;
  */
 @Slf4j
 @Service
+/**
+ * Server-Sent Events service for real-time printer dispatch.
+ */
 public class PrintSseService {
 
     private static final long SSE_TIMEOUT_MS = 1_800_000L; // 30 minutes

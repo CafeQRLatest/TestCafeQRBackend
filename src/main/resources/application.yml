@@ -1,5 +1,11 @@
 server:
   port: 8080
+  tomcat:
+    # SSE streams are servlet-async (no thread held while idle) but each is an open connection.
+    max-connections: ${SERVER_TOMCAT_MAX_CONNECTIONS:10000}
+    accept-count: ${SERVER_TOMCAT_ACCEPT_COUNT:200}
+    threads:
+      max: ${SERVER_TOMCAT_MAX_THREADS:200}
   max-http-request-header-size: 65536
   compression:
     enabled: true
@@ -29,6 +35,10 @@ spring:
 
   jpa:
     open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
     hibernate:
       ddl-auto: none
     show-sql: false
@@ -92,7 +102,7 @@ management:
   endpoints:
     web:
       exposure:
-        include: health
+        include: health,metrics
   endpoint:
     health:
       probes:
