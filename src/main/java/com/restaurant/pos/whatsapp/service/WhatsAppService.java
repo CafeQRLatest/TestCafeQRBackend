@@ -101,21 +101,24 @@ public class WhatsAppService {
         Long lastSent = recentlySentOrders.get(order.getId());
         long now = System.currentTimeMillis();
         if (lastSent != null && (now - lastSent) < 60_000) {
-            log.debug("[WhatsAppService] WhatsApp bill already sent recently for order {}, skipping duplicate", order.getId());
+            log.info("[WhatsAppService] WhatsApp bill already sent recently for order {}, skipping duplicate", order.getId());
             return true;
         }
 
         String rawPhone = resolveCustomerPhone(order);
         if (rawPhone == null || rawPhone.isBlank()) {
-            log.debug("[WhatsAppService] No customer phone number for order {}, skipping WhatsApp bill", order.getId());
+            log.info("[WhatsAppService] No customer phone number for order {}, skipping WhatsApp bill", order.getId());
             return false;
         }
 
         String normalizedPhone = billFormatter.normalizePhoneNumber(rawPhone);
         if (normalizedPhone == null) {
-            log.warn("[WhatsAppService] Invalid phone number '{}' for order {}", rawPhone, order.getId());
+            log.warn("[WhatsAppService] Invalid phone number '{}' for order {}, skipping WhatsApp bill", rawPhone, order.getId());
             return false;
         }
+
+        log.info("[WhatsAppService] Preparing WhatsApp digital bill for order {}: phone={}, rawPhone={}",
+                order.getId(), normalizedPhone, rawPhone);
 
         Organization org = order.getOrgId() != null 
                 ? organizationRepository.findById(order.getOrgId()).orElse(null) 
@@ -148,7 +151,7 @@ public class WhatsAppService {
 
         String billMessage = billFormatter.formatZeevStyleBill(order, invoice, org, client, publicInvoiceUrl);
         if (billMessage.isBlank()) {
-            log.warn("[WhatsAppService] Formatted bill message was empty for order {}", order.getId());
+            log.warn("[WhatsAppService] Formatted Zeev-style bill message was empty for order {}", order.getId());
             return false;
         }
 
@@ -156,10 +159,16 @@ public class WhatsAppService {
         String fallbackSessionId = order.getClientId() != null ? "client_" + order.getClientId() : null;
         String primarySessionId = branchSessionId != null ? branchSessionId : fallbackSessionId;
 
-        // Dispatch clean, instant text bill containing the public e-bill link (eliminates heavy Baileys PDF decryption stall)
+        log.info("[WhatsAppService] Dispatching bill for order {} to session {} (fallback: {}), url: {}",
+                order.getId(), primarySessionId, fallbackSessionId, publicInvoiceUrl);
+
+        // Dispatch clean, instant text bill containing the public e-bill link
         boolean dispatched = dispatchToGateway(primarySessionId, fallbackSessionId, normalizedPhone, billMessage, null, null);
         if (dispatched) {
             recentlySentOrders.put(order.getId(), now);
+            log.info("[WhatsAppService] Digital bill successfully sent for order {}", order.getId());
+        } else {
+            log.warn("[WhatsAppService] Digital bill dispatch failed for order {}", order.getId());
         }
         return dispatched;
     }
@@ -171,6 +180,8 @@ public class WhatsAppService {
 
     @Transactional(readOnly = true)
     public boolean sendOrderBillWithAttachment(java.util.UUID orderId, String explicitPhone, String pdfBase64, String explicitFrontendUrl) {
+        log.info("[WhatsAppService] sendOrderBillWithAttachment called for orderId: {}, explicitPhone: {}, hasPdf: {}, frontendUrl: {}",
+                orderId, explicitPhone, pdfBase64 != null && !pdfBase64.isBlank(), explicitFrontendUrl);
         if (orderId == null) return false;
         Order order = orderRepository.findByIdWithLines(orderId).orElse(null);
         if (order == null) {
@@ -192,8 +203,12 @@ public class WhatsAppService {
     }
 
     public boolean dispatchToGateway(String sessionId, String fallbackSessionId, String phone, String text, String pdfBase64, String filename) {
+        long startTime = System.currentTimeMillis();
         try {
             String url = defaultGatewayUrl + "/api/send-bill";
+            log.info("[WhatsAppService] Dispatching bill to Gateway URL: {} (phone: {}, session: {}, fallbackSession: {}, textLen: {}, hasPdf: {})",
+                    url, phone, sessionId, fallbackSessionId, text != null ? text.length() : 0, pdfBase64 != null);
+
             WhatsAppSendRequestDto req = WhatsAppSendRequestDto.builder()
                     .sessionId(sessionId)
                     .fallbackSessionId(fallbackSessionId)
@@ -208,15 +223,19 @@ public class WhatsAppService {
             HttpEntity<WhatsAppSendRequestDto> entity = new HttpEntity<>(req, headers);
 
             ResponseEntity<String> response = restTemplate.postForEntity(url, entity, String.class);
+            long elapsed = System.currentTimeMillis() - startTime;
             if (response.getStatusCode().is2xxSuccessful()) {
-                log.info("[WhatsAppService] Successfully dispatched WhatsApp bill to {} (session: {})", phone, sessionId);
+                log.info("[WhatsAppService] Successfully dispatched WhatsApp bill to {} in {}ms (session: {}, resp: {})",
+                        phone, elapsed, sessionId, response.getBody());
                 return true;
             } else {
-                log.warn("[WhatsAppService] Gateway returned non-2xx status: {}", response.getStatusCode());
+                log.warn("[WhatsAppService] Gateway returned non-2xx status {} in {}ms: {}",
+                        response.getStatusCode(), elapsed, response.getBody());
                 return false;
             }
         } catch (Exception ex) {
-            log.warn("[WhatsAppService] Failed to send WhatsApp bill to {}: {}", phone, ex.getMessage());
+            long elapsed = System.currentTimeMillis() - startTime;
+            log.warn("[WhatsAppService] Failed to send WhatsApp bill to {} in {}ms: {}", phone, elapsed, ex.getMessage());
             return false;
         }
     }
@@ -300,6 +319,24 @@ public class WhatsAppService {
             Map<String, Object> fallback = new HashMap<>();
             fallback.put("success", false);
             fallback.put("message", "Failed to send test message: " + ex.getMessage());
+            return fallback;
+        }
+    }
+
+    public Map<String, Object> clearContactSession(String sessionId, String phone) {
+        try {
+            String url = defaultGatewayUrl + "/api/clear-contact-session";
+            Map<String, String> body = new HashMap<>();
+            if (sessionId != null) body.put("sessionId", sessionId);
+            if (phone != null) body.put("phone", phone);
+            HttpEntity<Map<String, String>> entity = new HttpEntity<>(body);
+            ResponseEntity<Map<String, Object>> resp = restTemplate.exchange(url, HttpMethod.POST, entity, MAP_RESPONSE_TYPE);
+            Map<String, Object> bodyMap = resp.getBody();
+            return bodyMap != null ? bodyMap : Collections.emptyMap();
+        } catch (Exception ex) {
+            Map<String, Object> fallback = new HashMap<>();
+            fallback.put("success", false);
+            fallback.put("message", "Failed to clear contact session: " + ex.getMessage());
             return fallback;
         }
     }

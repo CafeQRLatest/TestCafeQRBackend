@@ -54,29 +54,77 @@ const sessions = new Map();
 // Standard in-memory store for Baileys events (if available in Baileys release)
 const store = typeof makeInMemoryStore === 'function' ? makeInMemoryStore({ logger: pino({ level: 'silent' }) }) : null;
 
-// Track message retries across socket lifecycle with 15-minute TTL to prevent permanent exhaustion
+// Persistent directory for recent sent & upserted messages across gateway restarts
+const MSG_DIR = path.join(AUTH_DIR, 'messages');
+if (!fs.existsSync(MSG_DIR)) {
+  fs.mkdirSync(MSG_DIR, { recursive: true });
+}
+
+// Track message retries across socket lifecycle
+let NodeCache;
+try {
+  NodeCache = require('node-cache');
+} catch (e) {
+  NodeCache = null;
+}
+
 const RETRY_TTL_MS = 15 * 60 * 1000;
 const retryCounterMap = new Map();
-const msgRetryCounterCache = {
-  get: (key) => {
-    const entry = retryCounterMap.get(key);
-    if (!entry) return undefined;
-    if (Date.now() > entry.expiresAt) {
-      retryCounterMap.delete(key);
-      return undefined;
-    }
-    return entry.count;
-  },
-  set: (key, val) => {
-    retryCounterMap.set(key, { count: val, expiresAt: Date.now() + RETRY_TTL_MS });
-  },
-  del: (key) => retryCounterMap.delete(key),
-  flushAll: () => retryCounterMap.clear()
-};
+const msgRetryCounterCache = NodeCache
+  ? new NodeCache({ stdTTL: 900, checkperiod: 120 })
+  : {
+      get: (key) => {
+        const entry = retryCounterMap.get(key);
+        if (!entry) return undefined;
+        if (Date.now() > entry.expiresAt) {
+          retryCounterMap.delete(key);
+          return undefined;
+        }
+        return entry.count;
+      },
+      set: (key, val) => {
+        retryCounterMap.set(key, { count: val, expiresAt: Date.now() + RETRY_TTL_MS });
+      },
+      del: (key) => retryCounterMap.delete(key),
+      flushAll: () => retryCounterMap.clear()
+    };
 
-// Bounded in-memory store for recent messages to resolve WhatsApp E2EE retryRequests ('Waiting for this message')
+// Bounded in-memory store + disk persistence for messages to resolve WhatsApp E2EE retryRequests ('Waiting for this message')
 const messageStore = new Map();
-const MAX_CACHED_MESSAGES = 1000;
+const MAX_CACHED_MESSAGES = 1500;
+
+function persistMessageToDisk(key, messageContent) {
+  if (!key || !key.id || !messageContent) return;
+  try {
+    const cleanId = String(key.id).replace(/[^a-zA-Z0-9_-]/g, '_');
+    const filePath = path.join(MSG_DIR, `${cleanId}.json`);
+    const data = JSON.stringify({
+      id: key.id,
+      remoteJid: key.remoteJid,
+      timestamp: Date.now(),
+      message: messageContent
+    });
+    fs.writeFileSync(filePath, data, 'utf-8');
+  } catch (err) {
+    logger.warn({ err: err.message, id: key?.id }, '[WhatsApp Gateway] Failed to persist message to disk');
+  }
+}
+
+function loadPersistedMessageFromDisk(keyId) {
+  if (!keyId) return undefined;
+  try {
+    const cleanId = String(keyId).replace(/[^a-zA-Z0-9_-]/g, '_');
+    const filePath = path.join(MSG_DIR, `${cleanId}.json`);
+    if (fs.existsSync(filePath)) {
+      const raw = fs.readFileSync(filePath, 'utf-8');
+      const parsed = JSON.parse(raw);
+      return parsed?.message;
+    }
+  } catch (err) {
+    logger.warn({ err: err.message, id: keyId }, '[WhatsApp Gateway] Failed to read persisted message from disk');
+  }
+  return undefined;
+}
 
 function normalizeJid(rawJid) {
   if (!rawJid || typeof rawJid !== 'string') return '';
@@ -99,6 +147,9 @@ function cacheMessage(key, messageContent) {
     messageStore.set(normKey, messageContent);
   }
   messageStore.set(key.id, messageContent);
+
+  // Persist to disk so restarts/reconnects don't burn decryption retries
+  persistMessageToDisk(key, messageContent);
 }
 
 /**
@@ -178,6 +229,7 @@ async function initSession(sessionObj) {
         keys: makeCacheableSignalKeyStore(state.keys, logger)
       },
       msgRetryCounterCache,
+      markOnlineOnConnect: true,
       printQRInTerminal: false,
       logger: pino({ level: 'info' }),
       browser: Browsers.ubuntu('Chrome'),
@@ -185,28 +237,41 @@ async function initSession(sessionObj) {
       defaultQueryTimeoutMs: 60000,
       syncFullHistory: false,
       getMessage: async (key) => {
-        if (!key) return undefined;
-        logger.info({ jid: key.remoteJid, id: key.id }, '[WhatsApp Gateway] getMessage retry requested');
+        if (!key || !key.id) return undefined;
+        logger.info({ jid: key.remoteJid, id: key.id, participant: key.participant }, '[WhatsApp Gateway] getMessage retry requested by WhatsApp');
         if (store) {
           try {
             const msg = await store.loadMessage(key.remoteJid, key.id);
-            if (msg && msg.message) return msg.message;
+            if (msg && msg.message) {
+              logger.info({ id: key.id }, '[WhatsApp Gateway] Resolved retry via in-memory store');
+              return msg.message;
+            }
           } catch (e) {
             // ignore
           }
         }
         const storeKey = `${key.remoteJid || ''}:${key.id}`;
         if (messageStore.has(storeKey)) {
+          logger.info({ id: key.id, storeKey }, '[WhatsApp Gateway] Resolved retry via memory rawKey');
           return messageStore.get(storeKey);
         }
         const normJid = normalizeJid(key.remoteJid);
         const normKey = `${normJid}:${key.id}`;
         if (messageStore.has(normKey)) {
+          logger.info({ id: key.id, normKey }, '[WhatsApp Gateway] Resolved retry via memory normKey');
           return messageStore.get(normKey);
         }
-        if (key.id && messageStore.has(key.id)) {
+        if (messageStore.has(key.id)) {
+          logger.info({ id: key.id }, '[WhatsApp Gateway] Resolved retry via memory key.id');
           return messageStore.get(key.id);
         }
+        // Fallback to disk persistence
+        const diskMsg = loadPersistedMessageFromDisk(key.id);
+        if (diskMsg) {
+          logger.info({ id: key.id }, '[WhatsApp Gateway] Resolved retry via disk persistence');
+          return diskMsg;
+        }
+        logger.warn({ id: key.id, jid: key.remoteJid }, '[WhatsApp Gateway] getMessage: message content not found');
         return undefined;
       }
     });
@@ -223,6 +288,22 @@ async function initSession(sessionObj) {
       for (const msg of messages || []) {
         if (msg?.key && msg?.message) {
           cacheMessage(msg.key, msg.message);
+        }
+      }
+    });
+
+    sock.ev.on('messages.update', (updates) => {
+      for (const item of updates || []) {
+        if (item.update?.status) {
+          const statusMap = {
+            1: 'PENDING',
+            2: 'SERVER_ACK (Single Tick ✓)',
+            3: 'DELIVERY_ACK (Double Tick ✓✓)',
+            4: 'READ (Blue Tick ✓✓)',
+            5: 'PLAYED'
+          };
+          const statusText = statusMap[item.update.status] || `Code ${item.update.status}`;
+          logger.info({ id: item.key?.id, jid: item.key?.remoteJid, status: statusText }, `[WhatsApp Gateway] [${sessionId}] Delivery status update`);
         }
       }
     });
@@ -283,6 +364,12 @@ async function initSession(sessionObj) {
           name: user?.name || user?.notify || 'Cafe QR Branch'
         };
         logger.info(`[WhatsApp Gateway] [${sessionId}] Connected successfully! Phone: +${rawPhone}`);
+        try {
+          await sock.sendPresenceUpdate('available');
+          logger.info(`[WhatsApp Gateway] [${sessionId}] Sent presence update 'available'`);
+        } catch (presErr) {
+          logger.debug(`[WhatsApp Gateway] Could not send presence update: ${presErr.message}`);
+        }
       }
     });
 
@@ -347,6 +434,7 @@ app.get('/api/qr', async (req, res) => {
 // 3. Send digital bill (with branch session and optional fallback session)
 app.post('/api/send-bill', async (req, res) => {
   const { sessionId, fallbackSessionId, phone, text, pdfBase64, filename } = req.body;
+  logger.info({ sessionId, fallbackSessionId, phone, hasText: !!text, hasPdf: !!pdfBase64 }, '[WhatsApp Gateway] /api/send-bill request received');
 
   let activeSession = null;
   const primaryId = normalizeSessionId(sessionId);
@@ -372,6 +460,7 @@ app.post('/api/send-bill', async (req, res) => {
   }
 
   if (!activeSession || activeSession.connectionState !== 'CONNECTED' || !activeSession.sock) {
+    logger.warn({ primaryId, fallbackSessionId, state: activeSession?.connectionState }, '[WhatsApp Gateway] Cannot send bill: WhatsApp session is not connected');
     return res.status(503).json({
       success: false,
       message: `WhatsApp is not linked for branch [${primaryId}]. Scan QR in Configurations -> Customers to link.`
@@ -380,6 +469,7 @@ app.post('/api/send-bill', async (req, res) => {
 
   const jid = formatToJid(phone);
   if (!jid) {
+    logger.warn({ phone }, '[WhatsApp Gateway] Invalid customer phone format');
     return res.status(400).json({
       success: false,
       message: 'Invalid customer phone number'
@@ -387,6 +477,7 @@ app.post('/api/send-bill', async (req, res) => {
   }
 
   if (!text && !pdfBase64) {
+    logger.warn('[WhatsApp Gateway] Neither text nor PDF payload was provided');
     return res.status(400).json({
       success: false,
       message: 'Message text or PDF document is required'
@@ -416,6 +507,8 @@ app.post('/api/send-bill', async (req, res) => {
       logger.info(`[WhatsApp Gateway] [${activeSession.id}] Sent digital bill text to ${jid}`);
     }
 
+    logger.info({ messageId: sentMsg?.key?.id, jid, sessionId: activeSession.id }, '[WhatsApp Gateway] Message dispatched successfully to WhatsApp server (Awaiting DELIVERY_ACK)');
+
     return res.json({
       success: true,
       sessionId: activeSession.id,
@@ -423,7 +516,7 @@ app.post('/api/send-bill', async (req, res) => {
       timestamp: Date.now()
     });
   } catch (err) {
-    logger.error({ err, jid, sessionId: activeSession.id }, '[WhatsApp Gateway] Failed to send message');
+    logger.error({ err: err.message, stack: err.stack, jid, sessionId: activeSession.id }, '[WhatsApp Gateway] Failed to send message via Baileys socket');
     return res.status(500).json({
       success: false,
       message: err.message || 'Failed to dispatch WhatsApp message'
@@ -496,7 +589,49 @@ app.post('/api/disconnect', async (req, res) => {
   }
 });
 
-// 6. Health check & Active sessions inventory
+// 6. Clear contact session (heals stale contact Signal ratchets without unlinking the branch)
+app.post('/api/clear-contact-session', async (req, res) => {
+  const { sessionId, phone } = req.body;
+  const cleanId = normalizeSessionId(sessionId);
+  const sessionDir = path.join(AUTH_DIR, cleanId);
+
+  if (!phone) {
+    return res.status(400).json({ success: false, message: 'Phone number is required' });
+  }
+
+  const digits = String(phone).replace(/[^0-9]/g, '');
+  if (!digits) {
+    return res.status(400).json({ success: false, message: 'Invalid phone number' });
+  }
+
+  try {
+    let clearedFiles = 0;
+    if (fs.existsSync(sessionDir)) {
+      const files = fs.readdirSync(sessionDir);
+      for (const file of files) {
+        if (file.includes(digits) || file.startsWith(`session-${digits}`)) {
+          try {
+            fs.unlinkSync(path.join(sessionDir, file));
+            clearedFiles++;
+          } catch (e) {
+            // ignore
+          }
+        }
+      }
+    }
+    logger.info(`[WhatsApp Gateway] [${cleanId}] Cleared ${clearedFiles} stale session file(s) for contact ${digits}`);
+    return res.json({
+      success: true,
+      clearedFiles,
+      message: `Cleared ${clearedFiles} session file(s) for ${digits}. Next message will establish a fresh Signal key ratchet.`
+    });
+  } catch (err) {
+    logger.error({ err, sessionId: cleanId }, 'Error clearing contact session');
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// 7. Health check & Active sessions inventory
 app.get('/health', (req, res) => {
   const inventory = [];
   sessions.forEach((s, id) => {

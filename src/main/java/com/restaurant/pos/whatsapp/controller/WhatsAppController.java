@@ -45,7 +45,19 @@ public class WhatsAppController {
             @RequestBody Map<String, String> body) {
         String phone = body != null ? body.get("phone") : null;
         String explicitSessionId = body != null ? body.get("sessionId") : null;
-        return ResponseEntity.ok(ApiResponse.success(whatsAppService.sendTestMessage(resolveSessionId(explicitSessionId), phone)));
+        String resolvedSession = resolveSessionId(explicitSessionId);
+        log.info("[WhatsAppController] Received sendTest request for phone: {} (session: {})", phone, resolvedSession);
+        return ResponseEntity.ok(ApiResponse.success(whatsAppService.sendTestMessage(resolvedSession, phone)));
+    }
+
+    @PostMapping("/clear-contact-session")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> clearContactSession(
+            @RequestBody Map<String, String> body) {
+        String phone = body != null ? body.get("phone") : null;
+        String explicitSessionId = body != null ? body.get("sessionId") : null;
+        String resolvedSession = resolveSessionId(explicitSessionId);
+        log.info("[WhatsAppController] Received clearContactSession request for phone: {} (session: {})", phone, resolvedSession);
+        return ResponseEntity.ok(ApiResponse.success(whatsAppService.clearContactSession(resolvedSession, phone)));
     }
 
     @PostMapping("/send-order-bill")
@@ -55,6 +67,9 @@ public class WhatsAppController {
         String phone = body != null ? body.get("phone") : null;
         String pdfBase64 = body != null ? body.get("pdfBase64") : null;
         String frontendUrl = body != null ? body.get("frontendUrl") : null;
+
+        log.info("[WhatsAppController] Received sendOrderBill: orderId={}, phone={}, hasPdfBase64={}, frontendUrl={}",
+                orderIdStr, phone, pdfBase64 != null && !pdfBase64.isBlank(), frontendUrl);
 
         if (orderIdStr == null || orderIdStr.isBlank()) {
             return ResponseEntity.badRequest().body(ApiResponse.error("orderId is required"));
@@ -69,6 +84,7 @@ public class WhatsAppController {
 
         try {
             boolean sent = whatsAppService.sendOrderBillWithAttachment(orderId, phone, pdfBase64, frontendUrl);
+            log.info("[WhatsAppController] sendOrderBill result for order {}: sent={}", orderId, sent);
             Map<String, Object> result = Map.of(
                     "success", sent,
                     "orderId", orderId,
@@ -76,7 +92,7 @@ public class WhatsAppController {
             );
             return ResponseEntity.ok(ApiResponse.success(result));
         } catch (Exception ex) {
-            log.error("[WhatsAppController] Failed to dispatch WhatsApp bill with attachment for order {}: {}", orderId, ex.getMessage(), ex);
+            log.error("[WhatsAppController] Failed to dispatch WhatsApp bill for order {}: {}", orderId, ex.getMessage(), ex);
             return ResponseEntity.status(500).body(ApiResponse.error("Failed to dispatch WhatsApp bill: " + ex.getMessage()));
         }
     }
