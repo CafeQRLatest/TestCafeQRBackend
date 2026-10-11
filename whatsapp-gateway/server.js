@@ -24,16 +24,10 @@ if (typeof global.crypto === 'undefined') {
   global.crypto = nodeCrypto.webcrypto || nodeCrypto;
 }
 
-const {
-  default: makeWASocket,
-  useMultiFileAuthState,
-  DisconnectReason,
-  fetchLatestBaileysVersion,
-  makeCacheableSignalKeyStore,
-  makeInMemoryStore,
-  Browsers,
-  proto
-} = require('@whiskeysockets/baileys');
+// Baileys >= 6.7.19 is ESM-only (and carries the LID fixes), so it cannot be require()'d from CommonJS.
+// It is loaded with a dynamic import() in startGateway() before the server starts listening.
+let makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion,
+  makeCacheableSignalKeyStore, makeInMemoryStore, Browsers, proto;
 
 const PORT = process.env.PORT || 3005;
 const AUTH_DIR = path.join(__dirname, 'auth_sessions');
@@ -53,7 +47,7 @@ const logger = pino({ level: 'info' });
 const sessions = new Map();
 
 // Standard in-memory store for Baileys events (if available in Baileys release)
-const store = typeof makeInMemoryStore === 'function' ? makeInMemoryStore({ logger: pino({ level: 'silent' }) }) : null;
+let store = null; // created in startGateway() once Baileys is loaded
 
 // Persistent directory for recent sent & upserted messages across gateway restarts
 const MSG_DIR = path.join(AUTH_DIR, 'messages');
@@ -844,8 +838,28 @@ function autoRestoreExistingSessions() {
   }
 }
 
-app.listen(PORT, () => {
-  console.log(`[GATEWAY_STARTUP] Multi-tenant WhatsApp Gateway listening on port ${PORT}`);
-  logger.info(`[WhatsApp Gateway] Multi-tenant server running on port ${PORT}`);
-  autoRestoreExistingSessions();
+async function startGateway() {
+  const baileys = await import('@whiskeysockets/baileys');
+  ({
+    default: makeWASocket,
+    useMultiFileAuthState,
+    DisconnectReason,
+    fetchLatestBaileysVersion,
+    makeCacheableSignalKeyStore,
+    makeInMemoryStore,
+    Browsers,
+    proto
+  } = baileys);
+  store = typeof makeInMemoryStore === 'function' ? makeInMemoryStore({ logger: pino({ level: 'silent' }) }) : null;
+
+  app.listen(PORT, () => {
+    console.log(`[GATEWAY_STARTUP] Multi-tenant WhatsApp Gateway listening on port ${PORT}`);
+    logger.info(`[WhatsApp Gateway] Multi-tenant server running on port ${PORT}`);
+    autoRestoreExistingSessions();
+  });
+}
+
+startGateway().catch((err) => {
+  console.error('[GATEWAY_STARTUP_ERR] Failed to start gateway:', err);
+  process.exit(1);
 });
