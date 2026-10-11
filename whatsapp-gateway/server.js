@@ -285,7 +285,7 @@ async function initSession(sessionObj) {
             if (msg && msg.message) {
               console.log(`[MSG_RETRY_OK] [${sessionId}] Resolved via store for msgId: ${key.id}`);
               logger.info({ id: key.id }, '[WhatsApp Gateway] Resolved retry via in-memory store');
-              return proto?.Message?.fromObject ? proto.Message.fromObject(msg.message) : msg.message;
+              return msg.message;
             }
           } catch (e) {
             // ignore
@@ -295,29 +295,26 @@ async function initSession(sessionObj) {
         if (messageStore.has(storeKey)) {
           console.log(`[MSG_RETRY_OK] [${sessionId}] Resolved via memory rawKey for msgId: ${key.id}`);
           logger.info({ id: key.id, storeKey }, '[WhatsApp Gateway] Resolved retry via memory rawKey');
-          const raw = messageStore.get(storeKey);
-          return proto?.Message?.fromObject ? proto.Message.fromObject(raw) : raw;
+          return messageStore.get(storeKey);
         }
         const normJid = normalizeJid(key.remoteJid);
         const normKey = `${normJid}:${key.id}`;
         if (messageStore.has(normKey)) {
           console.log(`[MSG_RETRY_OK] [${sessionId}] Resolved via memory normKey for msgId: ${key.id}`);
           logger.info({ id: key.id, normKey }, '[WhatsApp Gateway] Resolved retry via memory normKey');
-          const raw = messageStore.get(normKey);
-          return proto?.Message?.fromObject ? proto.Message.fromObject(raw) : raw;
+          return messageStore.get(normKey);
         }
         if (messageStore.has(key.id)) {
           console.log(`[MSG_RETRY_OK] [${sessionId}] Resolved via memory key.id for msgId: ${key.id}`);
           logger.info({ id: key.id }, '[WhatsApp Gateway] Resolved retry via memory key.id');
-          const raw = messageStore.get(key.id);
-          return proto?.Message?.fromObject ? proto.Message.fromObject(raw) : raw;
+          return messageStore.get(key.id);
         }
         // Fallback to disk persistence
         const diskMsg = loadPersistedMessageFromDisk(key.id);
         if (diskMsg) {
           console.log(`[MSG_RETRY_OK] [${sessionId}] Resolved via disk persistence for msgId: ${key.id}`);
           logger.info({ id: key.id }, '[WhatsApp Gateway] Resolved retry via disk persistence');
-          return proto?.Message?.fromObject ? proto.Message.fromObject(diskMsg) : diskMsg;
+          return diskMsg;
         }
         console.warn(`[MSG_RETRY_MISS] [${sessionId}] getMessage: message content NOT FOUND for msgId: ${key.id}`);
         logger.warn({ id: key.id, jid: key.remoteJid }, '[WhatsApp Gateway] getMessage: message content not found');
