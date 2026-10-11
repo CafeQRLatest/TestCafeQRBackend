@@ -46,6 +46,7 @@ public class WhatsAppService {
     private final CustomerRepository customerRepository;
     private final OrderRepository orderRepository;
     private final RestTemplate restTemplate = createRestTemplate();
+    private final RestTemplate fastRestTemplate = createFastRestTemplate();
     private final Map<java.util.UUID, Long> recentlySentOrders = new java.util.concurrent.ConcurrentHashMap<>();
 
     private static RestTemplate createRestTemplate() {
@@ -53,6 +54,14 @@ public class WhatsAppService {
                 new org.springframework.http.client.SimpleClientHttpRequestFactory();
         factory.setConnectTimeout(4000);
         factory.setReadTimeout(12000);
+        return new RestTemplate(factory);
+    }
+
+    private static RestTemplate createFastRestTemplate() {
+        org.springframework.http.client.SimpleClientHttpRequestFactory factory =
+                new org.springframework.http.client.SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(2000);
+        factory.setReadTimeout(3500);
         return new RestTemplate(factory);
     }
 
@@ -250,7 +259,7 @@ public class WhatsAppService {
     public Map<String, Object> getGatewayStatus(String sessionId) {
         try {
             String url = defaultGatewayUrl + "/api/status" + (sessionId != null ? "?sessionId=" + sessionId : "");
-            ResponseEntity<Map<String, Object>> resp = restTemplate.exchange(url, HttpMethod.GET, null, MAP_RESPONSE_TYPE);
+            ResponseEntity<Map<String, Object>> resp = fastRestTemplate.exchange(url, HttpMethod.GET, null, MAP_RESPONSE_TYPE);
             Map<String, Object> body = resp.getBody();
             return body != null ? body : Collections.emptyMap();
         } catch (Exception ex) {
@@ -269,7 +278,7 @@ public class WhatsAppService {
     public Map<String, Object> getGatewayQr(String sessionId) {
         try {
             String url = defaultGatewayUrl + "/api/qr" + (sessionId != null ? "?sessionId=" + sessionId : "");
-            ResponseEntity<Map<String, Object>> resp = restTemplate.exchange(url, HttpMethod.GET, null, MAP_RESPONSE_TYPE);
+            ResponseEntity<Map<String, Object>> resp = fastRestTemplate.exchange(url, HttpMethod.GET, null, MAP_RESPONSE_TYPE);
             Map<String, Object> body = resp.getBody();
             return body != null ? body : Collections.emptyMap();
         } catch (Exception ex) {
