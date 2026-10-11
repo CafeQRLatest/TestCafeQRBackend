@@ -329,7 +329,6 @@ async function initSession(sessionObj) {
       if (connection === 'close') {
         sessionObj.currentQr = null;
         sessionObj.qrDataUrl = null;
-        sessionObj.connectedUser = null;
 
         const statusCode = lastDisconnect?.error?.output?.statusCode;
         const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
@@ -338,6 +337,7 @@ async function initSession(sessionObj) {
         logger.warn(`[WhatsApp Gateway] [${sessionId}] Connection closed. Code: ${statusCode}. Reconnect: ${shouldReconnect}`);
 
         if (statusCode === DisconnectReason.loggedOut) {
+          sessionObj.connectedUser = null;
           logger.info(`[WhatsApp Gateway] [${sessionId}] Session logged out. Clearing auth files.`);
           try {
             fs.rmSync(sessionDir, { recursive: true, force: true });
@@ -348,9 +348,11 @@ async function initSession(sessionObj) {
           // Restart clean for new scan
           initSession(sessionObj);
         } else if (shouldReconnect) {
+          // Rapid restart on WhatsApp's normal stream-restart (515) after QR pairing
+          const delay = statusCode === DisconnectReason.restartRequired ? 500 : 3000;
           sessionObj.reconnectTimer = setTimeout(() => {
             initSession(sessionObj);
-          }, 4000);
+          }, delay);
         }
       } else if (connection === 'open') {
         sessionObj.currentQr = null;
@@ -459,11 +461,26 @@ app.post('/api/send-bill', async (req, res) => {
     }
   }
 
+  // If session is currently reconnecting or synchronizing, wait up to 8 seconds for it to open
+  if (activeSession && activeSession.connectionState === 'CONNECTING') {
+    const startWait = Date.now();
+    while (Date.now() - startWait < 8000) {
+      if (activeSession.connectionState === 'CONNECTED' && activeSession.sock) {
+        break;
+      }
+      await new Promise(r => setTimeout(r, 400));
+    }
+  }
+
   if (!activeSession || activeSession.connectionState !== 'CONNECTED' || !activeSession.sock) {
     logger.warn({ primaryId, fallbackSessionId, state: activeSession?.connectionState }, '[WhatsApp Gateway] Cannot send bill: WhatsApp session is not connected');
+    const hasCreds = fs.existsSync(path.join(AUTH_DIR, primaryId, 'creds.json'));
+    const message = hasCreds
+      ? `WhatsApp session for branch [${primaryId}] is currently synchronizing with WhatsApp servers. Please wait a moment.`
+      : `WhatsApp is not linked for branch [${primaryId}]. Scan QR in Configurations -> Customers to link.`;
     return res.status(503).json({
       success: false,
-      message: `WhatsApp is not linked for branch [${primaryId}]. Scan QR in Configurations -> Customers to link.`
+      message
     });
   }
 
@@ -529,10 +546,26 @@ app.post('/api/test-message', async (req, res) => {
   const { sessionId, phone } = req.body;
   const session = await getOrCreateSession(sessionId);
 
+  // If session is currently reconnecting or synchronizing, wait up to 8 seconds for it to open
+  if (session && session.connectionState === 'CONNECTING') {
+    const startWait = Date.now();
+    while (Date.now() - startWait < 8000) {
+      if (session.connectionState === 'CONNECTED' && session.sock) {
+        break;
+      }
+      await new Promise(r => setTimeout(r, 400));
+    }
+  }
+
   if (session.connectionState !== 'CONNECTED' || !session.sock) {
+    const cleanId = normalizeSessionId(sessionId);
+    const hasCreds = fs.existsSync(path.join(AUTH_DIR, cleanId, 'creds.json'));
+    const message = hasCreds
+      ? `WhatsApp session is currently synchronizing with WhatsApp servers. Please wait a few seconds and try again.`
+      : `WhatsApp is not connected for this branch. Please scan the QR code first.`;
     return res.status(503).json({
       success: false,
-      message: `WhatsApp is not connected for this branch. Please scan the QR code first.`
+      message
     });
   }
 
