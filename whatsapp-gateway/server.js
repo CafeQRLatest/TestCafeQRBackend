@@ -766,7 +766,11 @@ app.post('/api/clear-contact-session', async (req, res) => {
     if (fs.existsSync(sessionDir)) {
       const files = fs.readdirSync(sessionDir);
       for (const file of files) {
-        if (file.includes(digits) || file.startsWith(`session-${digits}`)) {
+        // WhatsApp now addresses many chats by LID, so Signal session files are named after the LID,
+        // not the phone number. Matching only on the phone digits misses them, so clear every per-contact
+        // Signal session (session-*.json). They are rebuilt on the next message. creds.json, pre-keys and
+        // app-state files are untouched, so the linked login is kept.
+        if (file.includes(digits) || file.startsWith('session-')) {
           try {
             fs.unlinkSync(path.join(sessionDir, file));
             clearedFiles++;
@@ -787,7 +791,7 @@ app.post('/api/clear-contact-session', async (req, res) => {
     return res.json({
       success: true,
       clearedFiles,
-      message: `Cleared ${clearedFiles} session file(s) for ${digits}. Next message will establish a fresh Signal key ratchet.`
+      message: `Cleared ${clearedFiles} contact session file(s). Next message to each contact will establish a fresh Signal key ratchet.`
     });
   } catch (err) {
     console.error(`[CLEAR_CONTACT_FATAL] [${cleanId}] Error clearing contact session:`, err.message, err.stack);
