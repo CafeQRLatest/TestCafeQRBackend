@@ -31,7 +31,8 @@ const {
   fetchLatestBaileysVersion,
   makeCacheableSignalKeyStore,
   makeInMemoryStore,
-  Browsers
+  Browsers,
+  proto
 } = require('@whiskeysockets/baileys');
 
 const PORT = process.env.PORT || 3005;
@@ -244,7 +245,7 @@ async function initSession(sessionObj) {
             const msg = await store.loadMessage(key.remoteJid, key.id);
             if (msg && msg.message) {
               logger.info({ id: key.id }, '[WhatsApp Gateway] Resolved retry via in-memory store');
-              return msg.message;
+              return proto?.Message?.fromObject ? proto.Message.fromObject(msg.message) : msg.message;
             }
           } catch (e) {
             // ignore
@@ -253,23 +254,26 @@ async function initSession(sessionObj) {
         const storeKey = `${key.remoteJid || ''}:${key.id}`;
         if (messageStore.has(storeKey)) {
           logger.info({ id: key.id, storeKey }, '[WhatsApp Gateway] Resolved retry via memory rawKey');
-          return messageStore.get(storeKey);
+          const raw = messageStore.get(storeKey);
+          return proto?.Message?.fromObject ? proto.Message.fromObject(raw) : raw;
         }
         const normJid = normalizeJid(key.remoteJid);
         const normKey = `${normJid}:${key.id}`;
         if (messageStore.has(normKey)) {
           logger.info({ id: key.id, normKey }, '[WhatsApp Gateway] Resolved retry via memory normKey');
-          return messageStore.get(normKey);
+          const raw = messageStore.get(normKey);
+          return proto?.Message?.fromObject ? proto.Message.fromObject(raw) : raw;
         }
         if (messageStore.has(key.id)) {
           logger.info({ id: key.id }, '[WhatsApp Gateway] Resolved retry via memory key.id');
-          return messageStore.get(key.id);
+          const raw = messageStore.get(key.id);
+          return proto?.Message?.fromObject ? proto.Message.fromObject(raw) : raw;
         }
         // Fallback to disk persistence
         const diskMsg = loadPersistedMessageFromDisk(key.id);
         if (diskMsg) {
           logger.info({ id: key.id }, '[WhatsApp Gateway] Resolved retry via disk persistence');
-          return diskMsg;
+          return proto?.Message?.fromObject ? proto.Message.fromObject(diskMsg) : diskMsg;
         }
         logger.warn({ id: key.id, jid: key.remoteJid }, '[WhatsApp Gateway] getMessage: message content not found');
         return undefined;
@@ -456,7 +460,7 @@ app.post('/api/send-bill', async (req, res) => {
   // If still not found in active memory, attempt to load primary
   if (!activeSession) {
     const loaded = await getOrCreateSession(sessionId);
-    if (loaded && loaded.connectionState === 'CONNECTED' && loaded.sock) {
+    if (loaded && (loaded.connectionState === 'CONNECTED' || loaded.connectionState === 'CONNECTING') && loaded.sock) {
       activeSession = loaded;
     }
   }
@@ -652,6 +656,15 @@ app.post('/api/clear-contact-session', async (req, res) => {
         }
       }
     }
+    const session = sessions.get(cleanId);
+    if (session && session.sock) {
+      logger.info(`[WhatsApp Gateway] [${cleanId}] Refreshing Baileys socket to evict in-memory cached Signal keys for ${digits}`);
+      try {
+        session.sock.end();
+      } catch (e) {}
+      setTimeout(() => initSession(session), 600);
+    }
+
     logger.info(`[WhatsApp Gateway] [${cleanId}] Cleared ${clearedFiles} stale session file(s) for contact ${digits}`);
     return res.json({
       success: true,

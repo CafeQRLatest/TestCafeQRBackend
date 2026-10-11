@@ -3,10 +3,11 @@ name: Deploy Test Backend
 on:
   push:
     branches: [main]
-    paths-ignore:
-      - '**.md'
-      - '.gitignore'
-
+    paths:
+      - 'src/**'
+      - 'pom.xml'
+      - 'Dockerfile'
+      - '.github/workflows/deploy-backend.yml'
   workflow_dispatch:
 
 env:
@@ -31,25 +32,12 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract Docker metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=raw,value=latest
-
       - name: Build and push Backend Docker image
         run: |
           docker build -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest .
           docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
 
-      - name: Build and push WhatsApp Gateway Docker image
-        run: |
-          docker build -t ${{ env.REGISTRY }}/cafeqrlatest/testcafeqr-whatsapp-gateway:latest ./whatsapp-gateway
-          docker push ${{ env.REGISTRY }}/cafeqrlatest/testcafeqr-whatsapp-gateway:latest
-
-      - name: Deploy to Oracle Cloud VM
+      - name: Deploy Backend to Oracle Cloud VM
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.VPS_HOST }}
@@ -64,13 +52,11 @@ jobs:
             # Log in to GHCR on the Oracle server to pull the package
             echo "${{ secrets.GITHUB_TOKEN }}" | sudo docker login ghcr.io -u ${{ github.actor }} --password-stdin
             
-            # Pull backend & whatsapp-gateway images
+            # Pull backend image only
             sudo docker-compose pull test-backend || sudo docker compose pull test-backend || true
-            sudo docker-compose pull whatsapp-gateway || sudo docker compose pull whatsapp-gateway || true
             
-            # Restart backend & whatsapp-gateway services (leaving DB and Redis untouched)
+            # Restart backend service only (leaving whatsapp-gateway, DB, and Redis untouched)
             sudo docker-compose up -d test-backend || sudo docker compose up -d test-backend || true
-            sudo docker-compose up -d whatsapp-gateway || sudo docker compose up -d whatsapp-gateway || true
             
             # Clean up old unused images to save disk space
             sudo docker image prune -f

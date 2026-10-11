@@ -1,0 +1,60 @@
+name: Deploy WhatsApp Gateway
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'whatsapp-gateway/**'
+      - '.github/workflows/deploy-whatsapp.yml'
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  GATEWAY_IMAGE: cafeqrlatest/testcafeqr-whatsapp-gateway
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push WhatsApp Gateway Docker image
+        run: |
+          docker build -t ${{ env.REGISTRY }}/${{ env.GATEWAY_IMAGE }}:latest ./whatsapp-gateway
+          docker push ${{ env.REGISTRY }}/${{ env.GATEWAY_IMAGE }}:latest
+
+      - name: Deploy WhatsApp Gateway to Oracle Cloud VM
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.ORACLE_SSH_KEY }}
+          timeout: 120s
+          command_timeout: 5m
+          script: |
+            set -euo pipefail
+            cd /home/ubuntu
+            
+            # Log in to GHCR on the Oracle server to pull the package
+            echo "${{ secrets.GITHUB_TOKEN }}" | sudo docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            
+            # Pull whatsapp-gateway image only
+            sudo docker-compose pull whatsapp-gateway || sudo docker compose pull whatsapp-gateway || true
+            
+            # Restart whatsapp-gateway service only (leaving test-backend, DB, and Redis untouched)
+            sudo docker-compose up -d whatsapp-gateway || sudo docker compose up -d whatsapp-gateway || true
+            
+            # Clean up old unused images to save disk space
+            sudo docker image prune -f
