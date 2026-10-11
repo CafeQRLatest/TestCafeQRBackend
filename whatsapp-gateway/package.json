@@ -9,7 +9,7 @@
     "dev": "node server.js"
   },
   "dependencies": {
-    "@whiskeysockets/baileys": "6.7.24",
+    "@whiskeysockets/baileys": "6.7.18",
     "cors": "^2.8.5",
     "express": "^4.19.2",
     "node-cache": "^5.1.2",
