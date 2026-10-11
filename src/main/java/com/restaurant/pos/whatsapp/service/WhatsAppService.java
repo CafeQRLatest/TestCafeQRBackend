@@ -51,8 +51,8 @@ public class WhatsAppService {
     private static RestTemplate createRestTemplate() {
         org.springframework.http.client.SimpleClientHttpRequestFactory factory =
                 new org.springframework.http.client.SimpleClientHttpRequestFactory();
-        factory.setConnectTimeout(3000);
-        factory.setReadTimeout(5000);
+        factory.setConnectTimeout(4000);
+        factory.setReadTimeout(12000);
         return new RestTemplate(factory);
     }
 

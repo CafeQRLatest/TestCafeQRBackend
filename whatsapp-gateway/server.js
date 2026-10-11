@@ -188,6 +188,36 @@ async function getOrCreateSession(rawSessionId) {
 }
 
 /**
+ * Safely terminates and removes all event listeners from an existing socket.
+ * Prevents dual-socket conflicts and ghost connections on reconnects.
+ */
+function destroySocket(sessionObj) {
+  if (!sessionObj || !sessionObj.sock) return;
+  const sid = sessionObj.id;
+  console.log(`[SOCKET_TEARDOWN] [${sid}] Cleaning up existing socket to prevent ghost/zombie connections...`);
+  logger.info(`[WhatsApp Gateway] [${sid}] Cleaning up existing socket...`);
+  try {
+    sessionObj.sock.ev.removeAllListeners();
+  } catch (e) {
+    console.warn(`[SOCKET_TEARDOWN] [${sid}] Error removing event listeners: ${e.message}`);
+  }
+  try {
+    if (sessionObj.sock.ws) {
+      sessionObj.sock.ws.terminate();
+    }
+  } catch (e) {
+    console.warn(`[SOCKET_TEARDOWN] [${sid}] Error terminating ws: ${e.message}`);
+  }
+  try {
+    sessionObj.sock.end(new Error('Socket teardown before reconnect'));
+  } catch (e) {
+    // ignore
+  }
+  sessionObj.sock = null;
+  console.log(`[SOCKET_TEARDOWN] [${sid}] Socket teardown complete.`);
+}
+
+/**
  * Initializes a Baileys socket for a specific branch/client session.
  */
 async function initSession(sessionObj) {
@@ -203,13 +233,17 @@ async function initSession(sessionObj) {
     sessionObj.reconnectTimer = null;
   }
 
+  // CRITICAL: Destroy any prior socket before instantiating a new one
+  destroySocket(sessionObj);
+
   sessionObj.connectionState = 'CONNECTING';
+  console.log(`[GATEWAY_INIT] [${sessionId}] Initializing Baileys session... (authDir: ${sessionDir})`);
   logger.info(`[WhatsApp Gateway] Initializing session [${sessionId}]...`);
 
   try {
     const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
 
-    // Fetch version safely with a 2-second timeout to prevent hanging if GitHub raw is slow/unreachable
+    // Fetch version safely with a 2.5-second timeout to prevent hanging if GitHub raw is slow/unreachable
     let version = [2, 3000, 1043857760];
     try {
       const v = await Promise.race([
@@ -218,8 +252,10 @@ async function initSession(sessionObj) {
       ]);
       if (v && v.version) {
         version = v.version;
+        console.log(`[GATEWAY_INIT] [${sessionId}] Using latest Baileys protocol version: ${version.join('.')}`);
       }
     } catch (verErr) {
+      console.warn(`[GATEWAY_INIT] [${sessionId}] Using fallback Baileys version: ${verErr.message}`);
       logger.warn(`[WhatsApp Gateway] Using fallback Baileys version: ${verErr.message}`);
     }
 
@@ -233,17 +269,21 @@ async function initSession(sessionObj) {
       markOnlineOnConnect: true,
       printQRInTerminal: false,
       logger: pino({ level: 'info' }),
-      browser: Browsers.ubuntu('Chrome'),
+      browser: Browsers.macOS('Desktop'),
+      keepAliveIntervalMs: 15000,
       connectTimeoutMs: 60000,
       defaultQueryTimeoutMs: 60000,
+      retryRequestDelayMs: 250,
       syncFullHistory: false,
       getMessage: async (key) => {
         if (!key || !key.id) return undefined;
+        console.log(`[MSG_RETRY_REQ] [${sessionId}] Decryption retry requested by WhatsApp for msgId: ${key.id}, jid: ${key.remoteJid}`);
         logger.info({ jid: key.remoteJid, id: key.id, participant: key.participant }, '[WhatsApp Gateway] getMessage retry requested by WhatsApp');
         if (store) {
           try {
             const msg = await store.loadMessage(key.remoteJid, key.id);
             if (msg && msg.message) {
+              console.log(`[MSG_RETRY_OK] [${sessionId}] Resolved via store for msgId: ${key.id}`);
               logger.info({ id: key.id }, '[WhatsApp Gateway] Resolved retry via in-memory store');
               return proto?.Message?.fromObject ? proto.Message.fromObject(msg.message) : msg.message;
             }
@@ -253,6 +293,7 @@ async function initSession(sessionObj) {
         }
         const storeKey = `${key.remoteJid || ''}:${key.id}`;
         if (messageStore.has(storeKey)) {
+          console.log(`[MSG_RETRY_OK] [${sessionId}] Resolved via memory rawKey for msgId: ${key.id}`);
           logger.info({ id: key.id, storeKey }, '[WhatsApp Gateway] Resolved retry via memory rawKey');
           const raw = messageStore.get(storeKey);
           return proto?.Message?.fromObject ? proto.Message.fromObject(raw) : raw;
@@ -260,11 +301,13 @@ async function initSession(sessionObj) {
         const normJid = normalizeJid(key.remoteJid);
         const normKey = `${normJid}:${key.id}`;
         if (messageStore.has(normKey)) {
+          console.log(`[MSG_RETRY_OK] [${sessionId}] Resolved via memory normKey for msgId: ${key.id}`);
           logger.info({ id: key.id, normKey }, '[WhatsApp Gateway] Resolved retry via memory normKey');
           const raw = messageStore.get(normKey);
           return proto?.Message?.fromObject ? proto.Message.fromObject(raw) : raw;
         }
         if (messageStore.has(key.id)) {
+          console.log(`[MSG_RETRY_OK] [${sessionId}] Resolved via memory key.id for msgId: ${key.id}`);
           logger.info({ id: key.id }, '[WhatsApp Gateway] Resolved retry via memory key.id');
           const raw = messageStore.get(key.id);
           return proto?.Message?.fromObject ? proto.Message.fromObject(raw) : raw;
@@ -272,9 +315,11 @@ async function initSession(sessionObj) {
         // Fallback to disk persistence
         const diskMsg = loadPersistedMessageFromDisk(key.id);
         if (diskMsg) {
+          console.log(`[MSG_RETRY_OK] [${sessionId}] Resolved via disk persistence for msgId: ${key.id}`);
           logger.info({ id: key.id }, '[WhatsApp Gateway] Resolved retry via disk persistence');
           return proto?.Message?.fromObject ? proto.Message.fromObject(diskMsg) : diskMsg;
         }
+        console.warn(`[MSG_RETRY_MISS] [${sessionId}] getMessage: message content NOT FOUND for msgId: ${key.id}`);
         logger.warn({ id: key.id, jid: key.remoteJid }, '[WhatsApp Gateway] getMessage: message content not found');
         return undefined;
       }
@@ -307,6 +352,7 @@ async function initSession(sessionObj) {
             5: 'PLAYED'
           };
           const statusText = statusMap[item.update.status] || `Code ${item.update.status}`;
+          console.log(`[DELIVERY_STATUS] [${sessionId}] Msg: ${item.key?.id} -> ${item.key?.remoteJid}: ${statusText}`);
           logger.info({ id: item.key?.id, jid: item.key?.remoteJid, status: statusText }, `[WhatsApp Gateway] [${sessionId}] Delivery status update`);
         }
       }
@@ -324,8 +370,10 @@ async function initSession(sessionObj) {
             width: 320,
             color: { dark: '#0f172a', light: '#ffffff' }
           });
+          console.log(`[QR_GENERATED] [${sessionId}] New QR code generated (${sessionObj.qrDataUrl?.length || 0} chars). Waiting for user scan...`);
           logger.info(`[WhatsApp Gateway] [${sessionId}] New QR code generated successfully (${sessionObj.qrDataUrl?.length || 0} chars). Waiting for scan...`);
         } catch (e) {
+          console.error(`[QR_ERROR] [${sessionId}] Failed to convert QR to Data URL:`, e.message);
           logger.error({ err: e, sessionId }, 'Failed to convert QR to Data URL');
         }
       }
@@ -335,18 +383,23 @@ async function initSession(sessionObj) {
         sessionObj.qrDataUrl = null;
 
         const statusCode = lastDisconnect?.error?.output?.statusCode;
+        const errorReason = lastDisconnect?.error?.message || 'Unknown reason';
         const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
         sessionObj.connectionState = 'DISCONNECTED';
 
+        console.error(`[CONNECTION_CLOSED] [${sessionId}] Disconnected. Code: ${statusCode}, Reason: "${errorReason}", ShouldReconnect: ${shouldReconnect}`);
         logger.warn(`[WhatsApp Gateway] [${sessionId}] Connection closed. Code: ${statusCode}. Reconnect: ${shouldReconnect}`);
 
         if (statusCode === DisconnectReason.loggedOut) {
           sessionObj.connectedUser = null;
+          console.warn(`[LOGGED_OUT] [${sessionId}] Session logged out by WhatsApp device. Clearing credentials...`);
           logger.info(`[WhatsApp Gateway] [${sessionId}] Session logged out. Clearing auth files.`);
+          destroySocket(sessionObj);
           try {
             fs.rmSync(sessionDir, { recursive: true, force: true });
             fs.mkdirSync(sessionDir, { recursive: true });
           } catch (err) {
+            console.error(`[AUTH_RESET_ERR] [${sessionId}] Error cleaning session directory:`, err.message);
             logger.error({ err, sessionId }, 'Error cleaning session directory');
           }
           // Restart clean for new scan
@@ -354,6 +407,7 @@ async function initSession(sessionObj) {
         } else if (shouldReconnect) {
           // Rapid restart on WhatsApp's normal stream-restart (515) after QR pairing
           const delay = statusCode === DisconnectReason.restartRequired ? 500 : 3000;
+          console.log(`[RECONNECT_SCHEDULED] [${sessionId}] Reconnecting session in ${delay}ms...`);
           sessionObj.reconnectTimer = setTimeout(() => {
             initSession(sessionObj);
           }, delay);
@@ -369,17 +423,21 @@ async function initSession(sessionObj) {
           phone: rawPhone,
           name: user?.name || user?.notify || 'Cafe QR Branch'
         };
+        console.log(`[CONNECTION_OPEN] [${sessionId}] WhatsApp linked successfully! Phone: +${rawPhone}, Identity: "${sessionObj.connectedUser.name}"`);
         logger.info(`[WhatsApp Gateway] [${sessionId}] Connected successfully! Phone: +${rawPhone}`);
         try {
           await sock.sendPresenceUpdate('available');
+          console.log(`[PRESENCE_OK] [${sessionId}] Presence set to 'available'`);
           logger.info(`[WhatsApp Gateway] [${sessionId}] Sent presence update 'available'`);
         } catch (presErr) {
+          console.warn(`[PRESENCE_ERR] [${sessionId}] Could not set presence:`, presErr.message);
           logger.debug(`[WhatsApp Gateway] Could not send presence update: ${presErr.message}`);
         }
       }
     });
 
   } catch (error) {
+    console.error(`[GATEWAY_INIT_ERR] [${sessionId}] Session initialization failed:`, error.message, error.stack);
     logger.error({ err: error, sessionId }, `[WhatsApp Gateway] Session [${sessionId}] initialization failed`);
     sessionObj.connectionState = 'DISCONNECTED';
     sessionObj.reconnectTimer = setTimeout(() => initSession(sessionObj), 5000);
@@ -440,6 +498,7 @@ app.get('/api/qr', async (req, res) => {
 // 3. Send digital bill (with branch session and optional fallback session)
 app.post('/api/send-bill', async (req, res) => {
   const { sessionId, fallbackSessionId, phone, text, pdfBase64, filename } = req.body;
+  console.log(`[SEND_BILL_REQ] Incoming bill request: session=${sessionId}, fallback=${fallbackSessionId}, phone=${phone}, hasText=${!!text}, hasPdf=${!!pdfBase64}`);
   logger.info({ sessionId, fallbackSessionId, phone, hasText: !!text, hasPdf: !!pdfBase64 }, '[WhatsApp Gateway] /api/send-bill request received');
 
   let activeSession = null;
@@ -453,6 +512,7 @@ app.post('/api/send-bill', async (req, res) => {
     const fallback = sessions.get(fallbackId);
     if (fallback && fallback.connectionState === 'CONNECTED' && fallback.sock) {
       activeSession = fallback;
+      console.log(`[SEND_BILL_FALLBACK] Primary [${primaryId}] not connected. Using fallback session [${fallbackId}]`);
       logger.info(`[WhatsApp Gateway] Primary [${primaryId}] not connected. Using fallback session [${fallbackId}]`);
     }
   }
@@ -467,6 +527,7 @@ app.post('/api/send-bill', async (req, res) => {
 
   // If session is currently reconnecting or synchronizing, wait up to 8 seconds for it to open
   if (activeSession && activeSession.connectionState === 'CONNECTING') {
+    console.log(`[SEND_BILL_WAIT] Session [${activeSession.id}] is CONNECTING. Waiting up to 8s for socket to open...`);
     const startWait = Date.now();
     while (Date.now() - startWait < 8000) {
       if (activeSession.connectionState === 'CONNECTED' && activeSession.sock) {
@@ -477,6 +538,7 @@ app.post('/api/send-bill', async (req, res) => {
   }
 
   if (!activeSession || activeSession.connectionState !== 'CONNECTED' || !activeSession.sock) {
+    console.warn(`[SEND_BILL_REJECTED] Session not connected: primary=${primaryId}, state=${activeSession?.connectionState}`);
     logger.warn({ primaryId, fallbackSessionId, state: activeSession?.connectionState }, '[WhatsApp Gateway] Cannot send bill: WhatsApp session is not connected');
     const hasCreds = fs.existsSync(path.join(AUTH_DIR, primaryId, 'creds.json'));
     const message = hasCreds
@@ -488,8 +550,10 @@ app.post('/api/send-bill', async (req, res) => {
     });
   }
 
-  const jid = formatToJid(phone);
-  if (!jid) {
+  const rawDigits = String(phone || '').replace(/[^0-9]/g, '');
+  const formattedJid = formatToJid(phone);
+  if (!formattedJid) {
+    console.warn(`[SEND_BILL_ERR] Invalid customer phone format: "${phone}"`);
     logger.warn({ phone }, '[WhatsApp Gateway] Invalid customer phone format');
     return res.status(400).json({
       success: false,
@@ -498,6 +562,7 @@ app.post('/api/send-bill', async (req, res) => {
   }
 
   if (!text && !pdfBase64) {
+    console.warn('[SEND_BILL_ERR] Neither text nor PDF payload was provided');
     logger.warn('[WhatsApp Gateway] Neither text nor PDF payload was provided');
     return res.status(400).json({
       success: false,
@@ -505,12 +570,33 @@ app.post('/api/send-bill', async (req, res) => {
     });
   }
 
+  // Pre-flight check: Verify number exists on WhatsApp and get canonical JID to eliminate single-tick dead drops
+  let targetJid = formattedJid;
+  try {
+    console.log(`[ON_WHATSAPP_CHECK] Verifying registration for ${formattedJid}...`);
+    const results = await activeSession.sock.onWhatsApp(formattedJid);
+    const checked = Array.isArray(results) && results.length > 0 ? results[0] : null;
+    if (checked && checked.exists) {
+      targetJid = checked.jid;
+      console.log(`[ON_WHATSAPP_OK] Verified: ${phone} -> canonical JID: ${targetJid}`);
+    } else {
+      console.warn(`[ON_WHATSAPP_NOT_FOUND] Number ${phone} (${formattedJid}) is NOT registered on WhatsApp`);
+      return res.status(400).json({
+        success: false,
+        message: `Phone number +${rawDigits} is not registered on WhatsApp.`
+      });
+    }
+  } catch (checkErr) {
+    console.warn(`[ON_WHATSAPP_BYPASS] Check failed (${checkErr.message}), proceeding with ${formattedJid}`);
+  }
+
   try {
     let sentMsg = null;
 
     if (pdfBase64) {
+      console.log(`[DISPATCH_MSG] Sending PDF invoice to ${targetJid} (${filename || 'Tax_Invoice.pdf'})...`);
       const buffer = Buffer.from(pdfBase64, 'base64');
-      sentMsg = await activeSession.sock.sendMessage(jid, {
+      sentMsg = await activeSession.sock.sendMessage(targetJid, {
         document: buffer,
         mimetype: 'application/pdf',
         fileName: filename || 'Tax_Invoice.pdf',
@@ -519,16 +605,20 @@ app.post('/api/send-bill', async (req, res) => {
       if (sentMsg?.key && sentMsg?.message) {
         cacheMessage(sentMsg.key, sentMsg.message);
       }
-      logger.info(`[WhatsApp Gateway] [${activeSession.id}] Sent PDF invoice with digital receipt caption to ${jid}`);
+      console.log(`[DISPATCH_OK] PDF invoice sent to ${targetJid}, msgId: ${sentMsg?.key?.id}`);
+      logger.info(`[WhatsApp Gateway] [${activeSession.id}] Sent PDF invoice with digital receipt caption to ${targetJid}`);
     } else if (text) {
-      sentMsg = await activeSession.sock.sendMessage(jid, { text: String(text).trim() });
+      console.log(`[DISPATCH_MSG] Sending text digital bill to ${targetJid}...`);
+      sentMsg = await activeSession.sock.sendMessage(targetJid, { text: String(text).trim() });
       if (sentMsg?.key && sentMsg?.message) {
         cacheMessage(sentMsg.key, sentMsg.message);
       }
-      logger.info(`[WhatsApp Gateway] [${activeSession.id}] Sent digital bill text to ${jid}`);
+      console.log(`[DISPATCH_OK] Digital bill sent to ${targetJid}, msgId: ${sentMsg?.key?.id}`);
+      logger.info(`[WhatsApp Gateway] [${activeSession.id}] Sent digital bill text to ${targetJid}`);
     }
 
-    logger.info({ messageId: sentMsg?.key?.id, jid, sessionId: activeSession.id }, '[WhatsApp Gateway] Message dispatched successfully to WhatsApp server (Awaiting DELIVERY_ACK)');
+    console.log(`[SEND_BILL_SUCCESS] Msg ID: ${sentMsg?.key?.id} dispatched to WhatsApp servers. Awaiting DELIVERY_ACK (double tick).`);
+    logger.info({ messageId: sentMsg?.key?.id, jid: targetJid, sessionId: activeSession.id }, '[WhatsApp Gateway] Message dispatched successfully to WhatsApp server (Awaiting DELIVERY_ACK)');
 
     return res.json({
       success: true,
@@ -537,7 +627,8 @@ app.post('/api/send-bill', async (req, res) => {
       timestamp: Date.now()
     });
   } catch (err) {
-    logger.error({ err: err.message, stack: err.stack, jid, sessionId: activeSession.id }, '[WhatsApp Gateway] Failed to send message via Baileys socket');
+    console.error(`[SEND_BILL_FATAL] Error sending to ${targetJid}:`, err.message, err.stack);
+    logger.error({ err: err.message, stack: err.stack, jid: targetJid, sessionId: activeSession.id }, '[WhatsApp Gateway] Failed to send message via Baileys socket');
     return res.status(500).json({
       success: false,
       message: err.message || 'Failed to dispatch WhatsApp message'
@@ -548,10 +639,12 @@ app.post('/api/send-bill', async (req, res) => {
 // 4. Send test message
 app.post('/api/test-message', async (req, res) => {
   const { sessionId, phone } = req.body;
+  console.log(`[TEST_MSG_REQ] Incoming test message request: session=${sessionId}, phone=${phone}`);
   const session = await getOrCreateSession(sessionId);
 
   // If session is currently reconnecting or synchronizing, wait up to 8 seconds for it to open
   if (session && session.connectionState === 'CONNECTING') {
+    console.log(`[TEST_MSG_WAIT] Session [${session.id}] is CONNECTING. Waiting up to 8s...`);
     const startWait = Date.now();
     while (Date.now() - startWait < 8000) {
       if (session.connectionState === 'CONNECTED' && session.sock) {
@@ -564,6 +657,7 @@ app.post('/api/test-message', async (req, res) => {
   if (session.connectionState !== 'CONNECTED' || !session.sock) {
     const cleanId = normalizeSessionId(sessionId);
     const hasCreds = fs.existsSync(path.join(AUTH_DIR, cleanId, 'creds.json'));
+    console.warn(`[TEST_MSG_REJECTED] Session [${cleanId}] not connected. hasCreds: ${hasCreds}, state: ${session?.connectionState}`);
     const message = hasCreds
       ? `WhatsApp session is currently synchronizing with WhatsApp servers. Please wait a few seconds and try again.`
       : `WhatsApp is not connected for this branch. Please scan the QR code first.`;
@@ -575,19 +669,47 @@ app.post('/api/test-message', async (req, res) => {
 
   const targetPhone = phone || session.connectedUser?.phone;
   if (!targetPhone) {
+    console.warn('[TEST_MSG_ERR] No target phone number provided');
     return res.status(400).json({ success: false, message: 'Phone number is required' });
   }
 
-  const jid = formatToJid(targetPhone);
+  const formattedJid = formatToJid(targetPhone);
+  if (!formattedJid) {
+    console.warn(`[TEST_MSG_ERR] Invalid target phone format: "${targetPhone}"`);
+    return res.status(400).json({ success: false, message: 'Invalid target phone format' });
+  }
+
+  let targetJid = formattedJid;
+  try {
+    console.log(`[TEST_MSG_CHECK] Verifying registration for ${formattedJid}...`);
+    const results = await session.sock.onWhatsApp(formattedJid);
+    const checked = Array.isArray(results) && results.length > 0 ? results[0] : null;
+    if (checked && checked.exists) {
+      targetJid = checked.jid;
+      console.log(`[TEST_MSG_CHECK_OK] Verified: ${targetPhone} -> canonical JID: ${targetJid}`);
+    } else {
+      console.warn(`[TEST_MSG_CHECK_FAIL] Number ${targetPhone} (${formattedJid}) is NOT registered on WhatsApp`);
+      return res.status(400).json({
+        success: false,
+        message: `Phone number +${String(targetPhone).replace(/[^0-9]/g, '')} is not registered on WhatsApp.`
+      });
+    }
+  } catch (checkErr) {
+    console.warn(`[TEST_MSG_CHECK_BYPASS] Check failed (${checkErr.message}), proceeding with ${formattedJid}`);
+  }
+
   try {
     const branchLabel = session.id.replace('org_', 'Branch ');
     const testText = `✅ *Cafe QR WhatsApp Gateway Test*\n\nYour WhatsApp Digital Bill service is connected and active for *${branchLabel}*! 🚀\n\n_Time: ${new Date().toLocaleString()}_`;
-    const testMsg = await session.sock.sendMessage(jid, { text: testText });
+    console.log(`[TEST_MSG_DISPATCH] Dispatching test text to ${targetJid}...`);
+    const testMsg = await session.sock.sendMessage(targetJid, { text: testText });
     if (testMsg?.key && testMsg?.message) {
       cacheMessage(testMsg.key, testMsg.message);
     }
+    console.log(`[TEST_MSG_SUCCESS] Test message sent successfully to ${targetJid}, msgId: ${testMsg?.key?.id}`);
     return res.json({ success: true, message: `Test message sent to ${targetPhone}` });
   } catch (err) {
+    console.error(`[TEST_MSG_FATAL] Error dispatching test message to ${targetJid}:`, err.message, err.stack);
     return res.status(500).json({ success: false, message: err.message });
   }
 });
@@ -597,16 +719,20 @@ app.post('/api/disconnect', async (req, res) => {
   const { sessionId } = req.body;
   const cleanId = normalizeSessionId(sessionId);
   const sessionDir = path.join(AUTH_DIR, cleanId);
+  console.log(`[DISCONNECT_REQ] Disconnecting session [${cleanId}]...`);
 
   try {
     const session = sessions.get(cleanId);
-    if (session && session.sock) {
-      await session.sock.logout().catch(() => {});
-      session.sock.end();
-      session.sock = null;
+    if (session) {
+      if (session.sock) {
+        console.log(`[DISCONNECT_LOGOUT] Logging out socket for [${cleanId}]...`);
+        await session.sock.logout().catch((e) => console.warn(`[DISCONNECT_WARN] Logout error: ${e.message}`));
+      }
+      destroySocket(session);
     }
 
     if (fs.existsSync(sessionDir)) {
+      console.log(`[DISCONNECT_PURGE] Removing auth directory: ${sessionDir}`);
       fs.rmSync(sessionDir, { recursive: true, force: true });
       fs.mkdirSync(sessionDir, { recursive: true });
     }
@@ -616,11 +742,13 @@ app.post('/api/disconnect', async (req, res) => {
       session.qrDataUrl = null;
       session.connectedUser = null;
       session.connectionState = 'DISCONNECTED';
+      console.log(`[DISCONNECT_RESTART] Scheduling clean initSession for [${cleanId}] in 1s...`);
       setTimeout(() => initSession(session), 1000);
     }
 
     return res.json({ success: true, message: `Disconnected session [${cleanId}]. You can now scan a new number.` });
   } catch (err) {
+    console.error(`[DISCONNECT_FATAL] Error disconnecting session [${cleanId}]:`, err.message, err.stack);
     logger.error({ err, sessionId: cleanId }, 'Error during disconnect');
     return res.status(500).json({ success: false, message: err.message });
   }
@@ -631,6 +759,7 @@ app.post('/api/clear-contact-session', async (req, res) => {
   const { sessionId, phone } = req.body;
   const cleanId = normalizeSessionId(sessionId);
   const sessionDir = path.join(AUTH_DIR, cleanId);
+  console.log(`[CLEAR_CONTACT_REQ] [${cleanId}] Request to clear contact session for phone: ${phone}`);
 
   if (!phone) {
     return res.status(400).json({ success: false, message: 'Phone number is required' });
@@ -657,21 +786,20 @@ app.post('/api/clear-contact-session', async (req, res) => {
       }
     }
     const session = sessions.get(cleanId);
-    if (session && session.sock) {
-      logger.info(`[WhatsApp Gateway] [${cleanId}] Refreshing Baileys socket to evict in-memory cached Signal keys for ${digits}`);
-      try {
-        session.sock.end();
-      } catch (e) {}
+    if (session) {
+      console.log(`[CLEAR_CONTACT_RESTART] [${cleanId}] Destroying socket and restarting clean session to evict cached Signal keys for ${digits}...`);
+      destroySocket(session);
       setTimeout(() => initSession(session), 600);
     }
 
-    logger.info(`[WhatsApp Gateway] [${cleanId}] Cleared ${clearedFiles} stale session file(s) for contact ${digits}`);
+    console.log(`[CLEAR_CONTACT_OK] [${cleanId}] Cleared ${clearedFiles} session file(s) for ${digits}`);
     return res.json({
       success: true,
       clearedFiles,
       message: `Cleared ${clearedFiles} session file(s) for ${digits}. Next message will establish a fresh Signal key ratchet.`
     });
   } catch (err) {
+    console.error(`[CLEAR_CONTACT_FATAL] [${cleanId}] Error clearing contact session:`, err.message, err.stack);
     logger.error({ err, sessionId: cleanId }, 'Error clearing contact session');
     return res.status(500).json({ success: false, message: err.message });
   }
@@ -701,22 +829,26 @@ function autoRestoreExistingSessions() {
   try {
     if (!fs.existsSync(AUTH_DIR)) return;
     const entries = fs.readdirSync(AUTH_DIR, { withFileTypes: true });
+    console.log(`[AUTO_RESTORE] Scanning ${AUTH_DIR} for existing sessions...`);
     for (const entry of entries) {
-      if (entry.isDirectory()) {
+      if (entry.isDirectory() && entry.name !== 'messages') {
         const sid = entry.name;
         // Verify creds.json exists in this folder
         if (fs.existsSync(path.join(AUTH_DIR, sid, 'creds.json'))) {
+          console.log(`[AUTO_RESTORE] Found saved credentials for session: [${sid}]. Restoring...`);
           logger.info(`[WhatsApp Gateway] Auto-restoring existing session: [${sid}]`);
           getOrCreateSession(sid);
         }
       }
     }
   } catch (err) {
+    console.error('[AUTO_RESTORE_ERR] Error scanning for existing sessions:', err.message);
     logger.error({ err }, '[WhatsApp Gateway] Error scanning for existing sessions');
   }
 }
 
 app.listen(PORT, () => {
+  console.log(`[GATEWAY_STARTUP] Multi-tenant WhatsApp Gateway listening on port ${PORT}`);
   logger.info(`[WhatsApp Gateway] Multi-tenant server running on port ${PORT}`);
   autoRestoreExistingSessions();
 });
