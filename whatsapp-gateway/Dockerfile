@@ -6,7 +6,8 @@ WORKDIR /app
 RUN apk add --no-cache git python3 make g++
 
 COPY package*.json ./
-RUN npm install --omit=dev
+# The lockfile pins libsignal via git+ssh; the build has no SSH key, so fetch it over HTTPS.
+RUN git config --global url."https://github.com/".insteadOf "ssh://git@github.com/" && npm ci --omit=dev
 
 COPY server.js ./
 
