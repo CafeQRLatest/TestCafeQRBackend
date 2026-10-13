@@ -121,6 +121,18 @@ function loadPersistedMessageFromDisk(keyId) {
   return undefined;
 }
 
+function wrapProtoMessage(rawMsg) {
+  if (!rawMsg) return undefined;
+  if (proto && proto.Message && typeof proto.Message.fromObject === 'function') {
+    try {
+      return proto.Message.fromObject(rawMsg);
+    } catch (e) {
+      return rawMsg;
+    }
+  }
+  return rawMsg;
+}
+
 function normalizeJid(rawJid) {
   if (!rawJid || typeof rawJid !== 'string') return '';
   const user = rawJid.split(':')[0].split('@')[0];
@@ -239,12 +251,12 @@ async function initSession(sessionObj) {
   try {
     const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
 
-    // Fetch version safely with a 2.5-second timeout to prevent hanging if GitHub raw is slow/unreachable
+    // Fetch version safely with an 8-second timeout to prevent hanging if GitHub raw is slow/unreachable
     let version = [2, 3000, 1043857760];
     try {
       const v = await Promise.race([
         fetchLatestBaileysVersion(),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 2500))
+        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 8000))
       ]);
       if (v && v.version) {
         version = v.version;
@@ -286,7 +298,7 @@ async function initSession(sessionObj) {
             if (msg && msg.message) {
               console.log(`[MSG_RETRY_OK] [${sessionId}] Resolved via session store for msgId: ${key.id}`);
               logger.info({ id: key.id }, '[WhatsApp Gateway] Resolved retry via session store');
-              return msg.message;
+              return wrapProtoMessage(msg.message);
             }
           } catch (e) {
             // ignore
@@ -296,33 +308,26 @@ async function initSession(sessionObj) {
         if (messageStore.has(storeKey)) {
           console.log(`[MSG_RETRY_OK] [${sessionId}] Resolved via memory rawKey for msgId: ${key.id}`);
           logger.info({ id: key.id, storeKey }, '[WhatsApp Gateway] Resolved retry via memory rawKey');
-          return messageStore.get(storeKey);
+          return wrapProtoMessage(messageStore.get(storeKey));
         }
         const normJid = normalizeJid(key.remoteJid);
         const normKey = `${normJid}:${key.id}`;
         if (messageStore.has(normKey)) {
           console.log(`[MSG_RETRY_OK] [${sessionId}] Resolved via memory normKey for msgId: ${key.id}`);
           logger.info({ id: key.id, normKey }, '[WhatsApp Gateway] Resolved retry via memory normKey');
-          return messageStore.get(normKey);
+          return wrapProtoMessage(messageStore.get(normKey));
         }
         if (messageStore.has(key.id)) {
           console.log(`[MSG_RETRY_OK] [${sessionId}] Resolved via memory key.id for msgId: ${key.id}`);
           logger.info({ id: key.id }, '[WhatsApp Gateway] Resolved retry via memory key.id');
-          return messageStore.get(key.id);
+          return wrapProtoMessage(messageStore.get(key.id));
         }
         // Fallback to disk persistence
         const diskMsg = loadPersistedMessageFromDisk(key.id);
         if (diskMsg) {
           console.log(`[MSG_RETRY_OK] [${sessionId}] Resolved via disk persistence for msgId: ${key.id}`);
           logger.info({ id: key.id }, '[WhatsApp Gateway] Resolved retry via disk persistence');
-          if (proto && proto.Message && typeof proto.Message.fromObject === 'function') {
-            try {
-              return proto.Message.fromObject(diskMsg);
-            } catch (protoErr) {
-              return diskMsg;
-            }
-          }
-          return diskMsg;
+          return wrapProtoMessage(diskMsg);
         }
         console.warn(`[MSG_RETRY_MISS] [${sessionId}] getMessage: message content NOT FOUND for msgId: ${key.id}`);
         logger.warn({ id: key.id, jid: key.remoteJid }, '[WhatsApp Gateway] getMessage: message content not found');
@@ -592,8 +597,14 @@ app.post('/api/send-bill', async (req, res) => {
     const results = await activeSession.sock.onWhatsApp(formattedJid);
     const checked = Array.isArray(results) && results.length > 0 ? results[0] : null;
     if (checked && checked.exists) {
-      targetJid = checked.jid;
-      console.log(`[ON_WHATSAPP_OK] Verified: ${phone} -> canonical JID: ${targetJid}`);
+      // CRITICAL: NEVER route direct 1-to-1 customer bills to an @lid!
+      // If checked.jid is a standard @s.whatsapp.net phone JID, use it; otherwise strictly preserve formattedJid.
+      if (checked.jid && checked.jid.endsWith('@s.whatsapp.net')) {
+        targetJid = checked.jid;
+      } else {
+        targetJid = formattedJid;
+      }
+      console.log(`[ON_WHATSAPP_OK] Verified: ${phone} -> canonical targetJid: ${targetJid} (raw check jid: ${checked.jid})`);
     } else {
       console.warn(`[ON_WHATSAPP_NOT_FOUND] Number ${phone} (${formattedJid}) is NOT registered on WhatsApp`);
       return res.status(400).json({
@@ -700,8 +711,12 @@ app.post('/api/test-message', async (req, res) => {
     const results = await session.sock.onWhatsApp(formattedJid);
     const checked = Array.isArray(results) && results.length > 0 ? results[0] : null;
     if (checked && checked.exists) {
-      targetJid = checked.jid;
-      console.log(`[TEST_MSG_CHECK_OK] Verified: ${targetPhone} -> canonical JID: ${targetJid}`);
+      if (checked.jid && checked.jid.endsWith('@s.whatsapp.net')) {
+        targetJid = checked.jid;
+      } else {
+        targetJid = formattedJid;
+      }
+      console.log(`[TEST_MSG_CHECK_OK] Verified: ${targetPhone} -> canonical targetJid: ${targetJid} (raw check jid: ${checked.jid})`);
     } else {
       console.warn(`[TEST_MSG_CHECK_FAIL] Number ${targetPhone} (${formattedJid}) is NOT registered on WhatsApp`);
       return res.status(400).json({
