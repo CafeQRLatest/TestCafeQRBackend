@@ -9,6 +9,17 @@ import com.restaurant.pos.subscription.domain.ClientSubscriptionModule;
 import com.restaurant.pos.subscription.domain.SubscriptionPayment;
 import com.restaurant.pos.subscription.repository.ClientSubscriptionModuleRepository;
 import com.restaurant.pos.subscription.repository.SubscriptionPaymentRepository;
+import com.restaurant.pos.auth.domain.User;
+import com.restaurant.pos.auth.dto.AuthResponse;
+import com.restaurant.pos.auth.repository.UserRepository;
+import com.restaurant.pos.auth.service.AuthService;
+import com.restaurant.pos.client.dto.ClientCountProjection;
+import com.restaurant.pos.client.dto.ClientOrderStatsProjection;
+import com.restaurant.pos.order.repository.OrderRepository;
+import com.restaurant.pos.product.repository.ProductRepository;
+import com.restaurant.pos.table.repository.RestaurantTableRepository;
+import jakarta.servlet.http.HttpServletRequest;
+import java.math.BigDecimal;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -48,6 +59,11 @@ public class FounderDashboardController {
     private final ClientRepository clientRepository;
     private final ClientSubscriptionModuleRepository moduleRepository;
     private final SubscriptionPaymentRepository paymentRepository;
+    private final OrderRepository orderRepository;
+    private final ProductRepository productRepository;
+    private final RestaurantTableRepository tableRepository;
+    private final UserRepository userRepository;
+    private final AuthService authService;
 
     @Value("${founder.secret-key}")
     private String founderSecretKey;
@@ -92,6 +108,25 @@ public class FounderDashboardController {
 
         LocalDateTime now = LocalDateTime.now();
 
+        // ── Batched Telemetry Aggregations (O(1) in-memory lookup) ───────────
+        List<ClientOrderStatsProjection> orderStats = orderRepository.aggregateClientOrderStats();
+        Map<UUID, ClientOrderStatsProjection> orderStatsByClient = orderStats.stream()
+                .collect(Collectors.toMap(ClientOrderStatsProjection::getClientId, p -> p, (a, b) -> a));
+
+        List<ClientCountProjection> productCounts = productRepository.countActiveProductsPerClient();
+        Map<UUID, Long> productCountsByClient = productCounts.stream()
+                .collect(Collectors.toMap(ClientCountProjection::getClientId, ClientCountProjection::getCount, (a, b) -> a));
+
+        List<ClientCountProjection> tableCounts = tableRepository.countActiveTablesPerClient();
+        Map<UUID, Long> tableCountsByClient = tableCounts.stream()
+                .collect(Collectors.toMap(ClientCountProjection::getClientId, ClientCountProjection::getCount, (a, b) -> a));
+
+        long activeCafesToday = orderRepository.countActiveClientsSince(now.minusHours(24));
+        long activeCafes7Days = orderRepository.countActiveClientsSince(now.minusDays(7));
+        long totalOrdersCount = orderRepository.countAllSaleOrders();
+        BigDecimal totalGmv = orderRepository.sumPlatformGmv();
+        long platformGmvPaise = totalGmv != null ? totalGmv.multiply(BigDecimal.valueOf(100)).longValue() : 0L;
+
         // ── Build per-client summaries ─────────────────────────────────────────
         List<ClientSummaryDto> clientSummaries = uniqueClients.stream()
                 .map(client -> {
@@ -133,6 +168,59 @@ public class FounderDashboardController {
 
                     long totalPaid = payments.stream().mapToLong(SubscriptionPayment::getAmount).sum();
 
+                    // Client Activity & Vitality
+                    ClientOrderStatsProjection oStat = orderStatsByClient.get(client.getId());
+                    long clientOrderCount = oStat != null && oStat.getOrderCount() != null ? oStat.getOrderCount() : 0L;
+                    long clientGmvPaise = oStat != null && oStat.getTotalGmv() != null 
+                            ? oStat.getTotalGmv().multiply(BigDecimal.valueOf(100)).longValue() 
+                            : 0L;
+                    LocalDateTime lastOrderAt = oStat != null ? oStat.getLastOrderAt() : null;
+
+                    int menuCount = productCountsByClient.getOrDefault(client.getId(), 0L).intValue();
+                    int tableCount = tableCountsByClient.getOrDefault(client.getId(), 0L).intValue();
+
+                    // Onboarding Step & Score
+                    boolean hasName = client.getName() != null && !client.getName().isBlank() && !"—".equals(client.getName());
+                    boolean hasPhone = client.getPhone() != null && !client.getPhone().isBlank();
+                    boolean profileSet = hasName && hasPhone;
+
+                    int score = 20; // Signed up
+                    String onboardingStep = "PROFILE_INCOMPLETE";
+                    if (profileSet) {
+                        score = 40;
+                        onboardingStep = "MENU_PENDING";
+                        if (menuCount >= 3) {
+                            score = 60;
+                            onboardingStep = "TABLES_PENDING";
+                            if (tableCount >= 1) {
+                                score = 80;
+                                onboardingStep = "FIRST_ORDER_PENDING";
+                                if (clientOrderCount >= 1) {
+                                    score = 100;
+                                    onboardingStep = "ACTIVATED";
+                                }
+                            }
+                        }
+                    } else if (menuCount >= 3 || tableCount >= 1 || clientOrderCount >= 1) {
+                        score = Math.max(40, (menuCount >= 3 ? 60 : 40) + (clientOrderCount >= 1 ? 40 : 0));
+                        onboardingStep = clientOrderCount >= 1 ? "ACTIVATED" : "PROFILE_INCOMPLETE";
+                    }
+
+                    // Health Status Classification
+                    String subStatus = client.getSubscriptionStatus() != null ? client.getSubscriptionStatus().toUpperCase() : "UNPAID";
+                    String healthStatus;
+                    if ("EXPIRED".equals(subStatus)) {
+                        healthStatus = "EXPIRED";
+                    } else if (lastOrderAt != null && lastOrderAt.isAfter(now.minusDays(7))) {
+                        healthStatus = "HEALTHY";
+                    } else if (clientOrderCount > 0 && (lastOrderAt == null || lastOrderAt.isBefore(now.minusDays(7)))) {
+                        healthStatus = "AT_RISK";
+                    } else if (client.getCreatedAt() != null && client.getCreatedAt().isBefore(now.minusDays(7)) && clientOrderCount == 0) {
+                        healthStatus = "DORMANT";
+                    } else {
+                        healthStatus = "HEALTHY";
+                    }
+
                     return ClientSummaryDto.builder()
                             .id(client.getId())
                             .name(client.getName())
@@ -165,6 +253,14 @@ public class FounderDashboardController {
                             .paymentHistory(paymentInfos)
                             .totalPaidPaise(totalPaid)
                             .paymentCount(payments.size())
+                            .gmvPaise(clientGmvPaise)
+                            .orderCount(clientOrderCount)
+                            .lastOrderAt(lastOrderAt)
+                            .menuItemsCount(menuCount)
+                            .tablesCount(tableCount)
+                            .onboardingStep(onboardingStep)
+                            .onboardingScore(score)
+                            .healthStatus(healthStatus)
                             .build();
                 })
                 .sorted(Comparator.comparing(c -> c.getName() == null ? "" : c.getName()))
@@ -184,6 +280,23 @@ public class FounderDashboardController {
             }
         }
 
+        // Paying clients
+        List<ClientSummaryDto> payingClients = clientSummaries.stream()
+                .filter(c -> "ACTIVE".equalsIgnoreCase(c.getSubscriptionStatus()) && c.getTotalPaidPaise() > 0)
+                .collect(Collectors.toList());
+        long totalPayingRev = payingClients.stream().mapToLong(ClientSummaryDto::getTotalPaidPaise).sum();
+        long arpuPaise = payingClients.isEmpty() ? 0L : totalPayingRev / payingClients.size();
+        
+        long mrrPaise = payingClients.stream().mapToLong(c -> {
+            if (c.getPaymentHistory() != null && !c.getPaymentHistory().isEmpty()) {
+                return c.getPaymentHistory().get(0).getAmount();
+            }
+            return 0L;
+        }).sum();
+
+        int activationRatePercent = clientSummaries.isEmpty() ? 0 
+                : (int) Math.round((clientSummaries.stream().filter(c -> c.getOrderCount() > 0).count() * 100.0) / clientSummaries.size());
+
         FounderDashboardResponse response = FounderDashboardResponse.builder()
                 .stats(FounderDashboardResponse.Stats.builder()
                         .totalClients(clientSummaries.size())
@@ -192,11 +305,53 @@ public class FounderDashboardController {
                         .expiredClients(expired)
                         .unpaidClients(unpaid)
                         .totalRevenuePaise(totalRevenue)
+                        .platformGmvPaise(platformGmvPaise)
+                        .totalOrdersCount(totalOrdersCount)
+                        .activeCafesToday(activeCafesToday)
+                        .activeCafes7Days(activeCafes7Days)
+                        .mrrPaise(mrrPaise)
+                        .arpuPaise(arpuPaise)
+                        .activationRatePercent(activationRatePercent)
                         .build())
                 .clients(clientSummaries)
                 .build();
 
         return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    @PostMapping("/client/{clientId}/impersonate")
+    public ResponseEntity<?> impersonateClient(
+            @PathVariable UUID clientId,
+            @RequestHeader(value = "X-Founder-Key", required = false) String providedKey,
+            HttpServletRequest request) {
+
+        if (!isValidKey(providedKey)) {
+            log.warn("[FounderDashboard] Unauthorized impersonation attempt for client {}", clientId);
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(ApiResponse.error("Unauthorized"));
+        }
+
+        Client client = clientRepository.findById(clientId).orElse(null);
+        if (client == null) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiResponse.error("Client not found"));
+        }
+
+        List<User> users = userRepository.findAllByClientId(clientId);
+        if (users.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiResponse.error("No user accounts found for this client"));
+        }
+
+        User targetUser = users.stream()
+                .filter(u -> u.getRoleEntity() != null && "ADMIN".equalsIgnoreCase(u.getRoleEntity().getName()))
+                .findFirst()
+                .orElse(users.get(0));
+
+        log.info("[FounderDashboard] Founder impersonating client {} ({}) as user {}", clientId, client.getName(), targetUser.getEmail());
+
+        String ip = request.getRemoteAddr();
+        String userAgent = request.getHeader("User-Agent");
+        AuthResponse authResponse = authService.authenticateDirectly(targetUser, ip, userAgent);
+
+        return ResponseEntity.ok(ApiResponse.success(authResponse));
     }
 
     @lombok.Data

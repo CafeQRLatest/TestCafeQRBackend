@@ -56,6 +56,16 @@ public class ClientSummaryDto {
     private long totalPaidPaise;
     private int paymentCount;
 
+    // Platform Vitality & Heartbeat
+    private long gmvPaise;
+    private long orderCount;
+    private LocalDateTime lastOrderAt;
+    private int menuItemsCount;
+    private int tablesCount;
+    private String onboardingStep;
+    private int onboardingScore;
+    private String healthStatus;
+
     @Data
     @Builder
     @NoArgsConstructor
