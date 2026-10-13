@@ -203,6 +203,14 @@ public class WhatsAppService {
         if (explicitPhone != null && !explicitPhone.isBlank()) {
             order.setCustomerPhone(explicitPhone);
         }
+
+        Long lastSent = recentlySentOrders.get(order.getId());
+        long now = System.currentTimeMillis();
+        if (lastSent != null && (now - lastSent) < 15_000) {
+            log.info("[WhatsAppService] Order {} was already dispatched {}ms ago, skipping concurrent re-dispatch",
+                    order.getId(), (now - lastSent));
+            return true;
+        }
         recentlySentOrders.remove(order.getId());
         return sendOrderSettledBill(order, explicitFrontendUrl);
     }

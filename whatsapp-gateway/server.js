@@ -27,7 +27,7 @@ if (typeof global.crypto === 'undefined') {
 // Baileys >= 6.7.19 is ESM-only (and carries the LID fixes), so it cannot be require()'d from CommonJS.
 // It is loaded with a dynamic import() in startGateway() before the server starts listening.
 let makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion,
-  makeCacheableSignalKeyStore, makeInMemoryStore, Browsers, proto;
+  makeCacheableSignalKeyStore, makeInMemoryStore, addTransactionCapability, Browsers, proto;
 
 const PORT = process.env.PORT || 3005;
 const AUTH_DIR = path.join(__dirname, 'auth_sessions');
@@ -169,6 +169,7 @@ async function getOrCreateSession(rawSessionId) {
   const sessionObj = {
     id: sessionId,
     sock: null,
+    store: null,
     currentQr: null,
     qrDataUrl: null,
     connectionState: 'DISCONNECTED', // 'DISCONNECTED' | 'SCAN_QR' | 'CONNECTING' | 'CONNECTED'
@@ -208,6 +209,7 @@ function destroySocket(sessionObj) {
     // ignore
   }
   sessionObj.sock = null;
+  sessionObj.store = null;
   console.log(`[SOCKET_TEARDOWN] [${sid}] Socket teardown complete.`);
 }
 
@@ -253,17 +255,22 @@ async function initSession(sessionObj) {
       logger.warn(`[WhatsApp Gateway] Using fallback Baileys version: ${verErr.message}`);
     }
 
+    const cachedSignalKeyStore = makeCacheableSignalKeyStore(state.keys, logger);
+    const keys = typeof addTransactionCapability === 'function'
+      ? addTransactionCapability(cachedSignalKeyStore, logger, { maxCommitRetries: 5, delayBetweenTriesMs: 50 })
+      : cachedSignalKeyStore;
+
     const sock = makeWASocket({
       version,
       auth: {
         creds: state.creds,
-        keys: makeCacheableSignalKeyStore(state.keys, logger)
+        keys
       },
       msgRetryCounterCache,
       markOnlineOnConnect: true,
       printQRInTerminal: false,
       logger: pino({ level: 'info' }),
-      browser: Browsers.macOS('Desktop'),
+      browser: Browsers.ubuntu('Chrome'),
       keepAliveIntervalMs: 15000,
       connectTimeoutMs: 60000,
       defaultQueryTimeoutMs: 60000,
@@ -273,12 +280,12 @@ async function initSession(sessionObj) {
         if (!key || !key.id) return undefined;
         console.log(`[MSG_RETRY_REQ] [${sessionId}] Decryption retry requested by WhatsApp for msgId: ${key.id}, jid: ${key.remoteJid}`);
         logger.info({ jid: key.remoteJid, id: key.id, participant: key.participant }, '[WhatsApp Gateway] getMessage retry requested by WhatsApp');
-        if (store) {
+        if (sessionObj.store) {
           try {
-            const msg = await store.loadMessage(key.remoteJid, key.id);
+            const msg = await sessionObj.store.loadMessage(key.remoteJid, key.id);
             if (msg && msg.message) {
-              console.log(`[MSG_RETRY_OK] [${sessionId}] Resolved via store for msgId: ${key.id}`);
-              logger.info({ id: key.id }, '[WhatsApp Gateway] Resolved retry via in-memory store');
+              console.log(`[MSG_RETRY_OK] [${sessionId}] Resolved via session store for msgId: ${key.id}`);
+              logger.info({ id: key.id }, '[WhatsApp Gateway] Resolved retry via session store');
               return msg.message;
             }
           } catch (e) {
@@ -308,6 +315,13 @@ async function initSession(sessionObj) {
         if (diskMsg) {
           console.log(`[MSG_RETRY_OK] [${sessionId}] Resolved via disk persistence for msgId: ${key.id}`);
           logger.info({ id: key.id }, '[WhatsApp Gateway] Resolved retry via disk persistence');
+          if (proto && proto.Message && typeof proto.Message.fromObject === 'function') {
+            try {
+              return proto.Message.fromObject(diskMsg);
+            } catch (protoErr) {
+              return diskMsg;
+            }
+          }
           return diskMsg;
         }
         console.warn(`[MSG_RETRY_MISS] [${sessionId}] getMessage: message content NOT FOUND for msgId: ${key.id}`);
@@ -316,8 +330,13 @@ async function initSession(sessionObj) {
       }
     });
 
-    if (store) {
-      store.bind(sock.ev);
+    if (typeof makeInMemoryStore === 'function') {
+      try {
+        sessionObj.store = makeInMemoryStore({ logger: pino({ level: 'silent' }) });
+        sessionObj.store.bind(sock.ev);
+      } catch (storeErr) {
+        console.warn(`[STORE_BIND_WARN] [${sessionId}] Could not bind isolated session store: ${storeErr.message}`);
+      }
     }
 
     sessionObj.sock = sock;
@@ -442,6 +461,11 @@ function formatToJid(inputPhone) {
   if (!inputPhone) return null;
   let digits = String(inputPhone).replace(/[^0-9]/g, '');
   if (!digits) return null;
+
+  // Remove leading 0 if 11 digits (e.g. 09496958200 -> 9496958200)
+  if (digits.length === 11 && digits.startsWith('0')) {
+    digits = digits.substring(1);
+  }
 
   // If 10 digits (Standard Indian mobile number without country code), prepend 91
   if (digits.length === 10) {
@@ -765,12 +789,15 @@ app.post('/api/clear-contact-session', async (req, res) => {
     let clearedFiles = 0;
     if (fs.existsSync(sessionDir)) {
       const files = fs.readdirSync(sessionDir);
+      let cleanDigits = digits;
+      if (cleanDigits.length === 10) cleanDigits = '91' + cleanDigits;
+      const altDigits = digits.length === 10 ? digits : (digits.startsWith('91') ? digits.slice(2) : digits);
+
       for (const file of files) {
-        // WhatsApp now addresses many chats by LID, so Signal session files are named after the LID,
-        // not the phone number. Matching only on the phone digits misses them, so clear every per-contact
-        // Signal session (session-*.json). They are rebuilt on the next message. creds.json, pre-keys and
-        // app-state files are untouched, so the linked login is kept.
-        if (file.includes(digits) || file.startsWith('session-')) {
+        // ONLY clear session/sender-key files for THIS specific contact
+        // NEVER delete files matching a broad 'session-' prefix as that wipes all other customers' ratchets!
+        const matchesContact = file.includes(digits) || file.includes(cleanDigits) || file.includes(altDigits);
+        if (matchesContact && (file.startsWith('session-') || file.startsWith('sender-key-'))) {
           try {
             fs.unlinkSync(path.join(sessionDir, file));
             clearedFiles++;
@@ -851,10 +878,10 @@ async function startGateway() {
     fetchLatestBaileysVersion,
     makeCacheableSignalKeyStore,
     makeInMemoryStore,
+    addTransactionCapability,
     Browsers,
     proto
   } = baileys);
-  store = typeof makeInMemoryStore === 'function' ? makeInMemoryStore({ logger: pino({ level: 'silent' }) }) : null;
 
   app.listen(PORT, () => {
     console.log(`[GATEWAY_STARTUP] Multi-tenant WhatsApp Gateway listening on port ${PORT}`);

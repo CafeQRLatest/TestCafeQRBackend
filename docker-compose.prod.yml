@@ -168,7 +168,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 192M
+          memory: 384M
 
 # ── Networks ──
 # Two isolated networks ensure the database/cache/queue
