@@ -545,15 +545,20 @@ app.post('/api/send-bill', async (req, res) => {
     }
   }
 
-  // If session is currently reconnecting or synchronizing, wait up to 8 seconds for it to open
-  if (activeSession && activeSession.connectionState === 'CONNECTING') {
-    console.log(`[SEND_BILL_WAIT] Session [${activeSession.id}] is CONNECTING. Waiting up to 8s for socket to open...`);
-    const startWait = Date.now();
-    while (Date.now() - startWait < 8000) {
-      if (activeSession.connectionState === 'CONNECTED' && activeSession.sock) {
-        break;
+  // Fallback to official session or any connected session if requested session is not connected
+  if (!activeSession || activeSession.connectionState !== 'CONNECTED' || !activeSession.sock) {
+    const officialSession = sessions.get('cafeqr_official');
+    if (officialSession && officialSession.connectionState === 'CONNECTED' && officialSession.sock) {
+      activeSession = officialSession;
+      console.log(`[SEND_BILL_OFFICIAL] Using connected official session [cafeqr_official]`);
+    } else {
+      for (const [id, sess] of sessions.entries()) {
+        if (sess && sess.connectionState === 'CONNECTED' && sess.sock) {
+          activeSession = sess;
+          console.log(`[SEND_BILL_AUTO_FALLBACK] Using connected session [${id}]`);
+          break;
+        }
       }
-      await new Promise(r => setTimeout(r, 400));
     }
   }
 

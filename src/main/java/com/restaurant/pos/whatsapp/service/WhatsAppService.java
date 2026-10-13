@@ -257,6 +257,25 @@ public class WhatsAppService {
         }
     }
 
+    /**
+     * Dispatches an authentication verification code via the Official Cafe QR WhatsApp session.
+     */
+    public boolean sendOfficialAuthOtp(String phone, String otp) {
+        if (phone == null || phone.isBlank() || otp == null || otp.isBlank()) {
+            return false;
+        }
+        String cleanPhone = billFormatter.normalizePhoneNumber(phone);
+        if (cleanPhone == null) {
+            cleanPhone = phone.trim().replaceAll("[^0-9]", "");
+        }
+        String otpMessage = String.format(
+                " *Cafe QR Verification Code*\n\nYour one-time login code is: *%s*\n\nValid for 5 minutes. Please do not share this code with anyone.",
+                otp.trim()
+        );
+        log.info("[WhatsAppService] Dispatching official auth OTP to {} via session 'cafeqr_official'", cleanPhone);
+        return dispatchToGateway("cafeqr_official", null, cleanPhone, otpMessage, null, null);
+    }
+
     private static final ParameterizedTypeReference<Map<String, Object>> MAP_RESPONSE_TYPE =
             new ParameterizedTypeReference<>() {};
 

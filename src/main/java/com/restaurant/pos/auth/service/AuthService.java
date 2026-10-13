@@ -189,6 +189,16 @@ public class AuthService {
         return buildAuthResponse(user, client, ipAddress, userAgent);
     }
 
+    @Transactional
+    public AuthResponse authenticateDirectly(User user, String ipAddress, String userAgent) {
+        if (!"Y".equalsIgnoreCase(user.getIsactive())) {
+            throw new BusinessException("Your account is inactive. Please contact support.");
+        }
+        Client client = clientRepository.findById(java.util.Objects.requireNonNull(user.getClientId()))
+                .orElseThrow(() -> new BusinessException("Client not found"));
+        return buildAuthResponse(user, client, ipAddress, userAgent);
+    }
+
     private AuthResponse buildAuthResponse(User user, Client client, String ipAddress, String userAgent) {
         // Self-heal: auto-assign user to the client's default branch if not already set
         UUID resolvedOrgId = user.getOrgId();
