@@ -111,7 +111,7 @@ public class PrintSseService {
 
             for (SseEmitter emitter : emitters) {
                 try {
-                    emitter.send(SseEmitter.event().comment("ping"));
+                    emitter.send(SseEmitter.event().name("ping").data("{}"));
                 } catch (Exception e) {
                     deadEmitters.add(emitter);
                 }
