@@ -50,11 +50,11 @@ public interface PrintJobRepository extends JpaRepository<PrintJob, UUID> {
     @Query("""
             SELECT p FROM PrintJob p
             WHERE p.clientId = :clientId
-              AND (:orgId IS NULL OR p.orgId = :orgId)
+              AND (cast(:orgId as uuid) IS NULL OR p.orgId = :orgId)
               AND p.status IN :statuses
               AND p.jobKind IN :jobKinds
               AND (p.nextAttemptAt IS NULL OR p.nextAttemptAt <= :now)
-              AND (:cutoffTime IS NULL OR p.createdAt >= :cutoffTime)
+              AND p.createdAt >= :cutoffTime
             ORDER BY p.createdAt ASC
             """)
     List<PrintJob> findClaimable(

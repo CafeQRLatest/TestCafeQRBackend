@@ -127,7 +127,7 @@ public class PrintJobService {
                 clientId,
                 orgId,
                 List.of(PrintJobStatus.PENDING, PrintJobStatus.RETRY),
-                List.of(PrintJobKind.KOT, PrintJobKind.BILL),
+                List.of(PrintJobKind.KOT, PrintJobKind.BILL, PrintJobKind.INVOICE),
                 now,
                 cutoffTime,
                 PageRequest.of(0, boundedLimit)
