@@ -41,9 +41,14 @@ public class PrintSseController {
         }
 
         // Disable proxy buffering for instant delivery (Caddy / Cloudflare / Nginx)
+        response.setHeader("X-Accel-Buffering", "no");
+        response.setHeader(HttpHeaders.CACHE_CONTROL, "no-cache, no-transform");
+        response.setHeader(HttpHeaders.CONNECTION, "keep-alive");
+
         HttpHeaders headers = new HttpHeaders();
         headers.set(HttpHeaders.CACHE_CONTROL, "no-cache, no-transform");
         headers.set("X-Accel-Buffering", "no");
+        headers.set(HttpHeaders.CONNECTION, "keep-alive");
 
         SseEmitter emitter = printSseService.subscribe(clientId, orgId);
         return new ResponseEntity<>(emitter, headers, HttpStatus.OK);

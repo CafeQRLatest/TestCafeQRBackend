@@ -29,6 +29,8 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.LocalDateTime;
 import java.util.HashMap;
@@ -36,11 +38,25 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class PrintJobService {
+
+    private final Map<UUID, AtomicLong> clientPrintVersions = new ConcurrentHashMap<>();
+
+    public long getVersion(UUID clientId) {
+        if (clientId == null) return 0L;
+        return clientPrintVersions.computeIfAbsent(clientId, k -> new AtomicLong(0)).get();
+    }
+
+    public void bumpVersion(UUID clientId) {
+        if (clientId == null) return;
+        clientPrintVersions.computeIfAbsent(clientId, k -> new AtomicLong(0)).incrementAndGet();
+    }
 
     private final PrintJobRepository printJobRepository;
     private final PrintJobAttemptRepository printJobAttemptRepository;
@@ -104,12 +120,16 @@ public class PrintJobService {
         UUID terminalId = TenantContext.getCurrentTerminal();
         int boundedLimit = Math.max(1, Math.min(limit <= 0 ? 5 : limit, 20));
 
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime cutoffTime = now.minusMinutes(30);
+
         List<PrintJob> jobs = printJobRepository.findClaimable(
                 clientId,
                 orgId,
                 List.of(PrintJobStatus.PENDING, PrintJobStatus.RETRY),
                 List.of(PrintJobKind.KOT, PrintJobKind.BILL),
-                LocalDateTime.now(),
+                now,
+                cutoffTime,
                 PageRequest.of(0, boundedLimit)
         );
 
@@ -117,7 +137,6 @@ public class PrintJobService {
             return List.of();
         }
 
-        LocalDateTime now = LocalDateTime.now();
         for (PrintJob job : jobs) {
             job.setStatus(PrintJobStatus.CLAIMED);
             job.setClaimedByTerminalId(terminalId);
@@ -383,16 +402,30 @@ public class PrintJobService {
         if (job == null || job.getClientId() == null || printSseService == null) {
             return;
         }
-        try {
-            printSseService.broadcastPrintJob(new PrintJobCreatedEvent(
-                    job.getClientId(),
-                    job.getOrgId(),
-                    job.getId(),
-                    kind,
-                    printerProfileId
-            ));
-        } catch (Exception ex) {
-            log.warn("Failed to broadcast SSE print job notification: {}", ex.getMessage());
+        Runnable dispatch = () -> {
+            try {
+                bumpVersion(job.getClientId());
+                printSseService.broadcastPrintJob(new PrintJobCreatedEvent(
+                        job.getClientId(),
+                        job.getOrgId(),
+                        job.getId(),
+                        kind,
+                        printerProfileId
+                ));
+            } catch (Exception ex) {
+                log.warn("Failed to broadcast SSE print job notification: {}", ex.getMessage());
+            }
+        };
+
+        if (TransactionSynchronizationManager.isActualTransactionActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    dispatch.run();
+                }
+            });
+        } else {
+            dispatch.run();
         }
     }
 
