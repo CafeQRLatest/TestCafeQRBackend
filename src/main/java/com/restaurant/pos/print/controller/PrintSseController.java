@@ -32,12 +32,13 @@ public class PrintSseController {
      */
     @GetMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')")
-    public ResponseEntity<SseEmitter> stream(HttpServletResponse response) {
+    public SseEmitter stream(HttpServletResponse response) {
         UUID clientId = TenantContext.getCurrentTenant();
         UUID orgId = TenantContext.getCurrentOrg();
 
         if (clientId == null) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+            return null;
         }
 
         // Disable proxy buffering for instant delivery (Caddy / Cloudflare / Nginx)
@@ -45,12 +46,6 @@ public class PrintSseController {
         response.setHeader(HttpHeaders.CACHE_CONTROL, "no-cache, no-transform");
         response.setHeader(HttpHeaders.CONNECTION, "keep-alive");
 
-        HttpHeaders headers = new HttpHeaders();
-        headers.set(HttpHeaders.CACHE_CONTROL, "no-cache, no-transform");
-        headers.set("X-Accel-Buffering", "no");
-        headers.set(HttpHeaders.CONNECTION, "keep-alive");
-
-        SseEmitter emitter = printSseService.subscribe(clientId, orgId);
-        return new ResponseEntity<>(emitter, headers, HttpStatus.OK);
+        return printSseService.subscribe(clientId, orgId);
     }
 }
