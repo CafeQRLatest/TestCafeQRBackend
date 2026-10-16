@@ -64,6 +64,7 @@ public class FounderDashboardController {
     private final UserRepository userRepository;
     private final AuthService authService;
     private final FounderLeadService founderLeadService;
+    private final com.restaurant.pos.whatsapp.service.WhatsAppService whatsAppService;
 
     @Value("${founder.secret-key}")
     private String founderSecretKey;
@@ -642,5 +643,62 @@ public class FounderDashboardController {
         }
         founderLeadService.activateBranchAndModules(orgId, req);
         return ResponseEntity.ok(ApiResponse.success("Branch subscription and add-on modules updated successfully"));
+    }
+
+    // ── Official WhatsApp Gateway Management ─────────────────────────────────
+
+    @GetMapping("/whatsapp/status")
+    public ResponseEntity<?> getWhatsAppStatus(
+            @RequestHeader(value = "X-Founder-Key", required = false) String providedKey,
+            @RequestParam(value = "sessionId", required = false) String sessionId) {
+        if (!isValidKey(providedKey)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(ApiResponse.error("Unauthorized"));
+        }
+        return ResponseEntity.ok(ApiResponse.success(whatsAppService.getGatewayStatus(sessionId)));
+    }
+
+    @GetMapping("/whatsapp/qr")
+    public ResponseEntity<?> getWhatsAppQr(
+            @RequestHeader(value = "X-Founder-Key", required = false) String providedKey,
+            @RequestParam(value = "sessionId", required = false) String sessionId) {
+        if (!isValidKey(providedKey)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(ApiResponse.error("Unauthorized"));
+        }
+        return ResponseEntity.ok(ApiResponse.success(whatsAppService.getGatewayQr(sessionId)));
+    }
+
+    @PostMapping("/whatsapp/disconnect")
+    public ResponseEntity<?> disconnectWhatsApp(
+            @RequestHeader(value = "X-Founder-Key", required = false) String providedKey,
+            @RequestBody(required = false) Map<String, String> body) {
+        if (!isValidKey(providedKey)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(ApiResponse.error("Unauthorized"));
+        }
+        String sessionId = body != null ? body.get("sessionId") : null;
+        return ResponseEntity.ok(ApiResponse.success(whatsAppService.disconnectGateway(sessionId)));
+    }
+
+    @PostMapping("/whatsapp/test")
+    public ResponseEntity<?> sendWhatsAppTest(
+            @RequestHeader(value = "X-Founder-Key", required = false) String providedKey,
+            @RequestBody Map<String, String> body) {
+        if (!isValidKey(providedKey)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(ApiResponse.error("Unauthorized"));
+        }
+        String phone = body != null ? body.get("phone") : null;
+        String sessionId = body != null ? body.get("sessionId") : null;
+        return ResponseEntity.ok(ApiResponse.success(whatsAppService.sendTestMessage(sessionId, phone)));
+    }
+
+    @PostMapping("/whatsapp/clear-contact-session")
+    public ResponseEntity<?> clearWhatsAppContactSession(
+            @RequestHeader(value = "X-Founder-Key", required = false) String providedKey,
+            @RequestBody Map<String, String> body) {
+        if (!isValidKey(providedKey)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(ApiResponse.error("Unauthorized"));
+        }
+        String phone = body != null ? body.get("phone") : null;
+        String sessionId = body != null ? body.get("sessionId") : null;
+        return ResponseEntity.ok(ApiResponse.success(whatsAppService.clearContactSession(sessionId, phone)));
     }
 }
