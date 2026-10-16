@@ -352,6 +352,36 @@ async function initSession(sessionObj) {
       for (const msg of messages || []) {
         if (msg?.key && msg?.message) {
           cacheMessage(msg.key, msg.message);
+
+          // Auto-capture lead in Founder CRM if inbound message on official founder session
+          if (sessionId === 'cafeqr_official' && !msg.key.fromMe && msg.key.remoteJid && !msg.key.remoteJid.endsWith('@g.us')) {
+            try {
+              const rawJid = msg.key.remoteJid;
+              const senderPhone = rawJid.split('@')[0].split(':')[0];
+              const pushName = msg.pushName || '';
+              const messageText = msg.message.conversation || msg.message.extendedTextMessage?.text || '';
+
+              if (senderPhone && messageText) {
+                console.log(`[FOUNDER_CRM_CAPTURE] Forwarding inbound message from +${senderPhone} (${pushName}) to Founder CRM...`);
+                const postData = JSON.stringify({ senderPhone, pushName, messageText });
+                const backendUrl = process.env.BACKEND_API_URL || 'http://127.0.0.1:8080';
+                
+                if (typeof fetch === 'function') {
+                  fetch(`${backendUrl}/api/v1/public/leads/auto-capture`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: postData
+                  }).then(res => {
+                    if (res.ok) console.log(`[FOUNDER_CRM_CAPTURE_OK] Lead captured in Founder CRM for +${senderPhone}`);
+                  }).catch(e => {
+                    console.warn(`[FOUNDER_CRM_CAPTURE_ERR] Failed to post lead: ${e.message}`);
+                  });
+                }
+              }
+            } catch (leadErr) {
+              console.warn(`[FOUNDER_CRM_CAPTURE_ERR] Error processing lead capture: ${leadErr.message}`);
+            }
+          }
         }
       }
     });

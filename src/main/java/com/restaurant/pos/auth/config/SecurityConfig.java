@@ -98,6 +98,8 @@ public class SecurityConfig {
             "https://cafeqr-delivery-website.vercel.app," +
             "https://cafeqr-frontend.pages.dev," +
             "https://testcafeqrscanningapp.pages.dev," +
+            "https://test-cafeqr-founder-dashboard.pages.dev," +
+            "https://cafeqr-founder-dashboard.pages.dev," +
             "https://pos.cafeqr.in," +
             "https://cafeqr.in," +
             "https://*.cafeqr.in" +
@@ -116,6 +118,8 @@ public class SecurityConfig {
             "https://*.cafeqr.in," +
             "https://cafe-qr-frontend.vercel.app," +
             "https://cafe-test-qr-frontend.vercel.app," +
+            "https://test-cafeqr-founder-dashboard.pages.dev," +
+            "https://cafeqr-founder-dashboard.pages.dev," +
             "https://cafeqr-frontend.pages.dev" +
             "}")
     private java.util.List<String> csrfTrustedOrigins;
@@ -138,6 +142,8 @@ public class SecurityConfig {
         configuration.addAllowedOriginPattern("https://*.cafeqr.in");
         configuration.addAllowedOriginPattern("https://cafeqr.in");
         configuration.addAllowedOriginPattern("https://pos.cafeqr.in");
+        configuration.addAllowedOriginPattern("https://test-cafeqr-founder-dashboard.pages.dev");
+        configuration.addAllowedOriginPattern("https://cafeqr-founder-dashboard.pages.dev");
         configuration.addAllowedOriginPattern("https://*.razorpay.com");
         configuration.addAllowedOriginPattern("https://razorpay.com");
         configuration.addAllowedOriginPattern("capacitor://localhost");

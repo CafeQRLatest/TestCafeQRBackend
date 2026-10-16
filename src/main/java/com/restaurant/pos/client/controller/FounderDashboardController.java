@@ -18,6 +18,10 @@ import com.restaurant.pos.client.dto.ClientOrderStatsProjection;
 import com.restaurant.pos.order.repository.OrderRepository;
 import com.restaurant.pos.product.repository.ProductRepository;
 import com.restaurant.pos.table.repository.RestaurantTableRepository;
+import com.restaurant.pos.client.domain.Organization;
+import com.restaurant.pos.client.repository.OrganizationRepository;
+import com.restaurant.pos.founder.lead.dto.*;
+import com.restaurant.pos.founder.lead.service.FounderLeadService;
 import jakarta.servlet.http.HttpServletRequest;
 import java.math.BigDecimal;
 import lombok.RequiredArgsConstructor;
@@ -25,13 +29,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestHeader;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
@@ -57,6 +55,7 @@ import java.util.stream.Collectors;
 public class FounderDashboardController {
 
     private final ClientRepository clientRepository;
+    private final OrganizationRepository organizationRepository;
     private final ClientSubscriptionModuleRepository moduleRepository;
     private final SubscriptionPaymentRepository paymentRepository;
     private final OrderRepository orderRepository;
@@ -64,6 +63,7 @@ public class FounderDashboardController {
     private final RestaurantTableRepository tableRepository;
     private final UserRepository userRepository;
     private final AuthService authService;
+    private final FounderLeadService founderLeadService;
 
     @Value("${founder.secret-key}")
     private String founderSecretKey;
@@ -91,6 +91,7 @@ public class FounderDashboardController {
 
         // ── Fetch all data ────────────────────────────────────────────────────
         List<Client> allClients = clientRepository.findAll();
+        List<Organization> allOrganizations = organizationRepository.findAll();
         List<ClientSubscriptionModule> allModules = moduleRepository.findAll();
         List<SubscriptionPayment> allPayments = paymentRepository.findAllByOrderByCreatedAtDesc();
 
@@ -100,6 +101,10 @@ public class FounderDashboardController {
                 .values().stream().collect(Collectors.toList());
 
         // ── Group by clientId for O(1) lookup ─────────────────────────────────
+        Map<UUID, List<Organization>> organizationsByClient = allOrganizations.stream()
+                .filter(o -> o.getClientId() != null)
+                .collect(Collectors.groupingBy(Organization::getClientId));
+
         Map<UUID, List<ClientSubscriptionModule>> modulesByClient = allModules.stream()
                 .collect(Collectors.groupingBy(ClientSubscriptionModule::getClientId));
 
@@ -127,11 +132,75 @@ public class FounderDashboardController {
         BigDecimal totalGmv = orderRepository.sumPlatformGmv();
         long platformGmvPaise = totalGmv != null ? totalGmv.multiply(BigDecimal.valueOf(100)).longValue() : 0L;
 
-        // ── Build per-client summaries ─────────────────────────────────────────
+        // ── Build per-client summaries with Branch-First Fallback Resolution ──
         List<ClientSummaryDto> clientSummaries = uniqueClients.stream()
                 .map(client -> {
+                    List<Organization> orgs = organizationsByClient.getOrDefault(client.getId(), List.of());
+                    Organization primaryOrg = orgs.isEmpty() ? null : orgs.get(0);
+
                     List<ClientSubscriptionModule> mods = modulesByClient.getOrDefault(client.getId(), List.of());
                     List<SubscriptionPayment> payments = paymentsByClient.getOrDefault(client.getId(), List.of());
+
+                    // Branch summaries
+                    List<ClientSummaryDto.BranchSummaryDto> branchSummaries = orgs.stream()
+                            .map(o -> {
+                                int bDaysLeft = 0;
+                                if (o.getSubscriptionExpiryDate() != null && o.getSubscriptionExpiryDate().isAfter(now)) {
+                                    bDaysLeft = (int) ChronoUnit.DAYS.between(now, o.getSubscriptionExpiryDate());
+                                }
+                                List<ClientSummaryDto.ModuleInfo> bMods = mods.stream()
+                                        .filter(m -> o.getId().equals(m.getOrgId()))
+                                        .map(m -> ClientSummaryDto.ModuleInfo.builder()
+                                                .moduleName(m.getModuleName().name())
+                                                .status(m.getStatus())
+                                                .expiryDate(m.getExpiryDate())
+                                                .autoRenew(m.isAutoRenew())
+                                                .build())
+                                        .collect(Collectors.toList());
+
+                                return ClientSummaryDto.BranchSummaryDto.builder()
+                                        .id(o.getId())
+                                        .clientId(o.getClientId())
+                                        .name(o.getName())
+                                        .branchCode(o.getBranchCode())
+                                        .slug(o.getSlug())
+                                        .phone(o.getPhone())
+                                        .whatsappNumber(o.getWhatsappNumber())
+                                        .address(o.getAddress())
+                                        .isactive(o.getIsactive())
+                                        .subscriptionStatus(o.getSubscriptionStatus())
+                                        .subscriptionExpiryDate(o.getSubscriptionExpiryDate())
+                                        .daysLeft(bDaysLeft)
+                                        .modules(bMods)
+                                        .build();
+                            })
+                            .collect(Collectors.toList());
+
+                    // Accurate Effective Subscription Status Resolution
+                    LocalDateTime effectiveExpiry = client.getSubscriptionExpiryDate();
+                    for (Organization o : orgs) {
+                        if (o.getSubscriptionExpiryDate() != null && (effectiveExpiry == null || o.getSubscriptionExpiryDate().isAfter(effectiveExpiry))) {
+                            effectiveExpiry = o.getSubscriptionExpiryDate();
+                        }
+                    }
+
+                    boolean hasActiveModule = mods.stream().anyMatch(m -> "ACTIVE".equalsIgnoreCase(m.getStatus()) && (m.getExpiryDate() == null || m.getExpiryDate().isAfter(now)));
+                    boolean hasActiveBranch = orgs.stream().anyMatch(o -> o.getSubscriptionExpiryDate() != null && o.getSubscriptionExpiryDate().isAfter(now));
+                    boolean clientExpired = client.getSubscriptionExpiryDate() != null && client.getSubscriptionExpiryDate().isBefore(now);
+
+                    String effectiveStatus = "UNPAID";
+                    if (hasActiveBranch || (effectiveExpiry != null && effectiveExpiry.isAfter(now)) || hasActiveModule || "ACTIVE".equalsIgnoreCase(client.getSubscriptionStatus())) {
+                        effectiveStatus = "ACTIVE";
+                    } else if ("TRIAL".equalsIgnoreCase(client.getSubscriptionStatus())) {
+                        effectiveStatus = "TRIAL";
+                    } else if (clientExpired) {
+                        effectiveStatus = "EXPIRED";
+                    }
+
+                    int effectiveDaysLeft = 0;
+                    if (effectiveExpiry != null && effectiveExpiry.isAfter(now)) {
+                        effectiveDaysLeft = (int) ChronoUnit.DAYS.between(now, effectiveExpiry);
+                    }
 
                     int daysLeft = 0;
                     if (client.getSubscriptionExpiryDate() != null && client.getSubscriptionExpiryDate().isAfter(now)) {
@@ -179,9 +248,20 @@ public class FounderDashboardController {
                     int menuCount = productCountsByClient.getOrDefault(client.getId(), 0L).intValue();
                     int tableCount = tableCountsByClient.getOrDefault(client.getId(), 0L).intValue();
 
+                    // Branch-first fallbacks for display
+                    String resolvedName = (primaryOrg != null && primaryOrg.getName() != null && !primaryOrg.getName().isBlank() && (client.getName() == null || client.getName().isBlank() || "—".equals(client.getName())))
+                            ? primaryOrg.getName()
+                            : client.getName();
+                    String resolvedPhone = (primaryOrg != null && primaryOrg.getPhone() != null && !primaryOrg.getPhone().isBlank() && (client.getPhone() == null || client.getPhone().isBlank()))
+                            ? primaryOrg.getPhone()
+                            : client.getPhone();
+                    String resolvedWhatsapp = (primaryOrg != null && primaryOrg.getWhatsappNumber() != null && !primaryOrg.getWhatsappNumber().isBlank() && (client.getWhatsappNumber() == null || client.getWhatsappNumber().isBlank()))
+                            ? primaryOrg.getWhatsappNumber()
+                            : client.getWhatsappNumber();
+
                     // Onboarding Step & Score
-                    boolean hasName = client.getName() != null && !client.getName().isBlank() && !"—".equals(client.getName());
-                    boolean hasPhone = client.getPhone() != null && !client.getPhone().isBlank();
+                    boolean hasName = resolvedName != null && !resolvedName.isBlank() && !"—".equals(resolvedName);
+                    boolean hasPhone = resolvedPhone != null && !resolvedPhone.isBlank();
                     boolean profileSet = hasName && hasPhone;
 
                     int score = 20; // Signed up
@@ -207,9 +287,8 @@ public class FounderDashboardController {
                     }
 
                     // Health Status Classification
-                    String subStatus = client.getSubscriptionStatus() != null ? client.getSubscriptionStatus().toUpperCase() : "UNPAID";
                     String healthStatus;
-                    if ("EXPIRED".equals(subStatus)) {
+                    if ("EXPIRED".equals(effectiveStatus)) {
                         healthStatus = "EXPIRED";
                     } else if (lastOrderAt != null && lastOrderAt.isAfter(now.minusDays(7))) {
                         healthStatus = "HEALTHY";
@@ -223,11 +302,11 @@ public class FounderDashboardController {
 
                     return ClientSummaryDto.builder()
                             .id(client.getId())
-                            .name(client.getName())
+                            .name(resolvedName)
                             .legalName(client.getLegalName())
                             .ownerName(client.getOwnerName())
                             .email(client.getEmail())
-                            .phone(client.getPhone())
+                            .phone(resolvedPhone)
                             .address(client.getAddress())
                             .country(client.getCountry())
                             .currency(client.getCurrency())
@@ -239,7 +318,7 @@ public class FounderDashboardController {
                             .fssaiNumber(client.getFssaiNumber())
                             .instagramUrl(client.getInstagramUrl())
                             .facebookUrl(client.getFacebookUrl())
-                            .whatsappNumber(client.getWhatsappNumber())
+                            .whatsappNumber(resolvedWhatsapp)
                             .bankName(client.getBankName())
                             .accountNumber(client.getAccountNumber())
                             .ifscCode(client.getIfscCode())
@@ -261,6 +340,14 @@ public class FounderDashboardController {
                             .onboardingStep(onboardingStep)
                             .onboardingScore(score)
                             .healthStatus(healthStatus)
+                            .primaryOrgId(primaryOrg != null ? primaryOrg.getId() : null)
+                            .primaryBranchName(primaryOrg != null ? primaryOrg.getName() : null)
+                            .primaryBranchCode(primaryOrg != null ? primaryOrg.getBranchCode() : null)
+                            .branchCount(orgs.size())
+                            .branches(branchSummaries)
+                            .effectiveSubscriptionStatus(effectiveStatus)
+                            .effectiveExpiryDate(effectiveExpiry)
+                            .effectiveDaysLeft(effectiveDaysLeft)
                             .build();
                 })
                 .sorted(Comparator.comparing(c -> c.getName() == null ? "" : c.getName()))
@@ -270,7 +357,7 @@ public class FounderDashboardController {
         long totalRevenue = allPayments.stream().mapToLong(SubscriptionPayment::getAmount).sum();
         int active = 0, trial = 0, expired = 0, unpaid = 0;
         for (ClientSummaryDto c : clientSummaries) {
-            String status = c.getSubscriptionStatus() == null ? "" : c.getSubscriptionStatus().toUpperCase();
+            String status = c.getEffectiveSubscriptionStatus() != null ? c.getEffectiveSubscriptionStatus().toUpperCase() : "";
             switch (status) {
                 case "ACTIVE" -> active++;
                 case "TRIAL" -> trial++;
@@ -282,7 +369,7 @@ public class FounderDashboardController {
 
         // Paying clients
         List<ClientSummaryDto> payingClients = clientSummaries.stream()
-                .filter(c -> "ACTIVE".equalsIgnoreCase(c.getSubscriptionStatus()) && c.getTotalPaidPaise() > 0)
+                .filter(c -> "ACTIVE".equalsIgnoreCase(c.getEffectiveSubscriptionStatus()) && c.getTotalPaidPaise() > 0)
                 .collect(Collectors.toList());
         long totalPayingRev = payingClients.stream().mapToLong(ClientSummaryDto::getTotalPaidPaise).sum();
         long arpuPaise = payingClients.isEmpty() ? 0L : totalPayingRev / payingClients.size();
@@ -437,5 +524,123 @@ public class FounderDashboardController {
                 .build();
         paymentRepository.save(payment);
         return ResponseEntity.ok(ApiResponse.success("Payment recorded successfully"));
+    }
+
+    // ── Sales CRM: Lead Management Endpoints ─────────────────────────────────
+
+    @GetMapping("/leads")
+    public ResponseEntity<?> getLeads(
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String search,
+            @RequestHeader(value = "X-Founder-Key", required = false) String providedKey) {
+        if (!isValidKey(providedKey)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(ApiResponse.error("Unauthorized"));
+        }
+        return ResponseEntity.ok(ApiResponse.success(founderLeadService.getAllLeads(status, search)));
+    }
+
+    @GetMapping("/leads/{id}")
+    public ResponseEntity<?> getLeadById(
+            @PathVariable UUID id,
+            @RequestHeader(value = "X-Founder-Key", required = false) String providedKey) {
+        if (!isValidKey(providedKey)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(ApiResponse.error("Unauthorized"));
+        }
+        return ResponseEntity.ok(ApiResponse.success(founderLeadService.getLeadById(id)));
+    }
+
+    @PostMapping("/leads")
+    public ResponseEntity<?> createLead(
+            @RequestBody FounderLeadDto dto,
+            @RequestHeader(value = "X-Founder-Key", required = false) String providedKey) {
+        if (!isValidKey(providedKey)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(ApiResponse.error("Unauthorized"));
+        }
+        return ResponseEntity.ok(ApiResponse.success(founderLeadService.createLead(dto)));
+    }
+
+    @PutMapping("/leads/{id}")
+    public ResponseEntity<?> updateLead(
+            @PathVariable UUID id,
+            @RequestBody FounderLeadDto dto,
+            @RequestHeader(value = "X-Founder-Key", required = false) String providedKey) {
+        if (!isValidKey(providedKey)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(ApiResponse.error("Unauthorized"));
+        }
+        return ResponseEntity.ok(ApiResponse.success(founderLeadService.updateLead(id, dto)));
+    }
+
+    @DeleteMapping("/leads/{id}")
+    public ResponseEntity<?> deleteLead(
+            @PathVariable UUID id,
+            @RequestHeader(value = "X-Founder-Key", required = false) String providedKey) {
+        if (!isValidKey(providedKey)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(ApiResponse.error("Unauthorized"));
+        }
+        founderLeadService.deleteLead(id);
+        return ResponseEntity.ok(ApiResponse.success("Lead deleted successfully"));
+    }
+
+    @GetMapping("/leads/{id}/activities")
+    public ResponseEntity<?> getLeadActivities(
+            @PathVariable UUID id,
+            @RequestHeader(value = "X-Founder-Key", required = false) String providedKey) {
+        if (!isValidKey(providedKey)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(ApiResponse.error("Unauthorized"));
+        }
+        return ResponseEntity.ok(ApiResponse.success(founderLeadService.getActivities(id)));
+    }
+
+    @PostMapping("/leads/{id}/activity")
+    public ResponseEntity<?> addLeadActivity(
+            @PathVariable UUID id,
+            @RequestBody LeadActivityDto req,
+            @RequestHeader(value = "X-Founder-Key", required = false) String providedKey) {
+        if (!isValidKey(providedKey)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(ApiResponse.error("Unauthorized"));
+        }
+        return ResponseEntity.ok(ApiResponse.success(founderLeadService.addActivity(id, req.getActivityType(), req.getDescription())));
+    }
+
+    @GetMapping("/leads/queue/overdue")
+    public ResponseEntity<?> getOverdueFollowUps(
+            @RequestHeader(value = "X-Founder-Key", required = false) String providedKey) {
+        if (!isValidKey(providedKey)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(ApiResponse.error("Unauthorized"));
+        }
+        return ResponseEntity.ok(ApiResponse.success(founderLeadService.getOverdueFollowUps()));
+    }
+
+    @GetMapping("/leads/queue/due-today")
+    public ResponseEntity<?> getDueTodayFollowUps(
+            @RequestHeader(value = "X-Founder-Key", required = false) String providedKey) {
+        if (!isValidKey(providedKey)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(ApiResponse.error("Unauthorized"));
+        }
+        return ResponseEntity.ok(ApiResponse.success(founderLeadService.getDueTodayFollowUps()));
+    }
+
+    @GetMapping("/lookup-merchant")
+    public ResponseEntity<?> lookupMerchant(
+            @RequestParam String phone,
+            @RequestHeader(value = "X-Founder-Key", required = false) String providedKey) {
+        if (!isValidKey(providedKey)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(ApiResponse.error("Unauthorized"));
+        }
+        return ResponseEntity.ok(ApiResponse.success(founderLeadService.resolveMerchantByPhone(phone)));
+    }
+
+    // ── 1-Click Branch & Module Activation ───────────────────────────────────
+
+    @PostMapping("/organization/{orgId}/activate-subscription")
+    public ResponseEntity<?> activateOrganizationSubscription(
+            @PathVariable UUID orgId,
+            @RequestBody BranchActivationRequest req,
+            @RequestHeader(value = "X-Founder-Key", required = false) String providedKey) {
+        if (!isValidKey(providedKey)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(ApiResponse.error("Unauthorized"));
+        }
+        founderLeadService.activateBranchAndModules(orgId, req);
+        return ResponseEntity.ok(ApiResponse.success("Branch subscription and add-on modules updated successfully"));
     }
 }
