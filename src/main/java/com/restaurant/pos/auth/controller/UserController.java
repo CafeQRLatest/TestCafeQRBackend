@@ -1,15 +1,12 @@
 package com.restaurant.pos.auth.controller;
 
 import com.restaurant.pos.auth.domain.User;
-import com.restaurant.pos.auth.domain.RoleEntity;
-import com.restaurant.pos.auth.repository.MenuRepository;
 import com.restaurant.pos.auth.repository.UserRepository;
 import com.restaurant.pos.common.dto.ApiResponse;
 import com.restaurant.pos.common.tenant.TenantContext;
 import com.restaurant.pos.common.exception.BusinessException;
 import com.restaurant.pos.common.exception.DuplicateResourceException;
 import com.restaurant.pos.common.exception.ResourceNotFoundException;
-import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -25,12 +22,15 @@ import org.springframework.security.core.context.SecurityContextHolder;
 
 @RestController
 @RequestMapping("/api/v1/users")
-@RequiredArgsConstructor
 public class UserController {
 
     private final UserRepository repository;
-    private final MenuRepository menuRepository;
     private final PasswordEncoder passwordEncoder;
+
+    public UserController(UserRepository repository, PasswordEncoder passwordEncoder) {
+        this.repository = repository;
+        this.passwordEncoder = passwordEncoder;
+    }
 
     @GetMapping
     @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")
