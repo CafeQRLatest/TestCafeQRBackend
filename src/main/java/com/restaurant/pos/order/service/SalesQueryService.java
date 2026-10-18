@@ -32,8 +32,6 @@ import java.util.*;
 @Transactional(readOnly = true)
 public class SalesQueryService {
 
-    private static final Duration MAX_REPORT_RANGE = Duration.ofDays(31);
-
     private final NamedParameterJdbcTemplate jdbcTemplate;
     private final TerminalRepository terminalRepository;
     private final BranchContextService branchContext;
@@ -119,9 +117,6 @@ public class SalesQueryService {
         if (from.isAfter(to)) {
             throw new IllegalArgumentException("Query from date must be before to date");
         }
-        if (Duration.between(from, to).compareTo(MAX_REPORT_RANGE) > 0) {
-            throw new IllegalArgumentException("Query date range cannot exceed 31 days");
-        }
     }
 
     private String buildWhereClause(SalesQueryCriteria criteria, MapSqlParameterSource params) {
@@ -186,8 +181,6 @@ public class SalesQueryService {
             where.append("  LOWER(TRIM(o.order_no)) = :searchExact ");
             where.append("  OR LOWER(TRIM(o.order_no)) LIKE :searchPattern ESCAPE '\\' ");
             where.append("  OR LOWER(CAST(o.id AS VARCHAR)) = :searchExact ");
-            where.append("  OR LOWER(COALESCE(o.customer_name, '')) LIKE :searchPattern ESCAPE '\\' ");
-            where.append("  OR LOWER(COALESCE(o.customer_phone, '')) LIKE :searchPattern ESCAPE '\\' ");
             where.append("  OR LOWER(COALESCE(o.description, '')) LIKE :searchPattern ESCAPE '\\' ");
             where.append("  OR LOWER(COALESCE(o.reference, '')) LIKE :searchPattern ESCAPE '\\' ");
             where.append("  OR EXISTS (SELECT 1 FROM invoices i WHERE i.order_id = o.id AND (LOWER(TRIM(i.invoice_no)) = :searchExact OR LOWER(TRIM(i.invoice_no)) LIKE :searchPattern ESCAPE '\\' OR CAST(i.daily_bill_no AS VARCHAR) = :searchExact OR CAST(i.daily_bill_no AS VARCHAR) LIKE :searchPattern ESCAPE '\\')) ");
