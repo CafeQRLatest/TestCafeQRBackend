@@ -109,10 +109,11 @@ public class SalesQueryService {
     }
 
     private void validateQueryRange(Instant from, Instant to, String search) {
-        if (search != null && !search.isBlank()) {
-            return;
-        }
         if (from == null || to == null) {
+            // A text search without an explicit date range spans all dates
+            if (search != null && !search.isBlank()) {
+                return;
+            }
             throw new IllegalArgumentException("Query date parameters cannot be null");
         }
         if (from.isAfter(to)) {
@@ -158,13 +159,13 @@ public class SalesQueryService {
             where.append("AND o.isactive = 'Y' AND o.order_status <> 'VOID' AND o.order_no NOT LIKE '%\\_VOID\\_%' ESCAPE '\\' ");
         }
 
-        // Date range filters (optional when searching by text query)
-        if (criteria.from() != null && !hasSearchText) {
+        // Date range filters always apply when provided; a text search with no range spans all dates
+        if (criteria.from() != null) {
             where.append("AND o.order_date >= :fromDate ");
             params.addValue("fromDate", java.sql.Timestamp.from(criteria.from()));
         }
 
-        if (criteria.to() != null && !hasSearchText) {
+        if (criteria.to() != null) {
             where.append("AND o.order_date <= :toDate ");
             params.addValue("toDate", java.sql.Timestamp.from(criteria.to()));
         }
@@ -187,7 +188,6 @@ public class SalesQueryService {
             where.append("  OR LOWER(CAST(o.id AS VARCHAR)) = :searchExact ");
             where.append("  OR LOWER(COALESCE(o.customer_name, '')) LIKE :searchPattern ESCAPE '\\' ");
             where.append("  OR LOWER(COALESCE(o.customer_phone, '')) LIKE :searchPattern ESCAPE '\\' ");
-            where.append("  OR LOWER(COALESCE(o.description, '')) LIKE :searchPattern ESCAPE '\\' ");
             where.append("  OR LOWER(COALESCE(o.description, '')) LIKE :searchPattern ESCAPE '\\' ");
             where.append("  OR LOWER(COALESCE(o.reference, '')) LIKE :searchPattern ESCAPE '\\' ");
             where.append("  OR EXISTS (SELECT 1 FROM invoices i WHERE i.order_id = o.id AND (LOWER(TRIM(i.invoice_no)) = :searchExact OR LOWER(TRIM(i.invoice_no)) LIKE :searchPattern ESCAPE '\\' OR CAST(i.daily_bill_no AS VARCHAR) = :searchExact OR CAST(i.daily_bill_no AS VARCHAR) LIKE :searchPattern ESCAPE '\\')) ");
@@ -343,7 +343,7 @@ public class SalesQueryService {
                     .createdBy(rs.getString("created_by"))
                     .updatedBy(rs.getString("updated_by"))
                     .invoiceNo(rs.getString("invoice_no"))
-                    .dailyBillNo(rs.getInt("daily_bill_no"))
+                    .dailyBillNo(rs.getObject("daily_bill_no", Integer.class))
                     .paymentNo(rs.getString("payment_no"))
                     .description(rs.getString("description"))
                     .remarks(rs.getString("remarks") != null ? rs.getString("remarks") : rs.getString("description"))

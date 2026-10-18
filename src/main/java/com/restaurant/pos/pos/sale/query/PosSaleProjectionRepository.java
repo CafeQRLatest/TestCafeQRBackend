@@ -86,6 +86,15 @@ public interface PosSaleProjectionRepository extends JpaRepository<Order, UUID> 
             OR COALESCE(c.phone, '') ILIKE '%' || :search || '%'
             OR COALESCE(cc.name, '') ILIKE '%' || :search || '%'
             OR COALESCE(cc.phone, '') ILIKE '%' || :search || '%'
+            OR EXISTS (
+              SELECT 1 FROM invoices inv
+              WHERE inv.order_id = o.id AND inv.invoice_no ILIKE '%' || :search || '%'
+            )
+            OR EXISTS (
+              SELECT 1 FROM order_lines ol
+              WHERE ol.order_id = o.id AND ol.isactive = 'Y'
+                AND ol.product_name ILIKE '%' || :search || '%'
+            )
           )
         ORDER BY o.order_date DESC, o.created_at DESC
         """, nativeQuery = true)

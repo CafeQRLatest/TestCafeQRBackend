@@ -749,8 +749,13 @@ public class PosSaleQueryService {
             String status, String search,
             UUID paramOrgId, UUID terminalId) {
 
+        // Strip a leading '#' so "#1234" matches the order number "1234"
+        String normalizedSearch = normalizeSearch(search == null ? null : search.replaceFirst("^[#\\s]+", ""));
+
+        // A search with no explicit range looks back the full window; a plain browse shows the last day
+        Duration defaultWindow = normalizedSearch != null ? MAX_HISTORY_WINDOW : DEFAULT_HISTORY_WINDOW;
         Instant effectiveTo = toDate != null ? toDate : Instant.now();
-        Instant effectiveFrom = fromDate != null ? fromDate : effectiveTo.minus(DEFAULT_HISTORY_WINDOW);
+        Instant effectiveFrom = fromDate != null ? fromDate : effectiveTo.minus(defaultWindow);
 
         // Guard against inverted dates while allowing wide query ranges up to MAX_HISTORY_WINDOW
         if (effectiveFrom.isAfter(effectiveTo)) {
@@ -764,7 +769,6 @@ public class PosSaleQueryService {
 
         TenantOrgContext ctx = resolveTenantOrgContext(paramOrgId);
 
-        String normalizedSearch = normalizeSearch(search);
         String normalizedStatus = (status != null && !status.isBlank()) ? status.trim().toUpperCase() : null;
 
         Pageable pageable = PageRequest.of(clampedPage, clampedSize,
