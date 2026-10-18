@@ -461,6 +461,21 @@ public class OrderService {
         return LocalDateTime.now();
     }
 
+    // UTC counterpart of sourceBusinessDateTime, for stored invoice/payment dates (frontend reads them as UTC).
+    private LocalDateTime sourceUtcDateTime(Order order) {
+        if (order != null && order.getOrderDate() != null) {
+            return LocalDateTime.ofInstant(order.getOrderDate(), ZoneOffset.UTC);
+        }
+        if (order != null && order.getOfflineCreatedAt() != null) {
+            ZoneId zoneId = timezoneResolver.resolveTimezone(order.getClientId(), order.getOrgId());
+            return order.getOfflineCreatedAt().atZone(zoneId).withZoneSameInstant(ZoneOffset.UTC).toLocalDateTime();
+        }
+        if (order != null && order.getCreatedAt() != null) {
+            return order.getCreatedAt();
+        }
+        return LocalDateTime.now(ZoneOffset.UTC);
+    }
+
     private boolean shouldGenerateInvoice(Order order) {
         if (order == null) {
             return false;
@@ -3623,7 +3638,7 @@ public class OrderService {
                 .creditCustomerId(Boolean.TRUE.equals(order.getIsCredit()) ? order.getCreditCustomerId() : null)
                 .vendorId(order.getVendorId())
                 .invoiceNo(invNo)
-                .invoiceDate(invoiceDate)
+                .invoiceDate(sourceUtcDateTime(order))
                 .dailyBillNo(dailyBillNo)
                 .totalAmount(order.getGrandTotal())
                 .amountDue(order.getGrandTotal())
@@ -3838,7 +3853,7 @@ public class OrderService {
                 .customerId(order.getCustomerId())
                 .creditCustomerId(Boolean.TRUE.equals(order.getIsCredit()) ? order.getCreditCustomerId() : null)
                 .paymentMethod(normalizePaymentMethod(method))
-                .paymentDate(sourceBusinessDateTime(order))
+                .paymentDate(sourceUtcDateTime(order))
                 .amountPaid(moneyValue(amount))
                 .referenceNo(payNo)
                 .description(desc)
