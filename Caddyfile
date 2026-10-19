@@ -12,8 +12,24 @@
 {$CADDY_SITE_ADDRESS} {
 	encode gzip
 
+	# Real-time SSE streams at any depth (unbuffered, minimal memory overhead)
+	@sse path_regexp sse ^/api/.*/stream.*$
+	handle @sse {
+		reverse_proxy backend:8080 {
+			flush_interval -1
+		}
+	}
+
+	# REST APIs with lightweight keepalive pooling for smaller test VM
 	handle /api/* {
-		reverse_proxy backend:8080
+		reverse_proxy backend:8080 {
+			transport http {
+				keepalive 15s
+				keepalive_idle_conns 20
+			}
+			lb_try_duration 3s
+			lb_try_interval 100ms
+		}
 	}
 
 	handle /actuator/health* {
