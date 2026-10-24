@@ -476,7 +476,8 @@ public class PosSaleQueryService {
 
     private com.restaurant.pos.pos.sale.dto.PosProductPageResponse getInitialProductPage(UUID clientId, UUID orgId, boolean includeImages) {
         long version = versionService.getVersion(PosCacheVersionService.Namespace.PRODUCTS, clientId, orgId);
-        String cacheKey = PosCacheKeys.initialProducts(clientId, orgId, version) + (includeImages ? "" : ":noimg");
+        // ":uom" segment: cached pages written before UOM fields were added must not be served.
+        String cacheKey = PosCacheKeys.initialProducts(clientId, orgId, version) + ":uom" + (includeImages ? "" : ":noimg");
         Optional<PosProductPageDto> cached = redisCacheService.get(cacheKey, PosProductPageDto.class);
         if (cached.isPresent()) {
             PosProductPageDto dto = cached.get();
@@ -576,6 +577,9 @@ public class PosSaleQueryService {
                 .variantCount(p.getVariantCount())
                 .hasUpsells(p.getHasUpsells())
                 .upsellCount(p.getUpsellCount())
+                .uomName(p.getUomName())
+                .uomShortName(p.getUomShortName())
+                .uomPrecision(p.getUomPrecision() != null ? p.getUomPrecision() : 0)
                 .build();
     }
 

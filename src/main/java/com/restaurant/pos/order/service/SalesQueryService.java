@@ -3,6 +3,7 @@ package com.restaurant.pos.order.service;
 import com.restaurant.pos.client.repository.TerminalRepository;
 import com.restaurant.pos.common.exception.BusinessException;
 import com.restaurant.pos.common.service.BranchContextService;
+import com.restaurant.pos.common.service.CurrencyScaleService;
 import com.restaurant.pos.common.tenant.TenantContext;
 import com.restaurant.pos.common.util.SecurityUtils;
 import com.restaurant.pos.order.dto.OrderCustomerDto;
@@ -35,6 +36,7 @@ public class SalesQueryService {
     private final NamedParameterJdbcTemplate jdbcTemplate;
     private final TerminalRepository terminalRepository;
     private final BranchContextService branchContext;
+    private final CurrencyScaleService currencyScale;
 
     @Transactional(readOnly = true, timeout = 10)
     public SalesDashboardResponse getDashboard(SalesDashboardQuery query) {
@@ -48,6 +50,7 @@ public class SalesQueryService {
         }
 
         UUID clientId = TenantContext.getCurrentTenant();
+        int dp = currencyScale.decimalPlaces(clientId, orgId);
         if (query.getTerminalId() != null) {
             if (orgId != null) {
                 terminalRepository.findByIdAndClientIdAndOrgId(query.getTerminalId(), clientId, orgId)
@@ -77,7 +80,7 @@ public class SalesQueryService {
         String whereClause = buildWhereClause(criteria, params);
 
         // 1. Fetch aggregated sales summary statistics
-        SalesSummaryDto summary = fetchSalesSummary(whereClause, params);
+        SalesSummaryDto summary = fetchSalesSummary(whereClause, params, dp);
 
         // 2. Fetch the requested page of orders
         int page = query.getEffectivePage();
@@ -219,7 +222,7 @@ public class SalesQueryService {
         return where.toString();
     }
 
-    private SalesSummaryDto fetchSalesSummary(String whereClause, MapSqlParameterSource params) {
+    private SalesSummaryDto fetchSalesSummary(String whereClause, MapSqlParameterSource params, int dp) {
         String summarySql = "WITH filtered_orders AS ( " +
                 "  SELECT o.id, o.total_amount, o.total_tax_amount, o.total_discount_amount, o.grand_total " +
                 "  FROM orders o " +
@@ -247,7 +250,7 @@ public class SalesQueryService {
             long totalOrders = rs.getLong("total_orders");
             BigDecimal grandTotal = rs.getBigDecimal("grand_total");
             BigDecimal avg = totalOrders > 0
-                    ? grandTotal.divide(BigDecimal.valueOf(totalOrders), 2, RoundingMode.HALF_UP)
+                    ? grandTotal.divide(BigDecimal.valueOf(totalOrders), dp, RoundingMode.HALF_UP)
                     : BigDecimal.ZERO;
 
             return SalesSummaryDto.builder()

@@ -83,6 +83,11 @@ public class DeliveryCommandService {
 
         BigDecimal grandTotal = calculateOrderTotal(clientId, orgUuid, items, config);
 
+        String currency = systemConfigurationService.resolveDefaultCurrencyCode(clientId, orgUuid);
+        if (currency == null) {
+            throw new BusinessException("Default currency is not configured in Currency Master");
+        }
+
         Map<String, Object> notes = new LinkedHashMap<>();
         notes.put("clientId", clientId.toString());
         if (orgUuid != null) notes.put("orgId", orgUuid.toString());
@@ -93,7 +98,7 @@ public class DeliveryCommandService {
                 config.getRazorpayKeyId(),
                 config.getRazorpayKeySecret(),
                 grandTotal,
-                "INR",
+                currency,
                 "del_" + System.currentTimeMillis(),
                 notes
         );

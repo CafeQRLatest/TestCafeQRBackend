@@ -57,7 +57,6 @@ public class Client extends AuditableEntity {
     private String posType; 
     private LocalDateTime subscriptionExpiryDate;
 
-    private String currency; 
     @Column(columnDefinition = "TEXT")
     private String logoUrl;
     @Column(name = "banner_url", columnDefinition = "TEXT")

@@ -246,7 +246,6 @@ public class DeliveryQueryService {
         settings.put("address",          client.getAddress());
         settings.put("phone",            client.getPhone());
         settings.put("whatsappNumber",   client.getWhatsappNumber());
-        settings.put("currency",         nvl(client.getCurrency(), "INR"));
         settings.put("timezone",         nvl(client.getTimezone(), "Asia/Kolkata"));
         settings.put("googleMapsUrl",    client.getGoogleMapsUrl());
         settings.put("instagramUrl",     client.getInstagramUrl());
@@ -258,6 +257,7 @@ public class DeliveryQueryService {
 
         try {
             ConfigurationDto config = systemConfigurationService.getConfigurationForClientAndBranch(clientId, orgUuid);
+            settings.put("currency", config.getCurrencyCode());
             settings.put("taxEnabled", config.isTaxEnabled());
             settings.put("taxLabelGlobal", config.getTaxLabelGlobal());
             settings.put("taxRates", config.getTaxRates());
