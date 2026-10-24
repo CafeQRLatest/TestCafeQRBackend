@@ -178,7 +178,7 @@ public class OrderService {
             if (currentTotal.compareTo(BigDecimal.ZERO) <= 0) {
                 currentTotal = order.getTotalAmount() != null && order.getTotalAmount().compareTo(BigDecimal.ZERO) > 0
                         ? order.getTotalAmount()
-                        : (order.getGrandTotal() != null ? order.getGrandTotal() : BigDecimal.ZERO);
+                        : (order.getGrandTotal() != null ? preRoundOffTotal(order) : BigDecimal.ZERO);
             }
 
             BigDecimal disc = BigDecimal.ZERO;
@@ -192,7 +192,8 @@ public class OrderService {
             }
             order.setTotalDiscountAmount(disc.setScale(moneyScale(order), RoundingMode.HALF_UP));
 
-            if (order.getDiscountSource() == com.restaurant.pos.order.domain.DiscountSource.MANUAL || order.getLoyaltyAmount() != null) {
+            boolean hasRoundOff = order.getRoundOffAmount() != null && order.getRoundOffAmount().compareTo(BigDecimal.ZERO) != 0;
+            if (order.getDiscountSource() == com.restaurant.pos.order.domain.DiscountSource.MANUAL || order.getLoyaltyAmount() != null || hasRoundOff) {
                 BigDecimal roundOff = order.getRoundOffAmount() != null ? order.getRoundOffAmount() : BigDecimal.ZERO;
                 BigDecimal loyaltyAmt = order.getLoyaltyAmount() != null ? order.getLoyaltyAmount() : BigDecimal.ZERO;
                 BigDecimal finalPayable = currentTotal.subtract(disc).subtract(loyaltyAmt).add(roundOff).max(BigDecimal.ZERO);
@@ -2564,7 +2565,7 @@ public class OrderService {
             List<Invoice> existingInvoices = invoiceRepository.findByOrderId(saved.getId());
             for (Invoice existingInv : existingInvoices) {
                 if (!"VOID".equalsIgnoreCase(existingInv.getStatus())) {
-                    existingInv.setTotalAmount(saved.getGrandTotal());
+                    existingInv.setTotalAmount(preRoundOffTotal(saved));
                     existingInv.setAmountDue(saved.getGrandTotal());
                     existingInv.setRoundOffAmount(saved.getRoundOffAmount());
                     existingInv.setTotalDiscountAmount(saved.getTotalDiscountAmount());
@@ -3289,7 +3290,7 @@ public class OrderService {
         List<Invoice> existingInvoices = invoiceRepository.findByOrderId(saved.getId());
         for (Invoice existingInv : existingInvoices) {
             if (!"VOID".equalsIgnoreCase(existingInv.getStatus())) {
-                existingInv.setTotalAmount(saved.getGrandTotal());
+                existingInv.setTotalAmount(preRoundOffTotal(saved));
                 existingInv.setAmountDue(saved.getGrandTotal());
                 existingInv.setRoundOffAmount(saved.getRoundOffAmount());
                 existingInv.setGrossAmount(saved.getGrossAmount());
@@ -3320,12 +3321,11 @@ public class OrderService {
             }
         }
 
-        // Validate payment invariant: amount_paid = invoice_total + round_off_amount
-        // (Invoice total amount already includes the round-off, so we must subtract it
-        // here to satisfy the validation logic).
+        // Validate payment invariant: amount_paid = invoice_total + round_off_amount.
+        // The invoice total is the pre-round-off amount, so it is used as-is.
         BigDecimal invoiceTotal = linkedInvoice != null
-                ? moneyValue(linkedInvoice.getTotalAmount()).subtract(settleRoundOff)
-                : moneyValue(saved.getGrandTotal()).subtract(settleRoundOff);
+                ? moneyValue(linkedInvoice.getTotalAmount())
+                : preRoundOffTotal(saved);
         validatePaymentInvariant(invoiceTotal, settleRoundOff, amountPaid);
 
         generatePayment(saved, paymentMethod, null, amountPaid, settlementDescription,
@@ -3432,7 +3432,7 @@ public class OrderService {
                 invoice.setCustomerId(saved.getCustomerId());
                 invoice.setCreditCustomerId(saved.getCreditCustomerId());
                 invoice.setIsCredit(true);
-                invoice.setTotalAmount(saved.getGrandTotal());
+                invoice.setTotalAmount(preRoundOffTotal(saved));
                 invoice.setAmountDue(saved.getGrandTotal());
                 invoice.setRoundOffAmount(saved.getRoundOffAmount());
                 invoice.setGrossAmount(saved.getGrossAmount());
@@ -3642,7 +3642,7 @@ public class OrderService {
                 .invoiceNo(invNo)
                 .invoiceDate(sourceUtcDateTime(order))
                 .dailyBillNo(dailyBillNo)
-                .totalAmount(order.getGrandTotal())
+                .totalAmount(preRoundOffTotal(order))
                 .amountDue(order.getGrandTotal())
                 .roundOffAmount(order.getRoundOffAmount())
                 .redeemPoints(order.getRedeemPoints())
@@ -4042,6 +4042,12 @@ public class OrderService {
 
     private int moneyScale() {
         return moneyScale(null);
+    }
+
+    /** Invoice total is the pre-round-off amount; the round-off is carried separately on the invoice. */
+    private BigDecimal preRoundOffTotal(Order order) {
+        BigDecimal roundOff = order.getRoundOffAmount() != null ? order.getRoundOffAmount() : BigDecimal.ZERO;
+        return moneyValue(order.getGrandTotal()).subtract(roundOff);
     }
 
     private BigDecimal moneyValue(BigDecimal value) {
