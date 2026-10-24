@@ -1359,12 +1359,14 @@ public class ProductService {
     }
 
     private void validateOwnership(UUID ownerClientId, UUID ownerOrgId, String entityName, boolean forModification) {
-        if (SecurityUtils.isSuperAdmin()) {
-            return;
-        }
-
         UUID currentClientId = TenantContext.getCurrentTenant();
         UUID currentOrgId = TenantContext.getCurrentOrg();
+        boolean branchSelected = currentOrgId != null && !new UUID(0L, 0L).equals(currentOrgId);
+
+        // Super admins bypass the checks, but a selected branch still limits them to that branch.
+        if (SecurityUtils.isSuperAdmin() && !branchSelected) {
+            return;
+        }
 
         // 1. Cross-Tenant Check
         if (currentClientId != null && ownerClientId != null && !currentClientId.equals(ownerClientId)) {
@@ -1373,7 +1375,7 @@ public class ProductService {
 
         // 2. Global Data Protection (Global records have NULL orgId or 00000000-0000-0000-0000-000000000000)
         boolean isGlobal = (ownerOrgId == null || new UUID(0L, 0L).equals(ownerOrgId));
-        boolean currentIsBranch = (currentOrgId != null && !new UUID(0L, 0L).equals(currentOrgId));
+        boolean currentIsBranch = branchSelected;
 
         if (forModification && isGlobal && currentIsBranch) {
             // Protect global data from being deleted/updated by org users.
