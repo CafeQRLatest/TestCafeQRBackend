@@ -1084,7 +1084,7 @@ public class OrderService {
         }
 
         Customer newCustomer = Customer.builder()
-                .name(selection.name() != null && !selection.name().isBlank() ? selection.name().trim() : "Guest")
+                .name(selection.name() != null && !selection.name().isBlank() ? selection.name().trim() : "")
                 .phone(phone)
                 .customerCategory("REGULAR")
                 .build();
@@ -3096,7 +3096,7 @@ public class OrderService {
             }
         } else {
             customer = Customer.builder()
-                    .name(name == null || name.isBlank() ? "Guest" : name)
+                    .name(name == null || name.isBlank() ? "" : name)
                     .phone(normalizedPhone)
                     .email(email)
                     .address(address)

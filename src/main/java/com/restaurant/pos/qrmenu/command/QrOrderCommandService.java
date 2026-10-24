@@ -582,7 +582,7 @@ public class QrOrderCommandService {
             }
 
             Customer newCust = Customer.builder()
-                    .name(name != null && !name.isBlank() ? name : "Guest")
+                    .name(name != null && !name.isBlank() ? name : "")
                     .phone(sanitized)
                     .build();
             newCust.setClientId(clientId);

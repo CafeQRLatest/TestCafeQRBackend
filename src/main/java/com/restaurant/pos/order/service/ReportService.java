@@ -930,11 +930,13 @@ public class ReportService {
         }
         return customers.stream()
                 .map(customer -> {
-                    String name = customer.getName() != null && !customer.getName().isBlank() ? customer.getName() : "Guest";
-                    return customer.getPhone() != null && !customer.getPhone().isBlank()
-                            ? name + " (" + customer.getPhone() + ")"
-                            : name;
+                    boolean hasName = customer.getName() != null && !customer.getName().isBlank();
+                    boolean hasPhone = customer.getPhone() != null && !customer.getPhone().isBlank();
+                    if (hasName && hasPhone) return customer.getName() + " (" + customer.getPhone() + ")";
+                    if (hasName) return customer.getName();
+                    return hasPhone ? customer.getPhone() : "";
                 })
+                .filter(text -> !text.isBlank())
                 .collect(Collectors.joining(", "));
     }
 
