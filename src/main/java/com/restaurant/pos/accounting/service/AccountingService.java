@@ -48,7 +48,7 @@ import java.util.stream.Collectors;
 public class AccountingService {
 
     private static final int DEFAULT_REPORT_DAYS = 31;
-    private static final int MAX_REPORT_DAYS = 366;
+    private static final int MAX_REPORT_DAYS = 1830;
     private static final int MAX_JOURNAL_ROWS = 500;
     private static final Set<String> FINANCIAL_PAYMENT_METHODS = Set.of("CASH", "ONLINE", "UPI", "CARD", "BANK", "CHEQUE");
 

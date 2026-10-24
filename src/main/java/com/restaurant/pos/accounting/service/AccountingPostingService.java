@@ -48,7 +48,7 @@ import java.util.function.Supplier;
 @RequiredArgsConstructor
 public class AccountingPostingService {
 
-    private static final int MAX_BACKFILL_DAYS = 366;
+    private static final int MAX_BACKFILL_DAYS = 1830;
 
     private final AccountingService accountingService;
     private final AccountingDefaultsService defaultsService;
