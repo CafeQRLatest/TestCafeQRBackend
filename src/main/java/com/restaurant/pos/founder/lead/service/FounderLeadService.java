@@ -513,23 +513,97 @@ public class FounderLeadService {
         });
     }
 
+    // ── Automated Tenant Registration CRM Lead Capture ───────────────────────
+    @Transactional
+    public void autoCaptureLeadFromSignup(UUID clientId, UUID orgId, String businessName, String ownerName, String phone, String email) {
+        if (phone == null || phone.isBlank()) return;
+        String cleanPhone = normalizePhone(phone);
+        List<FounderLead> existing = leadRepository.findAllByAnyPhone(cleanPhone);
+        if (!existing.isEmpty()) {
+            FounderLead lead = existing.get(0);
+            lead.setAssignedClientId(clientId);
+            lead.setAssignedOrgId(orgId);
+            if (businessName != null && !businessName.isBlank()) lead.setBusinessName(businessName);
+            lead.setStatus("ONBOARDED_TRIAL");
+            leadRepository.save(lead);
+            activityRepository.save(FounderLeadActivity.builder()
+                    .leadId(lead.getId())
+                    .activityType("STATUS_CHANGE")
+                    .description("Prospect registered tenant account on CafeQR (Status -> ONBOARDED_TRIAL)")
+                    .build());
+        } else {
+            FounderLead newLead = FounderLead.builder()
+                    .name(ownerName != null && !ownerName.isBlank() ? ownerName.trim() : (businessName != null ? businessName : "New Merchant"))
+                    .businessName(businessName)
+                    .primaryPhone(cleanPhone)
+                    .whatsappNumber(cleanPhone)
+                    .email(email)
+                    .source("WEBSITE")
+                    .status("ONBOARDED_TRIAL")
+                    .temperature("HOT")
+                    .assignedClientId(clientId)
+                    .assignedOrgId(orgId)
+                    .notes("Self-registered tenant account")
+                    .lastContactedAt(LocalDateTime.now())
+                    .build();
+            FounderLead saved = leadRepository.save(newLead);
+            activityRepository.save(FounderLeadActivity.builder()
+                    .leadId(saved.getId())
+                    .activityType("STATUS_CHANGE")
+                    .description("Self-registered new tenant on CafeQR (Status -> ONBOARDED_TRIAL)")
+                    .build());
+        }
+    }
+
     private FounderLeadDto mapToDto(FounderLead l) {
         String branchName = null;
+        String branchCode = null;
         String clientName = null;
         String subStatus = null;
+        LocalDateTime branchExpiry = null;
+        Integer daysLeft = null;
+        List<String> activeModules = new ArrayList<>();
+        LocalDateTime now = LocalDateTime.now();
 
         if (l.getAssignedOrgId() != null) {
             Optional<Organization> org = organizationRepository.findById(l.getAssignedOrgId());
             if (org.isPresent()) {
-                branchName = org.get().getName();
-                subStatus = org.get().getSubscriptionStatus();
+                Organization o = org.get();
+                branchName = o.getName();
+                branchCode = o.getBranchCode();
+                subStatus = o.getSubscriptionStatus();
+                branchExpiry = o.getSubscriptionExpiryDate();
+                if (branchExpiry != null && branchExpiry.isAfter(now)) {
+                    daysLeft = (int) java.time.temporal.ChronoUnit.DAYS.between(now, branchExpiry);
+                    subStatus = "ACTIVE";
+                }
+                List<ClientSubscriptionModule> orgMods = moduleRepository.findByOrgId(o.getId());
+                activeModules = orgMods.stream()
+                        .filter(m -> "ACTIVE".equalsIgnoreCase(m.getStatus()) && (m.getExpiryDate() == null || m.getExpiryDate().isAfter(now)))
+                        .map(m -> m.getModuleName().name())
+                        .collect(Collectors.toList());
             }
         }
         if (l.getAssignedClientId() != null) {
             Optional<Client> client = clientRepository.findById(l.getAssignedClientId());
             if (client.isPresent()) {
-                clientName = client.get().getName();
-                if (subStatus == null) subStatus = client.get().getSubscriptionStatus();
+                Client c = client.get();
+                clientName = c.getName();
+                if (subStatus == null) {
+                    subStatus = c.getSubscriptionStatus();
+                    if (c.getSubscriptionExpiryDate() != null && c.getSubscriptionExpiryDate().isAfter(now)) {
+                        daysLeft = (int) java.time.temporal.ChronoUnit.DAYS.between(now, c.getSubscriptionExpiryDate());
+                        subStatus = "ACTIVE";
+                    }
+                }
+                if (activeModules.isEmpty()) {
+                    List<ClientSubscriptionModule> clientMods = moduleRepository.findByClientId(c.getId());
+                    activeModules = clientMods.stream()
+                            .filter(m -> "ACTIVE".equalsIgnoreCase(m.getStatus()) && (m.getExpiryDate() == null || m.getExpiryDate().isAfter(now)))
+                            .map(m -> m.getModuleName().name())
+                            .distinct()
+                            .collect(Collectors.toList());
+                }
             }
         }
 
@@ -556,8 +630,12 @@ public class FounderLeadService {
                 .createdAt(l.getCreatedAt())
                 .updatedAt(l.getUpdatedAt())
                 .matchedBranchName(branchName)
+                .matchedBranchCode(branchCode)
                 .matchedClientName(clientName)
                 .matchedSubscriptionStatus(subStatus)
+                .matchedBranchExpiry(branchExpiry)
+                .matchedDaysLeft(daysLeft)
+                .matchedActiveModules(activeModules)
                 .build();
     }
 }
