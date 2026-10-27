@@ -13,7 +13,9 @@ import com.restaurant.pos.founder.lead.repository.FounderLeadActivityRepository;
 import com.restaurant.pos.founder.lead.repository.FounderLeadRepository;
 import com.restaurant.pos.subscription.domain.ClientSubscriptionModule;
 import com.restaurant.pos.subscription.domain.ModuleName;
+import com.restaurant.pos.subscription.domain.SubscriptionPayment;
 import com.restaurant.pos.subscription.repository.ClientSubscriptionModuleRepository;
+import com.restaurant.pos.subscription.repository.SubscriptionPaymentRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -36,6 +38,7 @@ public class FounderLeadService {
     private final ClientRepository clientRepository;
     private final UserRepository userRepository;
     private final ClientSubscriptionModuleRepository moduleRepository;
+    private final SubscriptionPaymentRepository subscriptionPaymentRepository;
 
     // ── Phone Normalization Utility ──────────────────────────────────────────
     public static String normalizePhone(String raw) {
@@ -501,6 +504,44 @@ public class FounderLeadService {
             }
         }
 
+        // Record payment in subscription_payments if requested
+        String paymentSummary = "";
+        if (req.isRecordPayment() && req.getPaymentAmountPaise() != null && req.getPaymentAmountPaise() > 0 && org.getClientId() != null) {
+            long count = subscriptionPaymentRepository.count() + 1;
+            String invoiceNo = String.format("CQ-INV-%05d", count);
+            String orderNo = String.format("CQ-ORD-%05d", count);
+            String method = (req.getPaymentMethod() != null && !req.getPaymentMethod().isBlank())
+                    ? req.getPaymentMethod().toUpperCase().trim()
+                    : "UPI";
+            String pStatus = "PENDING_INVOICE".equalsIgnoreCase(method) ? "PENDING" : "PAID";
+
+            String moduleSummary = (req.getActiveModules() != null && !req.getActiveModules().isEmpty())
+                    ? String.join(", ", req.getActiveModules())
+                    : "Base POS";
+            String branchLabel = org.getBranchCode() != null ? "[" + org.getBranchCode() + "] " : "";
+            String desc = branchLabel + org.getName() + " - " + moduleSummary + " (until " + targetExpiry.toLocalDate() + ")";
+            if (req.getPaymentNotes() != null && !req.getPaymentNotes().isBlank()) {
+                desc += " - " + req.getPaymentNotes().trim();
+            }
+
+            SubscriptionPayment payment = SubscriptionPayment.builder()
+                    .clientId(org.getClientId())
+                    .orgId(org.getId())
+                    .amount(req.getPaymentAmountPaise())
+                    .currency("INR")
+                    .paymentId(invoiceNo)
+                    .orderId(orderNo)
+                    .paymentMethod(method)
+                    .description(desc)
+                    .billingCycle("ANNUAL")
+                    .status(pStatus)
+                    .createdAt(LocalDateTime.now())
+                    .build();
+            subscriptionPaymentRepository.save(payment);
+            paymentSummary = " (₹" + (req.getPaymentAmountPaise() / 100) + " recorded via " + method + ")";
+        }
+
+        final String finalPaymentSummary = paymentSummary;
         // Automatically update any linked lead to PAID_ACTIVE
         leadRepository.findByAssignedOrgId(org.getId()).ifPresent(lead -> {
             lead.setStatus("PAID_ACTIVE");
@@ -508,7 +549,7 @@ public class FounderLeadService {
             activityRepository.save(FounderLeadActivity.builder()
                     .leadId(lead.getId())
                     .activityType("PAYMENT_RECORDED")
-                    .description("Subscription activated until " + targetExpiry.toLocalDate())
+                    .description("Subscription & modules activated until " + targetExpiry.toLocalDate() + finalPaymentSummary)
                     .build());
         });
     }

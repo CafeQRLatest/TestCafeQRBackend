@@ -159,6 +159,14 @@ public class FounderDashboardController {
                                                 .build())
                                         .collect(Collectors.toList());
 
+                                long branchPaid = payments.stream()
+                                        .filter(p -> o.getId().equals(p.getOrgId()))
+                                        .mapToLong(SubscriptionPayment::getAmount)
+                                        .sum();
+                                int branchPaymentCount = (int) payments.stream()
+                                        .filter(p -> o.getId().equals(p.getOrgId()))
+                                        .count();
+
                                 return ClientSummaryDto.BranchSummaryDto.builder()
                                         .id(o.getId())
                                         .clientId(o.getClientId())
@@ -173,6 +181,8 @@ public class FounderDashboardController {
                                         .subscriptionExpiryDate(o.getSubscriptionExpiryDate())
                                         .daysLeft(bDaysLeft)
                                         .modules(bMods)
+                                        .totalPaidPaise(branchPaid)
+                                        .paymentCount(branchPaymentCount)
                                         .build();
                             })
                             .collect(Collectors.toList());
@@ -225,18 +235,57 @@ public class FounderDashboardController {
                                     .build())
                             .collect(Collectors.toList());
 
+                    Map<UUID, Organization> orgMap = orgs.stream()
+                            .collect(Collectors.toMap(Organization::getId, o -> o, (a, b) -> a));
+
                     List<ClientSummaryDto.PaymentInfo> paymentInfos = payments.stream()
-                            .map(p -> ClientSummaryDto.PaymentInfo.builder()
-                                    .id(p.getId())
-                                    .paymentId(p.getPaymentId())
-                                    .orderId(p.getOrderId())
-                                    .amount(p.getAmount())
-                                    .currency(p.getCurrency())
-                                    .createdAt(p.getCreatedAt())
-                                    .build())
+                            .map(p -> {
+                                Organization b = p.getOrgId() != null ? orgMap.get(p.getOrgId()) : null;
+                                return ClientSummaryDto.PaymentInfo.builder()
+                                        .id(p.getId())
+                                        .orgId(p.getOrgId())
+                                        .branchName(b != null ? b.getName() : null)
+                                        .branchCode(b != null ? b.getBranchCode() : null)
+                                        .paymentId(p.getPaymentId())
+                                        .orderId(p.getOrderId())
+                                        .amount(p.getAmount())
+                                        .currency(p.getCurrency())
+                                        .paymentMethod(p.getPaymentMethod())
+                                        .description(p.getDescription())
+                                        .billingCycle(p.getBillingCycle())
+                                        .status(p.getStatus() != null ? p.getStatus() : "PAID")
+                                        .createdAt(p.getCreatedAt())
+                                        .build();
+                            })
                             .collect(Collectors.toList());
 
                     long totalPaid = payments.stream().mapToLong(SubscriptionPayment::getAmount).sum();
+
+                    // Calculate Contracted ARR and MRR based on exact pricing matrix
+                    long clientContractedArr = 0L;
+                    long activeBranchesCount = orgs.stream()
+                            .filter(o -> o.getSubscriptionExpiryDate() != null && o.getSubscriptionExpiryDate().isAfter(now))
+                            .count();
+                    if (activeBranchesCount == 0 && "ACTIVE".equalsIgnoreCase(effectiveStatus)) {
+                        activeBranchesCount = 1L;
+                    }
+                    clientContractedArr += activeBranchesCount * 99900L; // ₹999/yr Base POS per branch
+
+                    for (ClientSummaryDto.ModuleInfo mod : moduleInfos) {
+                        if ("ACTIVE".equalsIgnoreCase(mod.getStatus()) && (mod.getExpiryDate() == null || mod.getExpiryDate().isAfter(now))) {
+                            String mName = mod.getModuleName() != null ? mod.getModuleName().toUpperCase() : "";
+                            switch (mName) {
+                                case "KOT" -> clientContractedArr += 49900L;            // ₹499/yr
+                                case "INVENTORY" -> clientContractedArr += 199900L;     // ₹1,999/yr
+                                case "CRM" -> clientContractedArr += 99900L;           // ₹999/yr
+                                case "CREDIT_LEDGER" -> clientContractedArr += 49900L;  // ₹499/yr
+                                case "BARCODE_SCANNER" -> clientContractedArr += 99900L;// ₹999/yr
+                                default -> {}
+                            }
+                        }
+                    }
+                    long clientContractedMrr = clientContractedArr / 12L;
+                    long clientUnbilledVariance = Math.max(0L, clientContractedArr - totalPaid);
 
                     // Client Activity & Vitality
                     ClientOrderStatsProjection oStat = orderStatsByClient.get(client.getId());
@@ -348,6 +397,9 @@ public class FounderDashboardController {
                             .effectiveSubscriptionStatus(effectiveStatus)
                             .effectiveExpiryDate(effectiveExpiry)
                             .effectiveDaysLeft(effectiveDaysLeft)
+                            .contractedArrPaise(clientContractedArr)
+                            .contractedMrrPaise(clientContractedMrr)
+                            .unbilledVariancePaise(clientUnbilledVariance)
                             .build();
                 })
                 .sorted(Comparator.comparing(c -> c.getName() == null ? "" : c.getName()))
@@ -355,6 +407,10 @@ public class FounderDashboardController {
 
         // ── Aggregate stats ────────────────────────────────────────────────────
         long totalRevenue = allPayments.stream().mapToLong(SubscriptionPayment::getAmount).sum();
+        long totalContractedArr = clientSummaries.stream().mapToLong(ClientSummaryDto::getContractedArrPaise).sum();
+        long totalContractedMrr = clientSummaries.stream().mapToLong(ClientSummaryDto::getContractedMrrPaise).sum();
+        long totalUnbilledVariance = clientSummaries.stream().mapToLong(ClientSummaryDto::getUnbilledVariancePaise).sum();
+
         int active = 0, trial = 0, expired = 0, unpaid = 0;
         for (ClientSummaryDto c : clientSummaries) {
             String status = c.getEffectiveSubscriptionStatus() != null ? c.getEffectiveSubscriptionStatus().toUpperCase() : "";
@@ -396,7 +452,10 @@ public class FounderDashboardController {
                         .totalOrdersCount(totalOrdersCount)
                         .activeCafesToday(activeCafesToday)
                         .activeCafes7Days(activeCafes7Days)
-                        .mrrPaise(mrrPaise)
+                        .mrrPaise(totalContractedMrr > 0 ? totalContractedMrr : mrrPaise)
+                        .contractedArrPaise(totalContractedArr)
+                        .contractedMrrPaise(totalContractedMrr)
+                        .unbilledVariancePaise(totalUnbilledVariance)
                         .arpuPaise(arpuPaise)
                         .activationRatePercent(activationRatePercent)
                         .build())
@@ -451,6 +510,10 @@ public class FounderDashboardController {
         private long amountPaise;
         private String paymentId;
         private String orderId;
+        private UUID orgId;
+        private String paymentMethod;
+        private String description;
+        private String status;
     }
 
     @PostMapping("/client/{clientId}/toggle-active")
@@ -513,13 +576,24 @@ public class FounderDashboardController {
         long count = paymentRepository.count() + 1;
         String invoiceNo = String.format("CQ-INV-%05d", count);
         String orderNo = String.format("CQ-ORD-%05d", count);
+        String method = (req.getPaymentMethod() != null && !req.getPaymentMethod().isBlank())
+                ? req.getPaymentMethod().toUpperCase().trim()
+                : "MANUAL";
+        String pStatus = (req.getStatus() != null && !req.getStatus().isBlank())
+                ? req.getStatus().toUpperCase().trim()
+                : ("PENDING_INVOICE".equalsIgnoreCase(method) ? "PENDING" : "PAID");
         
         SubscriptionPayment payment = SubscriptionPayment.builder()
                 .clientId(clientId)
+                .orgId(req.getOrgId())
                 .amount(req.getAmountPaise())
-                .paymentId(invoiceNo)
-                .orderId(orderNo)
+                .paymentId(req.getPaymentId() != null && !req.getPaymentId().isBlank() ? req.getPaymentId().trim() : invoiceNo)
+                .orderId(req.getOrderId() != null && !req.getOrderId().isBlank() ? req.getOrderId().trim() : orderNo)
                 .currency("INR")
+                .paymentMethod(method)
+                .description(req.getDescription())
+                .billingCycle("ANNUAL")
+                .status(pStatus)
                 .createdAt(LocalDateTime.now())
                 .build();
         paymentRepository.save(payment);
