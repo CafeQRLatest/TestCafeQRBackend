@@ -446,6 +446,8 @@ public class FounderLeadService {
                     ? now
                     : org.getSubscriptionExpiryDate();
             targetExpiry = base.plusDays(req.getDaysToAdd());
+        } else if (org.getSubscriptionExpiryDate() != null && org.getSubscriptionExpiryDate().isAfter(now)) {
+            targetExpiry = org.getSubscriptionExpiryDate();
         } else {
             targetExpiry = now.plusDays(30);
         }

@@ -167,6 +167,28 @@ public class FounderDashboardController {
                                         .filter(p -> o.getId().equals(p.getOrgId()))
                                         .count();
 
+                                // Calculate per-branch expected term value using prorated pricing
+                                long branchExpectedPaise = 0L;
+                                if (o.getSubscriptionExpiryDate() != null && o.getSubscriptionExpiryDate().isAfter(now)) {
+                                    // Base POS license for this branch
+                                    branchExpectedPaise += 99900L; // ₹999/yr (full annual for simplicity when active)
+                                    // Branch-scoped modules
+                                    for (ClientSummaryDto.ModuleInfo bm : bMods) {
+                                        if ("ACTIVE".equalsIgnoreCase(bm.getStatus()) && (bm.getExpiryDate() == null || bm.getExpiryDate().isAfter(now))) {
+                                            String bmName = bm.getModuleName() != null ? bm.getModuleName().toUpperCase() : "";
+                                            switch (bmName) {
+                                                case "KOT" -> branchExpectedPaise += 49900L;
+                                                case "INVENTORY" -> branchExpectedPaise += 199900L;
+                                                case "CRM" -> branchExpectedPaise += 99900L;
+                                                case "CREDIT_LEDGER" -> branchExpectedPaise += 49900L;
+                                                case "BARCODE_SCANNER" -> branchExpectedPaise += 99900L;
+                                                default -> {}
+                                            }
+                                        }
+                                    }
+                                }
+                                long branchUnbilled = Math.max(0L, branchExpectedPaise - branchPaid);
+
                                 return ClientSummaryDto.BranchSummaryDto.builder()
                                         .id(o.getId())
                                         .clientId(o.getClientId())
@@ -183,6 +205,8 @@ public class FounderDashboardController {
                                         .modules(bMods)
                                         .totalPaidPaise(branchPaid)
                                         .paymentCount(branchPaymentCount)
+                                        .expectedTermValuePaise(branchExpectedPaise)
+                                        .unbilledVariancePaise(branchUnbilled)
                                         .build();
                             })
                             .collect(Collectors.toList());
@@ -218,25 +242,26 @@ public class FounderDashboardController {
                         daysLeft = (int) ChronoUnit.DAYS.between(now, client.getSubscriptionExpiryDate());
                     }
 
-                    // Deduplicate modules by name — prefer ACTIVE status, else keep first found
-                    List<ClientSummaryDto.ModuleInfo> moduleInfos = mods.stream()
-                            .collect(Collectors.toMap(
-                                    m -> m.getModuleName().name(),
-                                    m -> m,
-                                    (existing, incoming) -> "ACTIVE".equalsIgnoreCase(existing.getStatus()) ? existing : incoming
-                            ))
-                            .values().stream()
-                            .sorted(Comparator.comparing(m -> m.getModuleName().name()))
-                            .map(m -> ClientSummaryDto.ModuleInfo.builder()
-                                    .moduleName(m.getModuleName().name())
-                                    .status(m.getStatus())
-                                    .expiryDate(m.getExpiryDate())
-                                    .autoRenew(m.isAutoRenew())
-                                    .build())
-                            .collect(Collectors.toList());
-
+                    // Build org lookup map for branch name resolution
                     Map<UUID, Organization> orgMap = orgs.stream()
                             .collect(Collectors.toMap(Organization::getId, o -> o, (a, b) -> a));
+
+                    // Build per-branch module list preserving branch scope (NO cross-branch dedup)
+                    // Use composite key: moduleName + orgId to prevent collapsing same module across branches
+                    List<ClientSummaryDto.ModuleInfo> moduleInfos = mods.stream()
+                            .sorted(Comparator.comparing(m -> m.getModuleName().name()))
+                            .map(m -> {
+                                Organization modOrg = m.getOrgId() != null ? orgMap.get(m.getOrgId()) : null;
+                                return ClientSummaryDto.ModuleInfo.builder()
+                                        .moduleName(m.getModuleName().name())
+                                        .status(m.getStatus())
+                                        .expiryDate(m.getExpiryDate())
+                                        .autoRenew(m.isAutoRenew())
+                                        .orgId(m.getOrgId())
+                                        .branchName(modOrg != null ? modOrg.getName() : null)
+                                        .build();
+                            })
+                            .collect(Collectors.toList());
 
                     List<ClientSummaryDto.PaymentInfo> paymentInfos = payments.stream()
                             .map(p -> {
@@ -261,25 +286,35 @@ public class FounderDashboardController {
 
                     long totalPaid = payments.stream().mapToLong(SubscriptionPayment::getAmount).sum();
 
-                    // Calculate Contracted ARR and MRR based on exact pricing matrix
-                    long clientContractedArr = 0L;
-                    long activeBranchesCount = orgs.stream()
-                            .filter(o -> o.getSubscriptionExpiryDate() != null && o.getSubscriptionExpiryDate().isAfter(now))
-                            .count();
-                    if (activeBranchesCount == 0 && "ACTIVE".equalsIgnoreCase(effectiveStatus)) {
-                        activeBranchesCount = 1L;
-                    }
-                    clientContractedArr += activeBranchesCount * 99900L; // ₹999/yr Base POS per branch
+                    // Revenue breakdown by payment channel
+                    long directPaid = payments.stream()
+                            .filter(p -> {
+                                String m = p.getPaymentMethod() != null ? p.getPaymentMethod().toUpperCase() : "";
+                                return m.equals("UPI") || m.equals("BANK_TRANSFER") || m.equals("CASH") || m.contains("MANUAL");
+                            })
+                            .mapToLong(SubscriptionPayment::getAmount).sum();
+                    long gatewayPaid = payments.stream()
+                            .filter(p -> {
+                                String m = p.getPaymentMethod() != null ? p.getPaymentMethod().toUpperCase() : "";
+                                return m.equals("RAZORPAY") || m.equals("ONLINE");
+                            })
+                            .mapToLong(SubscriptionPayment::getAmount).sum();
 
-                    for (ClientSummaryDto.ModuleInfo mod : moduleInfos) {
-                        if ("ACTIVE".equalsIgnoreCase(mod.getStatus()) && (mod.getExpiryDate() == null || mod.getExpiryDate().isAfter(now))) {
-                            String mName = mod.getModuleName() != null ? mod.getModuleName().toUpperCase() : "";
+                    // Calculate Contracted ARR using branch summaries (already computed per-branch)
+                    long clientContractedArr = branchSummaries.stream()
+                            .mapToLong(ClientSummaryDto.BranchSummaryDto::getExpectedTermValuePaise)
+                            .sum();
+                    // Add tenant-scoped modules not linked to any specific branch (org_id IS NULL)
+                    for (ClientSubscriptionModule tenantMod : mods) {
+                        if (tenantMod.getOrgId() == null && "ACTIVE".equalsIgnoreCase(tenantMod.getStatus())
+                                && (tenantMod.getExpiryDate() == null || tenantMod.getExpiryDate().isAfter(now))) {
+                            String mName = tenantMod.getModuleName() != null ? tenantMod.getModuleName().name().toUpperCase() : "";
                             switch (mName) {
-                                case "KOT" -> clientContractedArr += 49900L;            // ₹499/yr
-                                case "INVENTORY" -> clientContractedArr += 199900L;     // ₹1,999/yr
-                                case "CRM" -> clientContractedArr += 99900L;           // ₹999/yr
-                                case "CREDIT_LEDGER" -> clientContractedArr += 49900L;  // ₹499/yr
-                                case "BARCODE_SCANNER" -> clientContractedArr += 99900L;// ₹999/yr
+                                case "KOT" -> clientContractedArr += 49900L;
+                                case "INVENTORY" -> clientContractedArr += 199900L;
+                                case "CRM" -> clientContractedArr += 99900L;
+                                case "CREDIT_LEDGER" -> clientContractedArr += 49900L;
+                                case "BARCODE_SCANNER" -> clientContractedArr += 99900L;
                                 default -> {}
                             }
                         }
@@ -400,6 +435,8 @@ public class FounderDashboardController {
                             .contractedArrPaise(clientContractedArr)
                             .contractedMrrPaise(clientContractedMrr)
                             .unbilledVariancePaise(clientUnbilledVariance)
+                            .directPaidPaise(directPaid)
+                            .gatewayPaidPaise(gatewayPaid)
                             .build();
                 })
                 .sorted(Comparator.comparing(c -> c.getName() == null ? "" : c.getName()))

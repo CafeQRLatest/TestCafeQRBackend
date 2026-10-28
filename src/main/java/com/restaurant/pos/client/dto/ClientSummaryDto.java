@@ -77,6 +77,8 @@ public class ClientSummaryDto {
     private long contractedArrPaise;
     private long contractedMrrPaise;
     private long unbilledVariancePaise;
+    private long directPaidPaise;
+    private long gatewayPaidPaise;
 
     @Data
     @Builder
@@ -87,6 +89,8 @@ public class ClientSummaryDto {
         private String status;
         private LocalDateTime expiryDate;
         private boolean autoRenew;
+        private UUID orgId;
+        private String branchName;
     }
 
     @Data
@@ -129,5 +133,7 @@ public class ClientSummaryDto {
         private List<ModuleInfo> modules;
         private long totalPaidPaise;
         private int paymentCount;
+        private long expectedTermValuePaise;
+        private long unbilledVariancePaise;
     }
 }
