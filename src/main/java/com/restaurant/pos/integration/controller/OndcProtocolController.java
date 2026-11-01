@@ -20,6 +20,7 @@ import java.util.Map;
 public class OndcProtocolController {
 
     private final ObjectMapper objectMapper;
+    private final com.restaurant.pos.integration.ondc.service.OndcProtocolService ondcProtocolService;
 
     private static final Map<String, Object> ACK_RESPONSE = Map.of(
             "message", Map.of(
@@ -30,6 +31,7 @@ public class OndcProtocolController {
     );
 
     @PostMapping("/{action}")
+    @SuppressWarnings("unchecked")
     public ResponseEntity<Map<String, Object>> handleOndcAction(
             @PathVariable("action") String action,
             @RequestHeader(value = "Authorization", required = false) String authHeader,
@@ -41,7 +43,7 @@ public class OndcProtocolController {
 
         try {
             if (requestBody != null && !requestBody.isBlank()) {
-                Map<?, ?> payloadMap = objectMapper.readValue(requestBody, Map.class);
+                Map<String, Object> payloadMap = objectMapper.readValue(requestBody, Map.class);
                 Object contextObj = payloadMap.get("context");
                 if (contextObj instanceof Map<?, ?> context) {
                     log.info("[ONDC Protocol] action={}, transactionId={}, messageId={}, bapUri={}",
@@ -50,12 +52,14 @@ public class OndcProtocolController {
                             context.get("message_id"),
                             context.get("bap_uri"));
                 }
+                // Trigger sub-second automated async callback (on_select, on_init, on_confirm)
+                ondcProtocolService.processActionAsync(action, payloadMap);
             }
         } catch (Exception e) {
             log.warn("[ONDC Protocol] Could not parse inbound context: {}", e.getMessage());
         }
 
-        // Return standard Beckn synchronous ACK
+        // Return standard Beckn synchronous ACK immediately
         return ResponseEntity.ok(ACK_RESPONSE);
     }
 }
