@@ -52,9 +52,12 @@ public class OndcProtocolService {
         String transactionId = (String) context.get("transaction_id");
         String messageId = (String) context.get("message_id");
 
+        Map<String, Object> message = extractMap(req, "message");
+        Map<String, Object> order = extractMap(message, "order");
+
         log.info("[ONDC Protocol] Generating on_select for transaction: {}", transactionId);
 
-        Map<String, Object> onSelectPayload = buildOnSelectPayload(bapId, bapUri, transactionId, messageId);
+        Map<String, Object> onSelectPayload = buildOnSelectPayload(bapId, bapUri, transactionId, messageId, order);
         sendCallback(bapUri, "on_select", onSelectPayload);
     }
 
@@ -97,7 +100,10 @@ public class OndcProtocolService {
         String transactionId = (String) context.get("transaction_id");
         String messageId = (String) context.get("message_id");
 
-        Map<String, Object> onStatusPayload = buildOnStatusPayload(bapId, bapUri, transactionId, messageId);
+        Map<String, Object> message = extractMap(req, "message");
+        Map<String, Object> order = extractMap(message, "order");
+
+        Map<String, Object> onStatusPayload = buildOnStatusPayload(bapId, bapUri, transactionId, messageId, order);
         sendCallback(bapUri, "on_status", onStatusPayload);
     }
 
@@ -153,59 +159,55 @@ public class OndcProtocolService {
         return ctx;
     }
 
-    private Map<String, Object> buildStandardQuote() {
-        Map<String, Object> quote = new LinkedHashMap<>();
-        quote.put("price", Map.of("currency", "INR", "value", "345.00"));
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> buildDynamicItems(Map<String, Object> incomingOrder) {
+        Object rawItems = incomingOrder != null ? incomingOrder.get("items") : null;
+        if (!(rawItems instanceof List<?> list) || list.isEmpty()) {
+            return buildFallbackItems();
+        }
 
-        List<Map<String, Object>> breakup = new ArrayList<>();
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (Object obj : list) {
+            if (obj instanceof Map<?, ?> rawMap) {
+                Map<String, Object> itemMap = (Map<String, Object>) rawMap;
+                Object idVal = itemMap.get("id");
+                String id = idVal != null ? idVal.toString() : "I1";
+                String parentId = "I2".equalsIgnoreCase(id) ? "P1" : "P0";
 
-        // Item 1
-        Map<String, Object> item1 = new LinkedHashMap<>();
-        item1.put("@ondc/org/item_id", "I1");
-        item1.put("@ondc/org/item_quantity", Map.of("count", 1));
-        item1.put("title", "Classic Hot Artisan Cappuccino");
-        item1.put("@ondc/org/title_type", "item");
-        item1.put("price", Map.of("currency", "INR", "value", "120.00"));
-        item1.put("item", Map.of("price", Map.of("currency", "INR", "value", "120.00")));
-        breakup.add(item1);
+                Object fVal = itemMap.get("fulfillment_id");
+                String fulfillmentId = fVal != null ? fVal.toString() : "F1";
 
-        // Item 2
-        Map<String, Object> item2 = new LinkedHashMap<>();
-        item2.put("@ondc/org/item_id", "I2");
-        item2.put("@ondc/org/item_quantity", Map.of("count", 1));
-        item2.put("title", "Veg Cheese Grilled Burger");
-        item2.put("@ondc/org/title_type", "item");
-        item2.put("price", Map.of("currency", "INR", "value", "180.00"));
-        item2.put("item", Map.of("price", Map.of("currency", "INR", "value", "180.00")));
-        breakup.add(item2);
+                Object locVal = itemMap.get("location_id");
+                String locationId = locVal != null ? locVal.toString() : "L1";
 
-        // Delivery charges (tied to fulfillment F1)
-        Map<String, Object> delivery = new LinkedHashMap<>();
-        delivery.put("@ondc/org/item_id", "F1");
-        delivery.put("title", "Delivery charges");
-        delivery.put("@ondc/org/title_type", "delivery");
-        delivery.put("price", Map.of("currency", "INR", "value", "45.00"));
-        breakup.add(delivery);
+                Object quantity = itemMap.get("quantity");
+                if (quantity == null) {
+                    quantity = Map.of("count", 1);
+                }
 
-        quote.put("breakup", breakup);
-        quote.put("ttl", "P1D");
-        return quote;
+                Map<String, Object> item = new LinkedHashMap<>();
+                item.put("id", id);
+                item.put("parent_item_id", parentId);
+                item.put("fulfillment_id", fulfillmentId);
+                item.put("location_id", locationId);
+                item.put("quantity", quantity);
+                item.put("tags", List.of(
+                        Map.of("code", "type", "list", List.of(Map.of("code", "type", "value", "item")))
+                ));
+                result.add(item);
+            }
+        }
+        return result.isEmpty() ? buildFallbackItems() : result;
     }
 
-    private List<Map<String, Object>> buildStandardItems() {
+    private List<Map<String, Object>> buildFallbackItems() {
         return List.of(
                 Map.of(
                         "id", "I1",
                         "parent_item_id", "P0",
                         "fulfillment_id", "F1",
-                        "tags", List.of(
-                                Map.of("code", "type", "list", List.of(Map.of("code", "type", "value", "item")))
-                        )
-                ),
-                Map.of(
-                        "id", "I2",
-                        "parent_item_id", "P1",
-                        "fulfillment_id", "F1",
+                        "location_id", "L1",
+                        "quantity", Map.of("count", 1),
                         "tags", List.of(
                                 Map.of("code", "type", "list", List.of(Map.of("code", "type", "value", "item")))
                         )
@@ -213,29 +215,83 @@ public class OndcProtocolService {
         );
     }
 
-    private List<Map<String, Object>> buildStandardFulfillments() {
-        return List.of(
-                Map.of(
-                        "id", "F1",
-                        "type", "Delivery",
-                        "@ondc/org/provider_name", "CafeQR Express",
-                        "tracking", false,
-                        "@ondc/org/category", "Immediate Delivery",
-                        "@ondc/org/TAT", "PT45M",
-                        "state", Map.of("descriptor", Map.of("code", "Serviceable"))
-                )
-        );
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> buildDynamicQuote(Map<String, Object> incomingOrder) {
+        List<Map<String, Object>> items = buildDynamicItems(incomingOrder);
+        List<Map<String, Object>> breakup = new ArrayList<>();
+        double totalItemPrice = 0.0;
+
+        for (Map<String, Object> item : items) {
+            String id = (String) item.get("id");
+            int count = 1;
+            Object qObj = item.get("quantity");
+            if (qObj instanceof Map<?, ?> qMap && qMap.get("count") != null) {
+                try {
+                    count = Integer.parseInt(qMap.get("count").toString());
+                } catch (Exception ignored) {}
+            }
+
+            double unitPrice = "I2".equalsIgnoreCase(id) ? 180.00 : 120.00;
+            String title = "I2".equalsIgnoreCase(id) ? "Veg Cheese Grilled Burger" : "Classic Hot Artisan Cappuccino";
+            double linePrice = unitPrice * count;
+            totalItemPrice += linePrice;
+
+            Map<String, Object> breakupItem = new LinkedHashMap<>();
+            breakupItem.put("@ondc/org/item_id", id);
+            breakupItem.put("@ondc/org/item_quantity", Map.of("count", count));
+            breakupItem.put("title", title);
+            breakupItem.put("@ondc/org/title_type", "item");
+            breakupItem.put("price", Map.of("currency", "INR", "value", String.format(Locale.US, "%.2f", linePrice)));
+            breakupItem.put("item", Map.of("price", Map.of("currency", "INR", "value", String.format(Locale.US, "%.2f", unitPrice))));
+            breakup.add(breakupItem);
+        }
+
+        // Add delivery charges
+        double deliveryPrice = 45.00;
+        Map<String, Object> delivery = new LinkedHashMap<>();
+        delivery.put("@ondc/org/item_id", "F1");
+        delivery.put("title", "Delivery charges");
+        delivery.put("@ondc/org/title_type", "delivery");
+        delivery.put("price", Map.of("currency", "INR", "value", String.format(Locale.US, "%.2f", deliveryPrice)));
+        breakup.add(delivery);
+
+        double grandTotal = totalItemPrice + deliveryPrice;
+
+        Map<String, Object> quote = new LinkedHashMap<>();
+        quote.put("price", Map.of("currency", "INR", "value", String.format(Locale.US, "%.2f", grandTotal)));
+        quote.put("breakup", breakup);
+        quote.put("ttl", "P1D");
+        return quote;
     }
 
-    private Map<String, Object> buildOnSelectPayload(String bapId, String bapUri, String transactionId, String messageId) {
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> buildDynamicFulfillments(Map<String, Object> incomingOrder) {
+        Map<String, Object> fulfillment = new LinkedHashMap<>();
+        fulfillment.put("id", "F1");
+        fulfillment.put("type", "Delivery");
+        fulfillment.put("@ondc/org/provider_name", "CafeQR Express");
+        fulfillment.put("tracking", false);
+        fulfillment.put("@ondc/org/category", "Immediate Delivery");
+        fulfillment.put("@ondc/org/TAT", "PT45M");
+        fulfillment.put("state", Map.of("descriptor", Map.of("code", "Serviceable")));
+
+        if (incomingOrder != null && incomingOrder.get("fulfillments") instanceof List<?> fList && !fList.isEmpty()) {
+            if (fList.get(0) instanceof Map<?, ?> incomingF && incomingF.get("end") != null) {
+                fulfillment.put("end", incomingF.get("end"));
+            }
+        }
+        return List.of(fulfillment);
+    }
+
+    private Map<String, Object> buildOnSelectPayload(String bapId, String bapUri, String transactionId, String messageId, Map<String, Object> incomingOrder) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("context", buildContext("on_select", bapId, bapUri, transactionId, messageId));
 
         Map<String, Object> order = new LinkedHashMap<>();
         order.put("provider", Map.of("id", "CAFEQR-REST-01", "locations", List.of(Map.of("id", "L1"))));
-        order.put("items", buildStandardItems());
-        order.put("fulfillments", buildStandardFulfillments());
-        order.put("quote", buildStandardQuote());
+        order.put("items", buildDynamicItems(incomingOrder));
+        order.put("fulfillments", buildDynamicFulfillments(incomingOrder));
+        order.put("quote", buildDynamicQuote(incomingOrder));
 
         payload.put("message", Map.of("order", order));
         return payload;
@@ -247,15 +303,13 @@ public class OndcProtocolService {
 
         Map<String, Object> order = new LinkedHashMap<>();
         order.put("provider", Map.of("id", "CAFEQR-REST-01", "locations", List.of(Map.of("id", "L1"))));
-        order.put("items", buildStandardItems());
+        order.put("items", buildDynamicItems(incomingOrder));
 
-        Object incomingBilling = incomingOrder.get("billing");
+        Object incomingBilling = incomingOrder != null ? incomingOrder.get("billing") : null;
         order.put("billing", incomingBilling != null ? incomingBilling : Map.of("name", "ONDC Customer", "phone", "9876543210"));
 
-        Object incomingFulfillments = incomingOrder.get("fulfillments");
-        order.put("fulfillments", incomingFulfillments != null ? incomingFulfillments : buildStandardFulfillments());
-
-        order.put("quote", buildStandardQuote());
+        order.put("fulfillments", buildDynamicFulfillments(incomingOrder));
+        order.put("quote", buildDynamicQuote(incomingOrder));
 
         Map<String, Object> payment = new LinkedHashMap<>();
         payment.put("type", "ON-ORDER");
@@ -285,15 +339,13 @@ public class OndcProtocolService {
         order.put("id", "CQR-ONDC-" + transactionId.substring(0, Math.min(8, transactionId.length())));
         order.put("state", "Accepted");
         order.put("provider", Map.of("id", "CAFEQR-REST-01", "locations", List.of(Map.of("id", "L1"))));
-        order.put("items", buildStandardItems());
+        order.put("items", buildDynamicItems(incomingOrder));
 
-        Object incomingBilling = incomingOrder.get("billing");
+        Object incomingBilling = incomingOrder != null ? incomingOrder.get("billing") : null;
         order.put("billing", incomingBilling != null ? incomingBilling : Map.of("name", "ONDC Customer", "phone", "9876543210"));
 
-        Object incomingFulfillments = incomingOrder.get("fulfillments");
-        order.put("fulfillments", incomingFulfillments != null ? incomingFulfillments : buildStandardFulfillments());
-
-        order.put("quote", buildStandardQuote());
+        order.put("fulfillments", buildDynamicFulfillments(incomingOrder));
+        order.put("quote", buildDynamicQuote(incomingOrder));
 
         Map<String, Object> payment = new LinkedHashMap<>();
         payment.put("type", "ON-ORDER");
@@ -309,7 +361,7 @@ public class OndcProtocolService {
         return payload;
     }
 
-    private Map<String, Object> buildOnStatusPayload(String bapId, String bapUri, String transactionId, String messageId) {
+    private Map<String, Object> buildOnStatusPayload(String bapId, String bapUri, String transactionId, String messageId, Map<String, Object> incomingOrder) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("context", buildContext("on_status", bapId, bapUri, transactionId, messageId));
 
@@ -317,9 +369,9 @@ public class OndcProtocolService {
         order.put("id", "CQR-ONDC-" + transactionId.substring(0, Math.min(8, transactionId.length())));
         order.put("state", "In-progress");
         order.put("provider", Map.of("id", "CAFEQR-REST-01", "locations", List.of(Map.of("id", "L1"))));
-        order.put("items", buildStandardItems());
-        order.put("fulfillments", buildStandardFulfillments());
-        order.put("quote", buildStandardQuote());
+        order.put("items", buildDynamicItems(incomingOrder));
+        order.put("fulfillments", buildDynamicFulfillments(incomingOrder));
+        order.put("quote", buildDynamicQuote(incomingOrder));
 
         payload.put("message", Map.of("order", order));
         return payload;
