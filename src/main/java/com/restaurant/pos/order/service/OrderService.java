@@ -3618,7 +3618,7 @@ public class OrderService {
         }
 
         LocalDateTime invoiceDate = sourceBusinessDateTime(order);
-        if (dailyBillNo == null) {
+        if (dailyBillNo == null && invoiceType == InvoiceType.CUSTOMER_INVOICE) {
             LocalDateTime start = invoiceDate.toLocalDate().atStartOfDay();
             LocalDateTime end = invoiceDate.toLocalDate().atTime(23, 59, 59, 999999999);
             int maxNo = invoiceRepository.findMaxDailyBillNo(clientId, orgId, start, end);
