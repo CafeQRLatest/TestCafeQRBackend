@@ -77,6 +77,12 @@ public class FounderDashboardController {
                         founderSecretKey.getBytes(java.nio.charset.StandardCharsets.UTF_8));
     }
 
+    /** A PAID (or legacy null-status) payment made within the last 12 months — i.e. counts toward the current annual term. */
+    private static boolean isPaidInCurrentTerm(SubscriptionPayment p, LocalDateTime now) {
+        boolean paid = p.getStatus() == null || "PAID".equalsIgnoreCase(p.getStatus());
+        return paid && p.getCreatedAt() != null && p.getCreatedAt().isAfter(now.minusYears(1));
+    }
+
     @GetMapping("/dashboard")
     public ResponseEntity<?> getFounderDashboard(
             @RequestHeader(value = "X-Founder-Key", required = false) String providedKey) {
@@ -187,7 +193,13 @@ public class FounderDashboardController {
                                         }
                                     }
                                 }
-                                long branchUnbilled = Math.max(0L, branchExpectedPaise - branchPaid);
+                                // Compare the annual term value against PAID payments in the current 12-month term,
+                                // not lifetime totals (which would mix different periods).
+                                long branchPaidInTerm = payments.stream()
+                                        .filter(p -> o.getId().equals(p.getOrgId()) && isPaidInCurrentTerm(p, now))
+                                        .mapToLong(SubscriptionPayment::getAmount)
+                                        .sum();
+                                long branchUnbilled = Math.max(0L, branchExpectedPaise - branchPaidInTerm);
 
                                 return ClientSummaryDto.BranchSummaryDto.builder()
                                         .id(o.getId())
@@ -221,15 +233,24 @@ public class FounderDashboardController {
 
                     boolean hasActiveModule = mods.stream().anyMatch(m -> "ACTIVE".equalsIgnoreCase(m.getStatus()) && (m.getExpiryDate() == null || m.getExpiryDate().isAfter(now)));
                     boolean hasActiveBranch = orgs.stream().anyMatch(o -> o.getSubscriptionExpiryDate() != null && o.getSubscriptionExpiryDate().isAfter(now));
-                    boolean clientExpired = client.getSubscriptionExpiryDate() != null && client.getSubscriptionExpiryDate().isBefore(now);
+                    boolean hasLiveTerm = hasActiveBranch || hasActiveModule
+                            || (effectiveExpiry != null && effectiveExpiry.isAfter(now));
+                    boolean isTrial = "TRIAL".equalsIgnoreCase(client.getSubscriptionStatus());
+                    boolean hasPaid = payments.stream().anyMatch(p -> p.getStatus() == null || "PAID".equalsIgnoreCase(p.getStatus()));
 
-                    String effectiveStatus = "UNPAID";
-                    if (hasActiveBranch || (effectiveExpiry != null && effectiveExpiry.isAfter(now)) || hasActiveModule || "ACTIVE".equalsIgnoreCase(client.getSubscriptionStatus())) {
-                        effectiveStatus = "ACTIVE";
-                    } else if ("TRIAL".equalsIgnoreCase(client.getSubscriptionStatus())) {
-                        effectiveStatus = "TRIAL";
-                    } else if (clientExpired) {
+                    // Expiry dates win over the stored status label: a lapsed trial or lapsed paid
+                    // subscription is EXPIRED, and a live term is TRIAL only while nothing has been paid.
+                    String effectiveStatus;
+                    if (hasLiveTerm) {
+                        effectiveStatus = (isTrial && !hasPaid) ? "TRIAL" : "ACTIVE";
+                    } else if (effectiveExpiry != null) {
                         effectiveStatus = "EXPIRED";
+                    } else if (isTrial) {
+                        effectiveStatus = "TRIAL";
+                    } else if ("ACTIVE".equalsIgnoreCase(client.getSubscriptionStatus())) {
+                        effectiveStatus = "ACTIVE";
+                    } else {
+                        effectiveStatus = "UNPAID";
                     }
 
                     int effectiveDaysLeft = 0;
@@ -320,7 +341,11 @@ public class FounderDashboardController {
                         }
                     }
                     long clientContractedMrr = clientContractedArr / 12L;
-                    long clientUnbilledVariance = Math.max(0L, clientContractedArr - totalPaid);
+                    long clientPaidInTerm = payments.stream()
+                            .filter(p -> isPaidInCurrentTerm(p, now))
+                            .mapToLong(SubscriptionPayment::getAmount)
+                            .sum();
+                    long clientUnbilledVariance = Math.max(0L, clientContractedArr - clientPaidInTerm);
 
                     // Client Activity & Vitality
                     ClientOrderStatsProjection oStat = orderStatsByClient.get(client.getId());
@@ -460,13 +485,18 @@ public class FounderDashboardController {
             }
         }
 
-        // Paying clients
-        List<ClientSummaryDto> payingClients = clientSummaries.stream()
-                .filter(c -> "ACTIVE".equalsIgnoreCase(c.getEffectiveSubscriptionStatus()) && c.getTotalPaidPaise() > 0)
+        // ARPU: average revenue across every client that has ever paid, whatever their current status
+        // (a lapsed payer is still revenue; filtering on ACTIVE zeroed ARPU when all payers had lapsed).
+        List<ClientSummaryDto> everPaidClients = clientSummaries.stream()
+                .filter(c -> c.getTotalPaidPaise() > 0)
                 .collect(Collectors.toList());
-        long totalPayingRev = payingClients.stream().mapToLong(ClientSummaryDto::getTotalPaidPaise).sum();
-        long arpuPaise = payingClients.isEmpty() ? 0L : totalPayingRev / payingClients.size();
-        
+        long totalPayingRev = everPaidClients.stream().mapToLong(ClientSummaryDto::getTotalPaidPaise).sum();
+        long arpuPaise = everPaidClients.isEmpty() ? 0L : totalPayingRev / everPaidClients.size();
+
+        // MRR fallback still only counts currently ACTIVE payers
+        List<ClientSummaryDto> payingClients = everPaidClients.stream()
+                .filter(c -> "ACTIVE".equalsIgnoreCase(c.getEffectiveSubscriptionStatus()))
+                .collect(Collectors.toList());
         long mrrPaise = payingClients.stream().mapToLong(c -> {
             if (c.getPaymentHistory() != null && !c.getPaymentHistory().isEmpty()) {
                 return c.getPaymentHistory().get(0).getAmount();
