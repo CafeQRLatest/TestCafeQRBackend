@@ -1,5 +1,6 @@
 package com.restaurant.pos.purchase.listener;
 
+import com.restaurant.pos.common.exception.BusinessException;
 import com.restaurant.pos.inventory.service.InventoryService;
 import com.restaurant.pos.order.domain.Order;
 import com.restaurant.pos.order.domain.OrderLine;
@@ -74,8 +75,15 @@ public class PurchaseOrderInventoryListener {
                             purchaseOrder.getOrgId()
                     );
                 } catch (Exception e) {
+                    // Rethrow so the whole PO completion rolls back instead of leaving it
+                    // completed with partial stock (or failing later with UnexpectedRollbackException).
                     log.error("Failed stock intake for item {} in PO {}: {}",
                             line.getProductId(), purchaseOrder.getOrderNo(), e.getMessage(), e);
+                    if (e instanceof BusinessException be) {
+                        throw be;
+                    }
+                    throw new BusinessException("Could not receive stock for " + line.getProductName()
+                            + " in PO " + purchaseOrder.getOrderNo() + ": " + e.getMessage());
                 }
             }
         }

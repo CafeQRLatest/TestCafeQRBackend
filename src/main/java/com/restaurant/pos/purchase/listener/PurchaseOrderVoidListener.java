@@ -1,5 +1,6 @@
  package com.restaurant.pos.purchase.listener;
 
+import com.restaurant.pos.common.exception.BusinessException;
 import com.restaurant.pos.inventory.service.InventoryService;
 import com.restaurant.pos.invoice.domain.Invoice;
 import com.restaurant.pos.invoice.repository.InvoiceRepository;
@@ -74,8 +75,14 @@ public class PurchaseOrderVoidListener {
             reverseStockIntake(purchaseOrder);
 
         } catch (Exception e) {
+            // Rethrow so the whole void rolls back. Swallowing here left the transaction
+            // rollback-only (-> UnexpectedRollbackException) or voided the PO with stock not reversed.
             log.error("PurchaseOrderVoidListener: Failed during void processing for PO {}: {}",
                     purchaseOrder.getOrderNo(), e.getMessage(), e);
+            if (e instanceof BusinessException be) {
+                throw be;
+            }
+            throw new BusinessException("Could not void PO " + purchaseOrder.getOrderNo() + ": " + e.getMessage());
         }
     }
 
@@ -121,6 +128,11 @@ public class PurchaseOrderVoidListener {
                 } catch (Exception e) {
                     log.error("PurchaseOrderVoidListener: Failed to reverse stock for productId {} in PO {}: {}",
                             line.getProductId(), order.getOrderNo(), e.getMessage(), e);
+                    if (e instanceof BusinessException be) {
+                        throw be;
+                    }
+                    throw new BusinessException("Could not reverse stock for " + line.getProductName()
+                            + " in PO " + order.getOrderNo() + ": " + e.getMessage());
                 }
             }
         }
