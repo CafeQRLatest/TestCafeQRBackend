@@ -4153,6 +4153,13 @@ public class OrderService {
             return;
         }
 
+        // Idempotency: update/settle of a COMPLETED purchase re-enters here; and the purchase
+        // module's PurchaseOrderInventoryListener may already have received this order.
+        if (isPositive(inventoryService.netPurchaseReceivedQty(order.getId()))) {
+            log.info("processInventoryForOrder: stock already received for order {}", order.getId());
+            return;
+        }
+
         if (order.getLines() != null) {
             for (com.restaurant.pos.order.domain.OrderLine line : order.getLines()) {
                 if (line.getProductId() == null) {
@@ -4168,7 +4175,7 @@ public class OrderService {
                         line.getQuantity() != null ? line.getQuantity() : java.math.BigDecimal.ONE,
                         "PURCHASE",
                         order.getId(),
-                        line.getUnitPrice() != null ? line.getUnitPrice() : java.math.BigDecimal.ZERO,
+                        inventoryService.purchaseUnitCost(order, line),
                         order.getOrgId());
             }
         }
@@ -4615,6 +4622,12 @@ public class OrderService {
             return;
         }
 
+        // Only reverse stock that was actually received and not already reversed.
+        if (!isPositive(inventoryService.netPurchaseReceivedQty(order.getId()))) {
+            log.info("No received stock to reverse for PO {}", order.getOrderNo());
+            return;
+        }
+
         for (com.restaurant.pos.order.domain.OrderLine line : order.getLines()) {
             if (line.getProductId() == null) {
                 continue;
@@ -4631,7 +4644,7 @@ public class OrderService {
                         qty.negate(),
                         "PURCHASE_VOID",
                         order.getId(),
-                        line.getUnitPrice() != null ? line.getUnitPrice() : BigDecimal.ZERO,
+                        inventoryService.purchaseUnitCost(order, line),
                         orgId);
                 log.info("Reversed purchase stock intake {} for item {} in PO {}", qty, line.getProductId(), order.getOrderNo());
             } catch (Exception e) {
@@ -4967,5 +4980,9 @@ public class OrderService {
                 hydrated.getId(), custId, eligible);
 
         eventPublisher.publishEvent(new LoyaltyOrderSettledEvent(this, hydrated, custId, eligible));
+    }
+
+    private static boolean isPositive(BigDecimal value) {
+        return value != null && value.signum() > 0;
     }
 }

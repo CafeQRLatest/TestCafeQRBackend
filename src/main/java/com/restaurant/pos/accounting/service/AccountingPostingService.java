@@ -68,6 +68,7 @@ public class AccountingPostingService {
     private final ExpenseRepository expenseRepository;
     private final org.springframework.transaction.PlatformTransactionManager transactionManager;
     private final CurrencyScaleService currencyScale;
+    private final com.restaurant.pos.costing.query.CostingQueryService costingQueryService;
 
     public PostingOutcome postInvoice(Order order, Invoice invoice) {
         if (invoice == null || invoice.getId() == null || isVoid(invoice.getStatus()) || isInactive(invoice.getIsactive())) {
@@ -1028,14 +1029,20 @@ public class AccountingPostingService {
 
     private Optional<JournalEntry> buildSaleCogsJournal(Order order) {
         int dp = currencyScale.decimalPlaces(order.getClientId(), order.getOrgId());
-        BigDecimal costTotal = BigDecimal.ZERO;
-        if (order.getLines() != null) {
-            for (OrderLine line : order.getLines()) {
-                if (line == null || !line.isActive() || line.getProductId() == null) {
-                    continue;
+        // Actual cost from the costed stock movements of this sale (recipe items = ingredients consumed).
+        BigDecimal costTotal = order.getId() != null
+                ? costingQueryService.saleCostByOrder(List.of(order.getId())).get(order.getId())
+                : null;
+        if (costTotal == null) {
+            costTotal = BigDecimal.ZERO;
+            if (order.getLines() != null) {
+                for (OrderLine line : order.getLines()) {
+                    if (line == null || !line.isActive() || line.getProductId() == null) {
+                        continue;
+                    }
+                    BigDecimal unitCost = resolveUnitCost(order, line, dp);
+                    costTotal = costTotal.add(unitCost.multiply(quantity(line.getQuantity())));
                 }
-                BigDecimal unitCost = resolveUnitCost(line, dp);
-                costTotal = costTotal.add(unitCost.multiply(quantity(line.getQuantity())));
             }
         }
         costTotal = money(costTotal, dp);
@@ -1346,7 +1353,12 @@ public class AccountingPostingService {
         return type == PaymentType.INBOUND ? "INBOUND_PAYMENT" : "OUTBOUND_PAYMENT";
     }
 
-    private BigDecimal resolveUnitCost(OrderLine line, int dp) {
+    /** Fallback when the sale has no costed stock movements: current product cost, then the manual cost price. */
+    private BigDecimal resolveUnitCost(Order order, OrderLine line, int dp) {
+        BigDecimal current = costingQueryService.currentCost(order.getOrgId(), line.getProductId(), line.getVariantId());
+        if (current != null && current.signum() > 0) {
+            return money(current, dp);
+        }
         return productRepository.findById(line.getProductId())
                 .map(Product::getCostPrice)
                 .map(cost -> money(cost, dp))

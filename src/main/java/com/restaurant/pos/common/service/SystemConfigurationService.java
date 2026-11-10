@@ -279,6 +279,7 @@ public class SystemConfigurationService {
                 .posV2Enabled(false)
                 .nonStockSalesPolicy("NONE")
                 .nonStockTransferPolicy("NONE")
+                .costingMethod("AVERAGE_PO")
                 .offlineSyncEnabled(false)
                 .offlineSyncInterval(60)
                 .offlineLeaseBlockSize(100)
@@ -331,6 +332,7 @@ public class SystemConfigurationService {
                 .defaultBillingUiMode(source.getDefaultBillingUiMode())
                 .nonStockSalesPolicy(source.getNonStockSalesPolicy() != null ? source.getNonStockSalesPolicy() : "NONE")
                 .nonStockTransferPolicy(source.getNonStockTransferPolicy() != null ? source.getNonStockTransferPolicy() : "NONE")
+                .costingMethod(source.getCostingMethod() != null ? source.getCostingMethod() : "AVERAGE_PO")
                 .offlineSyncEnabled(source.isOfflineSyncEnabled())
                 .offlineSyncInterval(source.getOfflineSyncInterval())
                 .offlineLeaseBlockSize(source.getOfflineLeaseBlockSize())
@@ -504,6 +506,7 @@ public class SystemConfigurationService {
                 .posV2Enabled(entity.getSalesVersion() != null && "v2".equalsIgnoreCase(entity.getSalesVersion()))
                 .nonStockSalesPolicy(entity.getNonStockSalesPolicy() != null ? entity.getNonStockSalesPolicy() : "NONE")
                 .nonStockTransferPolicy(entity.getNonStockTransferPolicy() != null ? entity.getNonStockTransferPolicy() : "NONE")
+                .costingMethod(entity.getCostingMethod() != null ? entity.getCostingMethod() : "AVERAGE_PO")
                 .offlineSyncEnabled(entity.isOfflineSyncEnabled())
                 .offlineSyncInterval(entity.getOfflineSyncInterval())
                 .offlineLeaseBlockSize(entity.getOfflineLeaseBlockSize())
@@ -594,6 +597,10 @@ public class SystemConfigurationService {
         }
         if (dto.getNonStockTransferPolicy() != null) {
             entity.setNonStockTransferPolicy(dto.getNonStockTransferPolicy().trim().toUpperCase());
+        }
+        if (dto.getCostingMethod() != null) {
+            entity.setCostingMethod(com.restaurant.pos.costing.domain.CostingMethod
+                    .fromString(dto.getCostingMethod()).name());
         }
         entity.setOfflineSyncEnabled(dto.isOfflineSyncEnabled());
         entity.setOfflineSyncInterval(dto.getOfflineSyncInterval());

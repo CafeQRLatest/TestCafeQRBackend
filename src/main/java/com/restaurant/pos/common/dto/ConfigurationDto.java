@@ -61,6 +61,8 @@ public class ConfigurationDto {
     private String nonStockSalesPolicy = "NONE";
     @Builder.Default
     private String nonStockTransferPolicy = "NONE";
+    @Builder.Default
+    private String costingMethod = "AVERAGE_PO";
 
     // Offline Sync Capabilities
     private boolean offlineSyncEnabled;

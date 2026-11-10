@@ -49,6 +49,12 @@ public class PurchaseOrderInventoryListener {
             }
         }
 
+        // Idempotency: never receive the same purchase order twice (legacy OrderService path may already have).
+        if (isPositive(inventoryService.netPurchaseReceivedQty(purchaseOrder.getId()))) {
+            log.info("EventListener: Skipping stock intake for PO {} — stock already received", purchaseOrder.getOrderNo());
+            return;
+        }
+
         final java.util.UUID targetWarehouseId = warehouseId;
 
         log.info("EventListener: Processing stock intake | orderNo={} | warehouseId={} | lines={}",
@@ -64,7 +70,7 @@ public class PurchaseOrderInventoryListener {
                             line.getQuantity(),           // Positive = Stock IN
                             "PURCHASE_RECEIPT",           // Transaction type
                             purchaseOrder.getId(),
-                            line.getUnitPrice(),
+                            inventoryService.purchaseUnitCost(purchaseOrder, line),
                             purchaseOrder.getOrgId()
                     );
                 } catch (Exception e) {
@@ -73,5 +79,9 @@ public class PurchaseOrderInventoryListener {
                 }
             }
         }
+    }
+
+    private static boolean isPositive(BigDecimal value) {
+        return value != null && value.signum() > 0;
     }
 }

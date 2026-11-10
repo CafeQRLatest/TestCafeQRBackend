@@ -84,6 +84,12 @@ public class PurchaseOrderVoidListener {
             return;
         }
 
+        // Only reverse stock that was actually received and not already reversed.
+        if (!isPositive(inventoryService.netPurchaseReceivedQty(order.getId()))) {
+            log.info("PurchaseOrderVoidListener: No received stock to reverse for PO {}", order.getOrderNo());
+            return;
+        }
+
         UUID warehouseId = order.getWarehouseId();
         if (warehouseId == null) {
             var defaultWh = inventoryService.findDefaultWarehouse(order.getClientId(), order.getOrgId());
@@ -107,7 +113,7 @@ public class PurchaseOrderVoidListener {
                             line.getQuantity().negate(), // Stock reduction on void/edit
                             "PURCHASE_VOID",
                             order.getId(),
-                            line.getUnitPrice(),
+                            inventoryService.purchaseUnitCost(order, line),
                             order.getOrgId()
                     );
                     log.info("PurchaseOrderVoidListener: Reversed stock for productId={} | qty={}",
@@ -118,5 +124,9 @@ public class PurchaseOrderVoidListener {
                 }
             }
         }
+    }
+
+    private static boolean isPositive(BigDecimal value) {
+        return value != null && value.signum() > 0;
     }
 }

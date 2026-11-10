@@ -96,6 +96,11 @@ public class SystemConfiguration {
     @Builder.Default
     private String nonStockTransferPolicy = "NONE";
 
+    /** Inventory costing method: AVERAGE_PO, LAST_PO or STANDARD. */
+    @Column(name = "costing_method", length = 20)
+    @Builder.Default
+    private String costingMethod = "AVERAGE_PO";
+
     // Offline Sync Capabilities
     private boolean offlineSyncEnabled;
     private Integer offlineSyncInterval;
