@@ -64,14 +64,12 @@ public class CashDrawerService {
 
         User user = currentUser();
         RoleEntity role = user != null ? user.getRoleEntity() : null;
-        assertMayRecord(request.getTriggerType(), role);
-
-        if (request.getTriggerType() == CashDrawerTrigger.MANUAL
-                && request.getStatus() == CashDrawerEventStatus.SENT
-                && trimToNull(request.getReason()) == null
-                && isReasonRequired(clientId, orgId)) {
-            throw new BusinessException("A reason is required to open the cash drawer manually.");
+        if (request.getTriggerType() == null) {
+            throw new BusinessException("triggerType is required");
         }
+        // The device has already kicked the drawer by the time this arrives, so rejecting the event
+        // would only hide it from the audit trail. Record it and flag the rule it broke.
+        String violation = policyViolation(request, role, clientId, orgId);
 
         CashDrawerEvent event = CashDrawerEvent.builder()
                 .terminalId(contextProvider.getCurrentTerminal())
@@ -91,11 +89,16 @@ public class CashDrawerService {
                 .deviceEventAt(request.getDeviceEventAt())
                 .clientEventId(clientEventId)
                 .deviceLabel(trimToNull(request.getDeviceLabel()))
+                .policyViolation(violation)
                 .build();
         event.setClientId(clientId);
         event.setOrgId(orgId);
 
         CashDrawerEvent saved = repository.save(event);
+        if (violation != null) {
+            log.warn("Cash drawer event outside policy | violation={} | trigger={} | status={} | user={} | terminal={}",
+                    violation, saved.getTriggerType(), saved.getStatus(), saved.getUserId(), saved.getTerminalId());
+        }
         log.info("Cash drawer event | trigger={} | status={} | user={} | terminal={} | order={}",
                 saved.getTriggerType(), saved.getStatus(), saved.getUserId(), saved.getTerminalId(), saved.getOrderNo());
         return toDto(saved, Map.of());
@@ -145,25 +148,28 @@ public class CashDrawerService {
 
     // ── Permissions ───────────────────────────────────────────────────────
 
-    private void assertMayRecord(CashDrawerTrigger trigger, RoleEntity role) {
-        if (trigger == null) {
-            throw new BusinessException("triggerType is required");
-        }
-        if (isAdministrator()) {
-            return;
-        }
-        switch (trigger) {
-            case MANUAL, TEST -> {
-                if (role == null || !Boolean.TRUE.equals(role.getCanOpenCashDrawer())) {
-                    throw new AccessDeniedException("Role is not allowed to open the cash drawer manually");
-                }
-            }
-            case SALE_SETTLE, ORDER_SETTLE -> {
-                if (role != null && Boolean.FALSE.equals(role.getCanAutoOpenCashDrawer())) {
-                    throw new AccessDeniedException("Role is not allowed to auto-open the cash drawer");
-                }
+    static final String VIOLATION_NOT_PERMITTED = "NOT_PERMITTED";
+    static final String VIOLATION_REASON_MISSING = "REASON_MISSING";
+
+    /** Which rule this open broke, or null when it is within policy. */
+    private String policyViolation(RecordCashDrawerEventRequest request, RoleEntity role, UUID clientId, UUID orgId) {
+        CashDrawerTrigger trigger = request.getTriggerType();
+        if (!isAdministrator()) {
+            boolean permitted = switch (trigger) {
+                case MANUAL, TEST -> role != null && Boolean.TRUE.equals(role.getCanOpenCashDrawer());
+                case SALE_SETTLE, ORDER_SETTLE -> role == null || !Boolean.FALSE.equals(role.getCanAutoOpenCashDrawer());
+            };
+            if (!permitted) {
+                return VIOLATION_NOT_PERMITTED;
             }
         }
+        if (trigger == CashDrawerTrigger.MANUAL
+                && request.getStatus() == CashDrawerEventStatus.SENT
+                && trimToNull(request.getReason()) == null
+                && isReasonRequired(clientId, orgId)) {
+            return VIOLATION_REASON_MISSING;
+        }
+        return null;
     }
 
     private void assertMayViewHistory() {
@@ -277,6 +283,7 @@ public class CashDrawerService {
                 .status(e.getStatus())
                 .errorMessage(e.getErrorMessage())
                 .deviceLabel(e.getDeviceLabel())
+                .policyViolation(e.getPolicyViolation())
                 .recordedAt(e.getCreatedAt())
                 .deviceEventAt(e.getDeviceEventAt())
                 .build();

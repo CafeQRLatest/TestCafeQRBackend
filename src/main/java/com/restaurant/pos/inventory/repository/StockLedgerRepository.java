@@ -31,5 +31,13 @@ public interface StockLedgerRepository extends JpaRepository<StockLedger, UUID> 
 
     List<StockLedger> findByClientIdAndOrgIdAndReferenceId(UUID clientId, UUID orgId, UUID referenceId);
 
+    /** Latest movements of the given types for a product in an org (last purchase price lookup). */
+    List<StockLedger> findTop20ByOrgIdAndProductIdAndTransactionTypeInOrderByTransactionDateDesc(
+            UUID orgId, UUID productId, java.util.Collection<String> transactionTypes);
+
+    /** Movements of one product in an org within a period, oldest first (product cost report). */
+    List<StockLedger> findByOrgIdAndProductIdAndTransactionDateBetweenOrderByTransactionDateAsc(
+            UUID orgId, UUID productId, LocalDateTime from, LocalDateTime to);
+
     List<StockLedger> findByClientIdAndOrgIdAndTransactionDateBetweenOrderByTransactionDateAsc(UUID clientId, UUID orgId, LocalDateTime from, LocalDateTime to);
 }

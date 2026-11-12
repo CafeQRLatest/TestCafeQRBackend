@@ -268,7 +268,8 @@ public class PurchaseOrderDtoMapper {
                 .orderNo(order.getOrderNo())
                 .orderStatus(order.getOrderStatus())
                 .isReceived(order.getIsReceived())
-                .paymentStatus(order.getPaymentStatus())
+                // Lists show what was actually paid: voided POs as VOID, drafts as PENDING.
+                .paymentStatus(com.restaurant.pos.purchase.domain.PurchasePaymentStatus.effective(order.getOrderStatus(), order.getPaymentStatus()))
                 .paymentMethod(order.getPaymentMethod())
                 .vendorId(order.getVendorId())
                 .warehouseId(order.getWarehouseId())

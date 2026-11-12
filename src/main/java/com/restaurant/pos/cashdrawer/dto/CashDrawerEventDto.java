@@ -34,6 +34,8 @@ public class CashDrawerEventDto {
     private CashDrawerEventStatus status;
     private String errorMessage;
     private String deviceLabel;
+    /** NOT_PERMITTED / REASON_MISSING when the open broke a rule; null otherwise. */
+    private String policyViolation;
     /** Server time (UTC) the event was recorded. */
     private LocalDateTime recordedAt;
     /** Device time (UTC) the kick was attempted. */

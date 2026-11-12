@@ -79,4 +79,11 @@ public class CashDrawerEvent extends BaseEntity {
 
     @Column(name = "device_label")
     private String deviceLabel;
+
+    /**
+     * Set when the open broke a rule (NOT_PERMITTED, REASON_MISSING). The device kicks the drawer before
+     * the server sees the event, so such opens are recorded and flagged rather than rejected.
+     */
+    @Column(name = "policy_violation", length = 40)
+    private String policyViolation;
 }

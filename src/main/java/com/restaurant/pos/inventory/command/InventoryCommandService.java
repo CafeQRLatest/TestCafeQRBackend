@@ -261,7 +261,10 @@ public class InventoryCommandService {
                 for (StockAdjustmentLine line : saved.getLines()) {
                     // Stock going out is valued at the current stock cost, so the adjustment's
                     // accounting journal matches the cost taken out of inventory.
-                    if (line.getQuantityChange() != null && line.getQuantityChange().signum() < 0) {
+                    // Stock coming in without a cost entered is valued at the current stock cost too.
+                    boolean stockOut = line.getQuantityChange() != null && line.getQuantityChange().signum() < 0;
+                    boolean noCostEntered = line.getUnitCost() == null || line.getUnitCost().signum() <= 0;
+                    if (stockOut || noCostEntered) {
                         BigDecimal current = costingService.getCurrentCost(saved.getOrgId(), line.getProductId(), line.getVariantId());
                         if (current != null && current.signum() > 0) {
                             line.setUnitCost(current);
@@ -272,8 +275,20 @@ public class InventoryCommandService {
                             saved.getOrgId(), saved.getClientId());
                 }
             }
+        } else if (("CANCELLED".equalsIgnoreCase(saved.getStatus()) || "VOIDED".equalsIgnoreCase(saved.getStatus()))
+                && "COMPLETED".equalsIgnoreCase(previousStatus) && saved.getLines() != null) {
+            // Voiding a completed adjustment puts the stock (and its cost) back the way it was.
+            for (StockAdjustmentLine line : saved.getLines()) {
+                if (line.getQuantityChange() == null || line.getQuantityChange().signum() == 0) {
+                    continue;
+                }
+                updateStock(saved.getWarehouseId(), line.getProductId(), line.getVariantId(),
+                        line.getQuantityChange().negate(), "ADJUSTMENT_VOID", saved.getId(), line.getUnitCost(),
+                        saved.getOrgId(), saved.getClientId());
+            }
+            accountingPostingService.reverseSource("STOCK_ADJUSTMENT", saved.getId(), "Stock adjustment voided");
         }
-        
+
         accountingPostingService.postStockAdjustment(saved);
         return saved;
     }

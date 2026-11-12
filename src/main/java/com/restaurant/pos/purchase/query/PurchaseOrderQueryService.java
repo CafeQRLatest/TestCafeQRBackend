@@ -214,13 +214,14 @@ public class PurchaseOrderQueryService {
         long totalOrders = 0;
         long receivedOrders = 0;
         long draftOrders = 0;
+        long valuedOrders = 0; // orders counted in totalPurchases (not void/cancelled)
 
         java.util.Map<String, Long> statusCounts = new java.util.HashMap<>();
         java.util.Map<String, Long> paymentStatusCounts = new java.util.HashMap<>();
 
         for (Order o : orders) {
             String status = o.getOrderStatus() != null ? o.getOrderStatus().toUpperCase() : "UNKNOWN";
-            String payStatus = o.getPaymentStatus() != null ? o.getPaymentStatus().toUpperCase() : "UNPAID";
+            String payStatus = com.restaurant.pos.purchase.domain.PurchasePaymentStatus.effective(o.getOrderStatus(), o.getPaymentStatus());
 
             totalOrders++;
             statusCounts.merge(status, 1L, Long::sum);
@@ -234,6 +235,7 @@ public class PurchaseOrderQueryService {
             }
 
             if (!"VOID".equals(status) && !"CANCELLED".equals(status)) {
+                valuedOrders++;
                 java.math.BigDecimal grandTotal = safe(o.getGrandTotal());
                 totalPurchases = totalPurchases.add(grandTotal);
                 totalTax = totalTax.add(safe(o.getTotalTaxAmount()));
@@ -251,7 +253,8 @@ public class PurchaseOrderQueryService {
             }
         }
 
-        long nonDraftCount = totalOrders - draftOrders;
+        // Average over the same orders totalPurchases sums, so cancelled orders do not drag it down.
+        long nonDraftCount = valuedOrders;
         java.math.BigDecimal averageOrderValue = (nonDraftCount > 0 && totalPurchases.compareTo(java.math.BigDecimal.ZERO) > 0)
                 ? totalPurchases.divide(java.math.BigDecimal.valueOf(nonDraftCount), dp, java.math.RoundingMode.HALF_UP)
                 : java.math.BigDecimal.ZERO;
@@ -288,6 +291,22 @@ public class PurchaseOrderQueryService {
 
         java.util.Map<String, ItemAccumulator> itemMap = new java.util.LinkedHashMap<>();
 
+        // Purchase lines don't store category_name, so resolve it from the product in one batch.
+        java.util.Set<UUID> productIds = orders.stream()
+                .filter(o -> o.getLines() != null)
+                .flatMap(o -> o.getLines().stream())
+                .map(com.restaurant.pos.order.domain.OrderLine::getProductId)
+                .filter(java.util.Objects::nonNull)
+                .collect(java.util.stream.Collectors.toSet());
+        java.util.Map<UUID, String> productCategories = new HashMap<>();
+        if (!productIds.isEmpty()) {
+            productRepository.findAllById(productIds).forEach(p -> {
+                if (p.getCategory() != null && p.getCategory().getName() != null) {
+                    productCategories.put(p.getId(), p.getCategory().getName());
+                }
+            });
+        }
+
         for (Order o : orders) {
             String status = o.getOrderStatus() != null ? o.getOrderStatus().toUpperCase() : "";
             if ("VOID".equals(status) || "CANCELLED".equals(status)) {
@@ -299,7 +318,9 @@ public class PurchaseOrderQueryService {
             for (com.restaurant.pos.order.domain.OrderLine line : o.getLines()) {
                 if (!line.isActive()) continue;
                 String pName = line.getProductName() != null ? line.getProductName() : "Unknown Item";
-                String cat = line.getCategoryName() != null ? line.getCategoryName() : "General";
+                String cat = line.getCategoryName() != null && !line.getCategoryName().isBlank()
+                        ? line.getCategoryName()
+                        : productCategories.getOrDefault(line.getProductId(), "General");
                 String uom = line.getUnitOfMeasure() != null ? line.getUnitOfMeasure() : "pcs";
                 String key = pName + "|||" + cat + "|||" + uom;
 
@@ -388,7 +409,7 @@ public class PurchaseOrderQueryService {
             java.math.BigDecimal grandTotal = safe(o.getGrandTotal());
             acc.totalBilled = acc.totalBilled.add(grandTotal);
 
-            String payStatus = o.getPaymentStatus() != null ? o.getPaymentStatus().toUpperCase() : "UNPAID";
+            String payStatus = com.restaurant.pos.purchase.domain.PurchasePaymentStatus.effective(o.getOrderStatus(), o.getPaymentStatus());
             if ("PAID".equals(payStatus)) {
                 acc.totalPaid = acc.totalPaid.add(grandTotal);
             } else if ("PARTIAL".equals(payStatus)) {

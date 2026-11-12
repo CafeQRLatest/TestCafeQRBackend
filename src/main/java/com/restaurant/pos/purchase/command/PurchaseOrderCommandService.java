@@ -235,8 +235,11 @@ public class PurchaseOrderCommandService {
         int currentRev = existingEntity.getRevisionNumber() != null ? existingEntity.getRevisionNumber() : 0;
         UUID rootOrderId = existingEntity.getOriginalOrderId() != null ? existingEntity.getOriginalOrderId() : existingEntity.getId();
 
+        // Keep the live payment status for the new revision; the voided snapshot's payments are voided below.
+        String priorPaymentStatus = existingEntity.getPaymentStatus();
         existingEntity.setOrderNo(originalOrderNo + "_VOID_" + currentRev);
         existingEntity.setOrderStatus(OrderStatus.VOID.name());
+        existingEntity.setPaymentStatus(com.restaurant.pos.order.domain.PaymentStatus.VOID.name());
         existingEntity.setIsactive("N");
         orderRepository.saveAndFlush(existingEntity);
 
@@ -274,7 +277,7 @@ public class PurchaseOrderCommandService {
         // Copy / update fields from command or existing
         newPo.setVendorId(command.getVendorId() != null ? command.getVendorId() : existingEntity.getVendorId());
         newPo.setWarehouseId(command.getWarehouseId() != null ? command.getWarehouseId() : existingEntity.getWarehouseId());
-        newPo.setPaymentStatus(command.getPaymentStatus() != null ? command.getPaymentStatus() : existingEntity.getPaymentStatus());
+        newPo.setPaymentStatus(command.getPaymentStatus() != null ? command.getPaymentStatus() : priorPaymentStatus);
         newPo.setPaymentMethod(command.getPaymentMethod() != null ? command.getPaymentMethod() : existingEntity.getPaymentMethod());
         newPo.setPaymentSplits(command.getPaymentSplits() != null ? command.getPaymentSplits() : existingEntity.getPaymentSplits());
         newPo.setReference(command.getReference() != null ? command.getReference() : existingEntity.getReference());
@@ -340,6 +343,7 @@ public class PurchaseOrderCommandService {
                 throw new BusinessException("Purchase Order is already voided");
             }
             existingEntity.setOrderStatus(OrderStatus.VOID.name());
+            existingEntity.setPaymentStatus(com.restaurant.pos.order.domain.PaymentStatus.VOID.name());
         }
 
         log.info("Voiding Purchase Order | id={} | orderNo={}", orderId, existingEntity.getOrderNo());

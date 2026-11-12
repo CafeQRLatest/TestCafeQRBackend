@@ -46,6 +46,10 @@ public class CostingService {
     static final Set<String> SALE_RESTORE_TYPES = Set.of("SALE_VOID_RESTORE");
     static final Set<String> TRANSFER_OUT_TYPES = Set.of("TRANSFER_OUT");
     static final Set<String> TRANSFER_IN_TYPES = Set.of("TRANSFER_IN", "TRANSFER_VOID_REVERT");
+    static final Set<String> TRANSFER_RECEIPT_TYPES = Set.of("TRANSFER_IN");
+    static final Set<String> TRANSFER_VOID_TYPES = Set.of("TRANSFER_VOID_REVERT");
+    static final Set<String> ADJUSTMENT_TYPES = Set.of("ADJUSTMENT");
+    static final Set<String> ADJUSTMENT_VOID_TYPES = Set.of("ADJUSTMENT_VOID");
 
     private final ProductCostRepository productCostRepository;
     private final StockLedgerRepository stockLedgerRepository;
@@ -77,16 +81,26 @@ public class CostingService {
         cost.setCostingMethod(method);
 
         BigDecimal costBefore = nz(cost.getCurrentCostPrice());
+        refreshKnownCost(cost, method, orgId, productId, variantId);
+        BigDecimal current = nz(cost.getCurrentCostPrice());
         BigDecimal unitCost;
 
         if (qty.signum() > 0) {
-            unitCost = resolveInboundCost(type, referenceId, productId, variantId, inboundUnitCost, costBefore);
+            unitCost = resolveInboundCost(type, referenceId, productId, variantId, inboundUnitCost, current);
             applyInbound(cost, method, type, qty, unitCost);
         } else if (PURCHASE_VOID_TYPES.contains(type)) {
-            unitCost = resolvePurchaseVoidCost(referenceId, productId, variantId, inboundUnitCost, costBefore);
+            unitCost = resolveReversalCost(referenceId, productId, variantId, PURCHASE_IN_TYPES, inboundUnitCost, current);
+            applyPurchaseReversal(cost, method, qty.negate(), unitCost);
+        } else if (ADJUSTMENT_VOID_TYPES.contains(type)) {
+            // Voiding a stock-in adjustment takes its value back out at the cost it came in at.
+            unitCost = resolveReversalCost(referenceId, productId, variantId, ADJUSTMENT_TYPES, inboundUnitCost, current);
+            applyPurchaseReversal(cost, method, qty.negate(), unitCost);
+        } else if (TRANSFER_VOID_TYPES.contains(type)) {
+            // Voiding a transfer takes the stock back out of the destination at the cost it arrived at.
+            unitCost = resolveReversalCost(referenceId, productId, variantId, TRANSFER_RECEIPT_TYPES, null, current);
             applyPurchaseReversal(cost, method, qty.negate(), unitCost);
         } else {
-            unitCost = costBefore;
+            unitCost = current;
             cost.setCurrentQty(nz(cost.getCurrentQty()).add(qty));
         }
 
@@ -133,6 +147,11 @@ public class CostingService {
             BigDecimal original = findOriginalCost(referenceId, productId, variantId, TRANSFER_OUT_TYPES);
             return original != null ? original : current;
         }
+        if (ADJUSTMENT_VOID_TYPES.contains(type)) {
+            // Voiding a stock-out adjustment returns the stock at the cost it left at.
+            BigDecimal original = findOriginalCost(referenceId, productId, variantId, ADJUSTMENT_TYPES);
+            return original != null ? original : current;
+        }
         if (passed != null && passed.signum() > 0) {
             return passed;
         }
@@ -169,9 +188,10 @@ public class CostingService {
 
     // ── purchase void (reversal of a receipt) ────────────────────────────
 
-    private BigDecimal resolvePurchaseVoidCost(UUID referenceId, UUID productId, UUID variantId,
-                                               BigDecimal passed, BigDecimal current) {
-        BigDecimal original = findOriginalCost(referenceId, productId, variantId, PURCHASE_IN_TYPES);
+    /** Cost of the inbound movement being reversed: its ledger cost, else the caller's cost, else the current cost. */
+    private BigDecimal resolveReversalCost(UUID referenceId, UUID productId, UUID variantId, Set<String> inboundTypes,
+                                           BigDecimal passed, BigDecimal current) {
+        BigDecimal original = findOriginalCost(referenceId, productId, variantId, inboundTypes);
         if (original != null) {
             return original;
         }
@@ -208,6 +228,50 @@ public class CostingService {
                 .filter(c -> c != null && c.signum() > 0)
                 .findFirst()
                 .orElse(null);
+    }
+
+    /**
+     * Brings the cost record up to date with what is known outside it before a movement is costed.
+     * Standard: the cost is the product's manually kept Cost Price, so an edit there takes effect.
+     * Other methods: a cost of 0 (the product had no Cost Price when the record was created) is replaced
+     * by the Cost Price entered since, else by the last purchase receipt price in the stock ledger, so
+     * stock is not issued at a cost of 0 while a real cost is known.
+     */
+    private void refreshKnownCost(ProductCost cost, CostingMethod method, UUID orgId, UUID productId, UUID variantId) {
+        BigDecimal current = nz(cost.getCurrentCostPrice());
+        if (method == CostingMethod.STANDARD) {
+            BigDecimal standard = openingCost(productId, variantId);
+            if (standard.signum() > 0 && standard.compareTo(current) != 0) {
+                cost.setCurrentCostPrice(scale(standard));
+            }
+            return;
+        }
+        if (current.signum() != 0) {
+            return;
+        }
+        BigDecimal known = openingCost(productId, variantId);
+        if (known.signum() == 0) {
+            known = lastPurchaseCost(orgId, productId, variantId);
+        }
+        if (known.signum() > 0) {
+            cost.setCurrentCostPrice(scale(known));
+        }
+    }
+
+    /** Unit cost of the most recent purchase receipt of the product in this org, or 0 when there is none. */
+    private BigDecimal lastPurchaseCost(UUID orgId, UUID productId, UUID variantId) {
+        List<StockLedger> rows = stockLedgerRepository
+                .findTop20ByOrgIdAndProductIdAndTransactionTypeInOrderByTransactionDateDesc(orgId, productId, PURCHASE_IN_TYPES);
+        if (rows == null) {
+            return BigDecimal.ZERO;
+        }
+        return rows.stream()
+                .filter(r -> Objects.equals(r.getVariantId(), variantId))
+                .filter(r -> r.getQuantityChange() != null && r.getQuantityChange().signum() > 0)
+                .map(StockLedger::getUnitCost)
+                .filter(c -> c != null && c.signum() > 0)
+                .findFirst()
+                .orElse(BigDecimal.ZERO);
     }
 
     private ProductCost newCostRecord(UUID clientId, UUID orgId, UUID productId, UUID variantId, CostingMethod method) {

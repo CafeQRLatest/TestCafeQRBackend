@@ -37,6 +37,7 @@ class CostingServiceTest {
 
     private ProductCostRepository productCostRepository;
     private ProductRepository productRepository;
+    private StockLedgerRepository stockLedgerRepository;
     private CostingService service;
 
     private ProductCost stored;
@@ -46,7 +47,7 @@ class CostingServiceTest {
     @BeforeEach
     void setUp() {
         productCostRepository = mock(ProductCostRepository.class);
-        StockLedgerRepository stockLedgerRepository = mock(StockLedgerRepository.class);
+        stockLedgerRepository = mock(StockLedgerRepository.class);
         productRepository = mock(ProductRepository.class);
         SystemConfigurationRepository configRepository = mock(SystemConfigurationRepository.class);
 
@@ -231,5 +232,86 @@ class CostingServiceTest {
         assertMoney(product.getCostPrice(), "90");
         verify(productRepository, never()).save(any());
         assertMoney(stored.getLastPurchasePrice(), "120");
+    }
+
+    @Test
+    void zeroCostPicksUpCostPriceEnteredLater() {
+        CostResult first = move("SALE_DEDUCTION", UUID.randomUUID(), "-1", null);
+        assertMoney(first.unitCost(), "0");
+
+        when(productRepository.findById(productId))
+                .thenReturn(Optional.of(Product.builder().costPrice(new BigDecimal("50")).build()));
+        CostResult second = move("SALE_DEDUCTION", UUID.randomUUID(), "-1", null);
+
+        assertMoney(second.unitCost(), "50");
+        assertMoney(second.costAfter(), "50");
+    }
+
+    @Test
+    void zeroCostFallsBackToLastPurchaseReceiptInLedger() {
+        // Purchase received before costing existed: in the ledger, but the cost record started at 0.
+        when(stockLedgerRepository.findTop20ByOrgIdAndProductIdAndTransactionTypeInOrderByTransactionDateDesc(
+                eq(orgId), eq(productId), anyCollection()))
+                .thenReturn(List.of(StockLedger.builder().productId(productId).transactionType("PURCHASE")
+                        .quantityChange(new BigDecimal("10")).unitCost(new BigDecimal("115")).build()));
+
+        CostResult sale = move("SALE_DEDUCTION", UUID.randomUUID(), "-2", null);
+
+        assertMoney(sale.unitCost(), "115");
+        assertMoney(sale.totalCost(), "-230");
+    }
+
+    @Test
+    void standardMethodFollowsEditedCostPrice() {
+        config.setCostingMethod("STANDARD");
+        when(productRepository.findById(productId))
+                .thenReturn(Optional.of(Product.builder().costPrice(new BigDecimal("90")).build()));
+        move("PURCHASE_RECEIPT", UUID.randomUUID(), "10", "120");
+
+        when(productRepository.findById(productId))
+                .thenReturn(Optional.of(Product.builder().costPrice(new BigDecimal("95")).build()));
+        CostResult sale = move("SALE_DEDUCTION", UUID.randomUUID(), "-1", null);
+
+        assertMoney(sale.unitCost(), "95");
+    }
+
+    @Test
+    void voidingAStockInAdjustmentRemovesItsValue() {
+        UUID adjustment = UUID.randomUUID();
+        move("PURCHASE_RECEIPT", UUID.randomUUID(), "10", "100");
+        assertMoney(move("ADJUSTMENT", adjustment, "10", "200").costAfter(), "150");
+
+        CostResult voided = move("ADJUSTMENT_VOID", adjustment, "-10", "200");
+
+        assertMoney(voided.unitCost(), "200");
+        assertMoney(voided.costAfter(), "100");
+    }
+
+    @Test
+    void voidingAStockOutAdjustmentReturnsStockAtTheCostItLeftAt() {
+        UUID adjustment = UUID.randomUUID();
+        move("PURCHASE_RECEIPT", UUID.randomUUID(), "10", "100");
+        move("ADJUSTMENT", adjustment, "-4", null);
+        assertMoney(move("PURCHASE_RECEIPT", UUID.randomUUID(), "6", "200").costAfter(), "150");
+
+        CostResult voided = move("ADJUSTMENT_VOID", adjustment, "4", null);
+
+        assertMoney(voided.unitCost(), "100");
+        assertMoney(voided.costAfter(), "137.5");
+    }
+
+    @Test
+    void voidingATransferLeavesTheCostAsIfItNeverHappened() {
+        UUID transfer = UUID.randomUUID();
+        move("PURCHASE_RECEIPT", UUID.randomUUID(), "10", "100");
+        move("TRANSFER_OUT", transfer, "-4", null);
+        move("TRANSFER_IN", transfer, "4", null);
+        assertMoney(move("PURCHASE_RECEIPT", UUID.randomUUID(), "10", "200").costAfter(), "150");
+
+        move("TRANSFER_VOID_REVERT", transfer, "4", null);
+        CostResult out = move("TRANSFER_VOID_REVERT", transfer, "-4", null);
+
+        assertMoney(out.unitCost(), "100");
+        assertMoney(out.costAfter(), "150");
     }
 }

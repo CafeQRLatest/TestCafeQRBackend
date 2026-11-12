@@ -78,35 +78,38 @@ class CashDrawerServiceTest {
     }
 
     @Test
-    void autoOpenRejectedWhenRoleFlagIsOff() {
+    void autoOpenWithRoleFlagOffIsRecordedAndFlagged() {
         role.setCanAutoOpenCashDrawer(false);
-        assertThatThrownBy(() -> service.record(request(CashDrawerTrigger.ORDER_SETTLE, null)))
-                .isInstanceOf(AccessDeniedException.class);
-        verify(repository, never()).save(any());
-    }
-
-    @Test
-    void manualOpenRequiresPermission() {
-        assertThatThrownBy(() -> service.record(request(CashDrawerTrigger.MANUAL, "Change")))
-                .isInstanceOf(AccessDeniedException.class);
-
-        role.setCanOpenCashDrawer(true);
-        service.record(request(CashDrawerTrigger.MANUAL, "Change"));
+        CashDrawerEventDto dto = service.record(request(CashDrawerTrigger.ORDER_SETTLE, null));
         verify(repository).save(any());
+        assertThat(dto.getPolicyViolation()).isEqualTo(CashDrawerService.VIOLATION_NOT_PERMITTED);
     }
 
     @Test
-    void manualOpenRequiresReasonWhenConfigured() {
+    void manualOpenWithoutPermissionIsRecordedAndFlagged() {
+        CashDrawerEventDto denied = service.record(request(CashDrawerTrigger.MANUAL, "Change"));
+        assertThat(denied.getPolicyViolation()).isEqualTo(CashDrawerService.VIOLATION_NOT_PERMITTED);
+
         role.setCanOpenCashDrawer(true);
-        assertThatThrownBy(() -> service.record(request(CashDrawerTrigger.MANUAL, "  ")))
-                .isInstanceOf(BusinessException.class);
+        CashDrawerEventDto allowed = service.record(request(CashDrawerTrigger.MANUAL, "Change"));
+        assertThat(allowed.getPolicyViolation()).isNull();
+        verify(repository, times(2)).save(any());
+    }
+
+    @Test
+    void manualOpenWithoutRequiredReasonIsRecordedAndFlagged() {
+        role.setCanOpenCashDrawer(true);
+        CashDrawerEventDto dto = service.record(request(CashDrawerTrigger.MANUAL, "  "));
+        verify(repository).save(any());
+        assertThat(dto.getPolicyViolation()).isEqualTo(CashDrawerService.VIOLATION_REASON_MISSING);
     }
 
     @Test
     void adminBypassesRoleFlags() {
         when(context.hasRole("ADMIN")).thenReturn(true);
-        service.record(request(CashDrawerTrigger.TEST, null));
+        CashDrawerEventDto dto = service.record(request(CashDrawerTrigger.TEST, null));
         verify(repository).save(any());
+        assertThat(dto.getPolicyViolation()).isNull();
     }
 
     @Test
