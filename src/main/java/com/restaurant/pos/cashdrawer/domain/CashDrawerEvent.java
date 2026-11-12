@@ -50,7 +50,7 @@ public class CashDrawerEvent extends BaseEntity {
     @Column(name = "order_no", length = 100)
     private String orderNo;
 
-    @Column(name = "payment_method", length = 30)
+    @Column(name = "payment_method", length = 50)
     private String paymentMethod;
 
     @Column(name = "amount", precision = 19, scale = 4)

@@ -33,7 +33,7 @@ public class RecordCashDrawerEventRequest {
     @Size(max = 100)
     private String orderNo;
 
-    @Size(max = 30)
+    @Size(max = 50)
     private String paymentMethod;
 
     private BigDecimal amount;
