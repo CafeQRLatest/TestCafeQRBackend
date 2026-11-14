@@ -23,6 +23,7 @@ import com.restaurant.pos.whatsapp.service.WhatsAppBillFormatter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
@@ -50,6 +51,7 @@ public class PublicInvoiceController {
      * Public, unauthenticated endpoint to view a digital invoice e-receipt.
      * Polymorphically accepts either invoice ID or order ID.
      */
+    @Transactional(readOnly = true)
     @GetMapping("/view/{id}")
     public ResponseEntity<ApiResponse<PublicDigitalInvoiceDto>> getPublicInvoiceView(@PathVariable UUID id) {
         if (id == null) {

@@ -135,6 +135,7 @@ public interface OrderRepository extends JpaRepository<Order, UUID>, JpaSpecific
     @Query("SELECT l.order.id, COUNT(l) FROM OrderLine l WHERE l.order.id IN :orderIds GROUP BY l.order.id")
     List<Object[]> countLinesByOrderIds(@Param("orderIds") Collection<UUID> orderIds);
 
+    @EntityGraph(attributePaths = "lines")
     @Query("SELECT o FROM Order o WHERE o.id = :id")
     Optional<Order> findByIdWithLines(@Param("id") UUID id);
 
