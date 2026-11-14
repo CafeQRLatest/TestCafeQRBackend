@@ -45,16 +45,22 @@ jobs:
           command_timeout: 5m
           script: |
             set -euo pipefail
+            
+            # Sync latest code into ~/app if present
+            if [ -d "/home/ubuntu/app" ]; then
+              cd /home/ubuntu/app && git pull origin main || true
+            fi
+            
             cd /home/ubuntu
             
             # Log in to GHCR on the Oracle server to pull the package
             echo "${{ secrets.GITHUB_TOKEN }}" | sudo docker login ghcr.io -u ${{ github.actor }} --password-stdin
             
-            # Pull whatsapp-gateway image only
+            # Pull whatsapp-gateway image
             sudo docker-compose pull whatsapp-gateway || sudo docker compose pull whatsapp-gateway || true
             
-            # Restart whatsapp-gateway service only (leaving test-backend, DB, and Redis untouched)
-            sudo docker-compose up -d whatsapp-gateway || sudo docker compose up -d whatsapp-gateway || true
+            # Recreate and restart whatsapp-gateway with new image
+            sudo docker-compose up -d --force-recreate whatsapp-gateway || sudo docker compose up -d --force-recreate whatsapp-gateway || true
             
             # Clean up old unused images to save disk space
             sudo docker image prune -f

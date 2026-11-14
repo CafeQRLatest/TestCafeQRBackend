@@ -813,6 +813,12 @@ async function runAllTests() {
     assert.strictEqual(resStopped.status, 'CONNECTING');
     assert.strictEqual(resStopped.hasQr, true);
 
+    // 4. FAILED -> auto-recovers session, returns CONNECTING with hasQr: true
+    mockStatus = 'FAILED';
+    const resFailed = await queryStatus();
+    assert.strictEqual(resFailed.status, 'CONNECTING');
+    assert.strictEqual(resFailed.hasQr, true);
+
     await gateway.close();
     await mockWaha.close();
   });

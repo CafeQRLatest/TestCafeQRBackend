@@ -287,6 +287,13 @@ app.get('/api/status', async (req, res) => {
       });
       legacyStatus = 'CONNECTING';
       hasQr = true;
+    } else if (wahaStatus === 'FAILED') {
+      // Auto-recover failed session cleanly so pairing QR regenerates automatically
+      wahaClient.restartSession(targetSession, true).catch(err => {
+        logger.warn({ err: err.message, session: targetSession }, '[WhatsApp Gateway] Auto-recover failed session on status check error');
+      });
+      legacyStatus = 'CONNECTING';
+      hasQr = true;
     } else {
       legacyStatus = 'DISCONNECTED';
       hasQr = false;
@@ -350,11 +357,16 @@ app.get('/api/qr', async (req, res) => {
       });
     }
 
-    // Auto-start session if it is stopped or not found
+    // Auto-start/recover session if it is stopped, not found, or failed
     if (wahaStatus === 'STOPPED' || wahaStatus === 'NOT_FOUND') {
       logger.info(`[WhatsApp Gateway] Auto-starting session [${targetSession}]...`);
       await wahaClient.startSession(targetSession).catch(err => {
         logger.warn({ err: err.message, session: targetSession }, '[WhatsApp Gateway] startSession error');
+      });
+    } else if (wahaStatus === 'FAILED') {
+      logger.info(`[WhatsApp Gateway] Auto-recovering failed session [${targetSession}]...`);
+      await wahaClient.restartSession(targetSession, true).catch(err => {
+        logger.warn({ err: err.message, session: targetSession }, '[WhatsApp Gateway] restartSession error');
       });
     }
 

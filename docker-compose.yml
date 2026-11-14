@@ -73,6 +73,7 @@ services:
 
   # Cafe QR WhatsApp Gateway Adapter
   whatsapp-gateway:
+    image: ghcr.io/cafeqrlatest/testcafeqr-whatsapp-gateway:latest
     build: ./whatsapp-gateway
     container_name: cafeqr-whatsapp-gateway
     restart: unless-stopped
