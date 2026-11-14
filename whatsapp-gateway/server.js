@@ -279,6 +279,14 @@ app.get('/api/status', async (req, res) => {
       hasQr = true;
     } else if (wahaStatus === 'STARTING') {
       legacyStatus = 'CONNECTING';
+      hasQr = true;
+    } else if (wahaStatus === 'STOPPED' || wahaStatus === 'NOT_FOUND') {
+      // Auto-start session immediately so pairing QR is generated with zero manual commands
+      wahaClient.startSession(targetSession).catch(err => {
+        logger.warn({ err: err.message, session: targetSession }, '[WhatsApp Gateway] Auto-start session on status check error');
+      });
+      legacyStatus = 'CONNECTING';
+      hasQr = true;
     } else {
       legacyStatus = 'DISCONNECTED';
     }
@@ -287,7 +295,7 @@ app.get('/api/status', async (req, res) => {
       success: true,
       sessionId: requestedSession || targetSession,
       status: legacyStatus,
-      hasQr: (legacyStatus === 'SCAN_QR'),
+      hasQr: Boolean(hasQr || legacyStatus === 'SCAN_QR'),
       user
     });
   } catch (err) {
@@ -767,16 +775,20 @@ async function startGateway() {
     console.log(`[GATEWAY_STARTUP] Multi-tenant WhatsApp Gateway listening on port ${PORT}`);
     logger.info(`[WhatsApp Gateway] Multi-tenant server running on port ${PORT}`);
 
-    // Asynchronously trigger cold-start wake-up ping in background
-    wahaClient.ping(50).then(pingRes => {
-      logger.info({ pingRes }, '[WhatsApp Gateway] WAHA cold-start ping completed');
-    }).catch(err => {
-      logger.warn({ err: err.message }, '[WhatsApp Gateway] WAHA cold-start ping notice');
-    });
-
-    // Auto-ensure dedicated sessions exist on WAHA Core
-    wahaClient.startSession('cafe_qr_orders').catch(() => {});
-    wahaClient.startSession('cafeqr_official').catch(() => {});
+    // Asynchronously ensure WAHA is reachable and auto-start sessions in background
+    (async () => {
+      try {
+        const pingRes = await wahaClient.ping(50);
+        logger.info({ pingRes }, '[WhatsApp Gateway] WAHA cold-start ping completed');
+        await Promise.allSettled([
+          wahaClient.startSession('cafe_qr_orders'),
+          wahaClient.startSession('cafeqr_official')
+        ]);
+        logger.info('[WhatsApp Gateway] Background auto-start completed for default sessions');
+      } catch (err) {
+        logger.warn({ err: err.message }, '[WhatsApp Gateway] Background WAHA initialization notice');
+      }
+    })();
   });
   return server;
 }
