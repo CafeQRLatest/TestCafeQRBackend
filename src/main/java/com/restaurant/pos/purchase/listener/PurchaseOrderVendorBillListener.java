@@ -97,6 +97,7 @@ public class PurchaseOrderVendorBillListener {
                             .discountAmount(ol.getDiscountAmount())
                             .lineTotal(ol.getLineTotal())
                             .unitOfMeasure(ol.getUnitOfMeasure())
+                            .uomPrecision(ol.getUomPrecision())
                             .build();
                     vendorBill.addLine(il);
                 }

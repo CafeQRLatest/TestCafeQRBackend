@@ -3681,6 +3681,7 @@ public class OrderService {
                         .manualDiscountAmount(ol.getManualDiscountAmount())
                         .manualDiscountPercent(ol.getManualDiscountPercent())
                         .allocatedOrderDiscount(ol.getAllocatedOrderDiscount())
+                        .uomPrecision(ol.getUomPrecision())
                         .build();
                 invoice.addLine(il);
             }
