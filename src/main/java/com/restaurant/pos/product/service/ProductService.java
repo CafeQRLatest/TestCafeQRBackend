@@ -953,6 +953,7 @@ public class ProductService {
 
             product.setClientId(clientId);
             product.setOrgId(effectiveOrgId);
+            product.setProductType(normalizeProductType(product));
 
             // Resolve category efficiently (by name or by ID) before setting relationships
             if (product.getCategory() != null && product.getCategory().getId() == null
@@ -1016,6 +1017,21 @@ public class ProductService {
         }
         result.forEach(p -> p.setIsClientWise(p.getOrgId() == null));
         return result;
+    }
+
+    /**
+     * Ingredient status lives only in the isIngredient flag. Older bill-scanner imports stored
+     * productType "INGREDIENT" (or "PRODUCT") instead of a food type, which kept a product listed as an ingredient
+     * after its toggle was switched off. Such values are replaced with the default food type, VEG.
+     */
+    static String normalizeProductType(Product product) {
+        String type = product.getProductType();
+        boolean legacyIngredientType = type != null
+                && ("INGREDIENT".equalsIgnoreCase(type.trim()) || "PRODUCT".equalsIgnoreCase(type.trim()));
+        if (legacyIngredientType) {
+            return "VEG";
+        }
+        return type;
     }
 
     /** Case-insensitive, whitespace-normalised product name, or null when blank. */
@@ -1098,7 +1114,7 @@ public class ProductService {
         existing.setDeliveryVisible(product.isDeliveryVisible());
 
         // ERP Fields
-        existing.setProductType(product.getProductType());
+        existing.setProductType(normalizeProductType(product));
         existing.setVariant(product.isVariant());
         existing.setPackagedGood(product.isPackagedGood());
         existing.setIngredient(product.isIngredient());

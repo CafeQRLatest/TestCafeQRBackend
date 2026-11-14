@@ -214,6 +214,19 @@ class ProductServiceTest {
         assertThat(result.get(0).getOrgId()).isEqualTo(branchId);
     }
 
+    @Test
+    void legacyIngredientProductTypeIsReplacedWithFoodType() {
+        Product scanned = Product.builder().name("Mayonnaise 1 kg").price(BigDecimal.ZERO).productType("INGREDIENT").build();
+        Product product = Product.builder().name("Chai").price(BigDecimal.ZERO).productType("NON_VEG").build();
+        Product blank = Product.builder().name("Tea").price(BigDecimal.ZERO).build();
+
+        assertThat(ProductService.normalizeProductType(scanned)).isEqualTo("VEG");
+        assertThat(ProductService.normalizeProductType(Product.builder().name("x").price(BigDecimal.ZERO).productType("product").build()))
+                .isEqualTo("VEG");
+        assertThat(ProductService.normalizeProductType(product)).isEqualTo("NON_VEG");
+        assertThat(ProductService.normalizeProductType(blank)).isNull();
+    }
+
     private Product branchProduct(UUID productId, UUID ownerBranchId) {
         com.restaurant.pos.product.domain.Category category = com.restaurant.pos.product.domain.Category.builder()
                 .id(UUID.randomUUID())
