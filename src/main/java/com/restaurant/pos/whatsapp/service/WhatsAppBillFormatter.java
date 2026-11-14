@@ -4,6 +4,7 @@ import com.restaurant.pos.client.domain.Client;
 import com.restaurant.pos.client.domain.Organization;
 import com.restaurant.pos.common.entity.SystemConfiguration;
 import com.restaurant.pos.common.repository.SystemConfigurationRepository;
+import com.restaurant.pos.common.tax.TaxSplitCalculator;
 import com.restaurant.pos.invoice.domain.Invoice;
 import com.restaurant.pos.order.domain.Order;
 import com.restaurant.pos.order.domain.OrderLine;
@@ -187,29 +188,22 @@ public class WhatsAppBillFormatter {
         if (totalTax != null && totalTax.compareTo(BigDecimal.ZERO) > 0) {
             sb.append("*Includes Taxes / ").append(taxLabel).append(":* ").append(formatMoney(totalTax, currency, dp)).append("\n");
 
-            // 50/50 CGST & SGST breakdown for GST
-            boolean isGst = "GST".equalsIgnoreCase(taxLabel);
-            if (isGst) {
-                BigDecimal halfTax = totalTax.divide(BigDecimal.valueOf(2), dp, RoundingMode.HALF_UP);
-                BigDecimal otherHalf = totalTax.subtract(halfTax);
-
-                BigDecimal firstRate = null;
-                if (lines != null) {
-                    for (OrderLine l : lines) {
-                        if (l != null && l.getTaxRate() != null && l.getTaxRate().compareTo(BigDecimal.ZERO) > 0) {
-                            firstRate = l.getTaxRate();
-                            break;
-                        }
-                    }
+            // Breakdown by rate / configured components (Tax Settings → split)
+            List<TaxSplitCalculator.TaxLine> taxLines = new ArrayList<>();
+            if (lines != null) {
+                for (OrderLine l : lines) {
+                    if (l == null) continue;
+                    taxLines.add(new TaxSplitCalculator.TaxLine(l.getTaxRate(), l.getTaxableAmount(), l.getTaxAmount()));
                 }
-
-                if (firstRate != null && firstRate.compareTo(BigDecimal.ZERO) > 0) {
-                    BigDecimal halfRate = firstRate.divide(BigDecimal.valueOf(2), 2, RoundingMode.HALF_UP);
-                    sb.append("  • CGST (").append(fmtRate(halfRate)).append("%): ").append(formatMoney(halfTax, currency, dp)).append("\n");
-                    sb.append("  • SGST (").append(fmtRate(halfRate)).append("%): ").append(formatMoney(otherHalf, currency, dp)).append("\n");
-                } else {
-                    sb.append("  • CGST: ").append(formatMoney(halfTax, currency, dp)).append("\n");
-                    sb.append("  • SGST: ").append(formatMoney(otherHalf, currency, dp)).append("\n");
+            }
+            TaxSplitCalculator.Breakdown breakdown = TaxSplitCalculator.build(
+                    taxLines, totalTax,
+                    sysConfig != null ? sysConfig.getTaxRatesJson() : null,
+                    sysConfig != null && sysConfig.isTaxSplitEnabled(),
+                    taxLabel, dp);
+            if (breakdown.split() || breakdown.summaryLines().size() > 1) {
+                for (TaxSplitCalculator.SummaryLine sl : breakdown.summaryLines()) {
+                    sb.append("  • ").append(sl.label()).append(": ").append(formatMoney(sl.amount(), currency, dp)).append("\n");
                 }
             }
         }
@@ -495,14 +489,6 @@ public class WhatsAppBillFormatter {
     private String fmt(BigDecimal value, int dp) {
         if (value == null) return BigDecimal.ZERO.setScale(dp, RoundingMode.HALF_UP).toPlainString();
         return value.setScale(dp, RoundingMode.HALF_UP).toPlainString();
-    }
-
-    private String fmtRate(BigDecimal rate) {
-        if (rate == null) return "0";
-        if (rate.remainder(BigDecimal.ONE).compareTo(BigDecimal.ZERO) == 0) {
-            return String.valueOf(rate.intValue());
-        }
-        return rate.stripTrailingZeros().toPlainString();
     }
 
     private String formatQty(BigDecimal qty) {

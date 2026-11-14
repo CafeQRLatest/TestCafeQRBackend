@@ -2,6 +2,8 @@ package com.restaurant.pos.whatsapp.service;
 
 import com.restaurant.pos.client.domain.Client;
 import com.restaurant.pos.client.domain.Organization;
+import com.restaurant.pos.common.entity.SystemConfiguration;
+import com.restaurant.pos.common.repository.SystemConfigurationRepository;
 import com.restaurant.pos.invoice.domain.Invoice;
 import com.restaurant.pos.order.domain.Order;
 import com.restaurant.pos.order.domain.OrderLine;
@@ -29,6 +31,9 @@ class WhatsAppBillFormatterTest {
 
     @Mock
     private CurrencyRepository currencyRepository;
+
+    @Mock
+    private SystemConfigurationRepository systemConfigurationRepository;
 
     @InjectMocks
     private WhatsAppBillFormatter formatter;
@@ -70,6 +75,12 @@ class WhatsAppBillFormatterTest {
                 .build();
 
         when(currencyRepository.findById(currencyId)).thenReturn(Optional.of(dollarCurrency));
+
+        SystemConfiguration sysConfig = new SystemConfiguration();
+        sysConfig.setTaxLabelGlobal("GST");
+        sysConfig.setTaxSplitEnabled(true);
+        sysConfig.setTaxRatesJson("[{\"id\":\"t5\",\"value\":5,\"components\":[{\"name\":\"CGST\",\"value\":2.5},{\"name\":\"SGST\",\"value\":2.5}]}]");
+        when(systemConfigurationRepository.findFirstByClientIdAndOrgId(clientId, orgId)).thenReturn(Optional.of(sysConfig));
 
         OrderLine line1 = OrderLine.builder()
                 .productName("Apple")
@@ -123,8 +134,8 @@ class WhatsAppBillFormatterTest {
         // Verify Option B Totals (Gross Subtotal + Includes Taxes/GST)
         assertTrue(message.contains("*Subtotal:* $ 84.00"));
         assertTrue(message.contains("*Includes Taxes / GST:* $ 4.00"));
-        assertTrue(message.contains("CGST (2.5%): $ 2.00"));
-        assertTrue(message.contains("SGST (2.5%): $ 2.00"));
+        assertTrue(message.contains("CGST 2.5%: $ 2.00"));
+        assertTrue(message.contains("SGST 2.5%: $ 2.00"));
         assertTrue(message.contains("*TOTAL PAID:* *$ 84.00*"));
         assertTrue(message.contains("*Payment Mode:* CASH (PAID)"));
 
