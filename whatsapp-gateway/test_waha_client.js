@@ -607,6 +607,23 @@ async function runAllTests() {
     assert.strictEqual(qrResult.qr, `data:image/png;base64,${fakeBase64}`);
   });
 
+  await runTest('getQrImage formats WAHA Core JSON { base64: ... } payload into data URL', async () => {
+    const fakeBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+    const mock = await createMockWahaServer({
+      'GET /api/sessions/cafe_qr_orders/auth/qr': (req, res) => {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ format: 'image/png', base64: fakeBase64 }));
+      }
+    });
+
+    const client = new WahaClient({ baseUrl: mock.baseUrl });
+    const qrResult = await client.getQrImage('cafe_qr_orders');
+    await mock.close();
+
+    assert.strictEqual(qrResult.status, 'SCAN_QR');
+    assert.strictEqual(qrResult.qr, `data:image/png;base64,${fakeBase64}`);
+  });
+
   await runTest('getQrImage catches HTTP 400 gracefully and maps to CONNECTED when already paired', async () => {
     const mock = await createMockWahaServer({
       'GET /api/sessions/cafe_qr_orders/auth/qr': (req, res) => {

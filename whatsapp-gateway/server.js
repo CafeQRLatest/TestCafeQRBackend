@@ -22,8 +22,8 @@ const crypto = require('crypto');
 const { WahaClient, formatChatId, extractMessageId } = require('./waha_client');
 
 const PORT = process.env.PORT || 3005;
-const WAHA_BASE_URL = process.env.WAHA_BASE_URL || 'https://waha-gateway-vk9q.onrender.com';
-const WAHA_API_KEY = process.env.WAHA_API_KEY || '';
+const WAHA_BASE_URL = process.env.WAHA_BASE_URL || 'http://waha:3000';
+const WAHA_API_KEY = process.env.WAHA_API_KEY || process.env.WHATSAPP_API_KEY || 'cafeqr-waha-secret-2026';
 const WAHA_DEFAULT_SESSION = process.env.WAHA_DEFAULT_SESSION || 'cafe_qr_orders';
 const WAHA_TIMEOUT_MS = parseInt(process.env.WAHA_TIMEOUT_MS || '15000', 10);
 

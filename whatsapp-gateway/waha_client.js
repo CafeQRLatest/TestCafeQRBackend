@@ -372,9 +372,11 @@ class WahaClient {
    * @param {Object} [options.breakerOptions] - Options passed to SlidingWindowCircuitBreaker
    */
   constructor(options = {}) {
-    const rawUrl = options.baseUrl || process.env.WAHA_BASE_URL || 'https://waha-gateway-vk9q.onrender.com';
+    const rawUrl = options.baseUrl || process.env.WAHA_BASE_URL || 'http://waha:3000';
     this.baseUrl = String(rawUrl).replace(/\/+$/, '');
-    this.apiKey = options.apiKey !== undefined ? options.apiKey : (process.env.WAHA_API_KEY || '');
+    this.apiKey = options.apiKey !== undefined
+      ? options.apiKey
+      : (process.env.WAHA_API_KEY || process.env.WHATSAPP_API_KEY || 'cafeqr-waha-secret-2026');
     this.defaultSession = options.defaultSession || process.env.WAHA_DEFAULT_SESSION || 'cafe_qr_orders';
     this.timeoutMs = parseInt(options.timeoutMs || process.env.WAHA_TIMEOUT_MS || '15000', 10);
     this.maxRetries = options.maxRetries != null ? options.maxRetries : 3;
@@ -859,13 +861,14 @@ class WahaClient {
         if (Buffer.isBuffer(res.data)) {
           dataUrl = `data:image/png;base64,${res.data.toString('base64')}`;
         } else if (typeof res.data === 'object' && res.data !== null) {
-          // Case B: Base64 JSON payload
-          const rawData = res.data.data || res.data.qr || res.data.value || '';
-          const mime = res.data.mimetype || 'image/png';
-          if (rawData.startsWith('data:')) {
+          // Case B: Base64 JSON payload (supports WAHA fields: base64, data, qr, value, image, url)
+          const rawData = res.data.base64 || res.data.data || res.data.qr || res.data.value || res.data.image || res.data.url || '';
+          const mime = res.data.mimetype || res.data.format || 'image/png';
+          if (typeof rawData === 'string' && rawData.startsWith('data:')) {
             dataUrl = rawData;
-          } else if (rawData) {
-            dataUrl = `data:${mime};base64,${rawData}`;
+          } else if (typeof rawData === 'string' && rawData.length > 0) {
+            const cleanMime = mime.includes('/') ? mime : `image/${mime}`;
+            dataUrl = `data:${cleanMime};base64,${rawData}`;
           }
         } else if (typeof res.data === 'string' && res.data.length > 0) {
           // Case C: Raw string data URI or base64 string
