@@ -911,9 +911,33 @@ public class ProductService {
             }
         }
 
+        // Same rule as createProduct: only one active product per name in scope.
+        // A row whose name already exists (in the database or earlier in this batch) reuses that product
+        // instead of creating a duplicate, e.g. when the AI bill scanner submits an item it failed to match.
+        Map<String, Map<String, Product>> activeByNameForScope = new java.util.HashMap<>();
+        Map<String, Product> batchByName = new java.util.HashMap<>();
+        List<Product> result = new java.util.ArrayList<>(products.size());
+        List<Product> toCreate = new java.util.ArrayList<>();
+
         for (Product product : products) {
             boolean isClientWise = Boolean.TRUE.equals(product.getIsClientWise());
             UUID effectiveOrgId = isClientWise ? null : (product.getOrgId() != null ? product.getOrgId() : orgId);
+
+            String nameKey = productNameKey(product.getName());
+            if (nameKey != null) {
+                String scopeKey = String.valueOf(effectiveOrgId);
+                Product existing = activeByNameForScope
+                        .computeIfAbsent(scopeKey, k -> activeProductsByName(clientId, effectiveOrgId))
+                        .get(nameKey);
+                if (existing == null) {
+                    existing = batchByName.get(scopeKey + "|" + nameKey);
+                }
+                if (existing != null) {
+                    result.add(existing);
+                    continue;
+                }
+                batchByName.put(scopeKey + "|" + nameKey, product);
+            }
 
             // Batch Duplicate Check
             if (product.getProductCode() != null) {
@@ -976,12 +1000,42 @@ public class ProductService {
             validateProductIntegrityOptimized(product, clientId, effectiveOrgId != null ? effectiveOrgId : orgId, validCategoryIds, validUomIds);
 
             setProductRelationships(product, clientId, effectiveOrgId);
+            toCreate.add(product);
+            result.add(product);
         }
-        @SuppressWarnings("null")
-        List<Product> savedProducts = productRepository.saveAll(products);
-        savedProducts.forEach(p -> p.setIsClientWise(p.getOrgId() == null));
-        invalidatePosProducts(clientId, orgId);
-        return savedProducts;
+        if (!toCreate.isEmpty()) {
+            @SuppressWarnings("null")
+            List<Product> savedProducts = productRepository.saveAll(toCreate);
+            // saveAll may return new instances; swap them into the ordered result
+            Map<Product, Product> savedByInput = new java.util.IdentityHashMap<>();
+            for (int i = 0; i < toCreate.size() && i < savedProducts.size(); i++) {
+                savedByInput.put(toCreate.get(i), savedProducts.get(i));
+            }
+            result.replaceAll(p -> savedByInput.getOrDefault(p, p));
+            invalidatePosProducts(clientId, orgId);
+        }
+        result.forEach(p -> p.setIsClientWise(p.getOrgId() == null));
+        return result;
+    }
+
+    /** Case-insensitive, whitespace-normalised product name, or null when blank. */
+    private static String productNameKey(String name) {
+        if (name == null || name.isBlank()) {
+            return null;
+        }
+        return name.trim().replaceAll("\\s+", " ").toLowerCase(java.util.Locale.ROOT);
+    }
+
+    /** Active products visible in the given scope (org, client-wide and global), keyed by normalised name. */
+    private Map<String, Product> activeProductsByName(UUID clientId, UUID scopeOrgId) {
+        Map<String, Product> byName = new java.util.HashMap<>();
+        for (Product p : productRepository.findByClientIdAndOrgIdOrGlobal(clientId, scopeOrgId)) {
+            String key = productNameKey(p.getName());
+            if (key != null && p.isActive()) {
+                byName.putIfAbsent(key, p);
+            }
+        }
+        return byName;
     }
 
     @Transactional
