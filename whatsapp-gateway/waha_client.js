@@ -96,6 +96,7 @@ class SlidingWindowCircuitBreaker {
       this.openedAt = 0;
     } else if (this.state === BreakerState.CLOSED) {
       this.pushHistory(true);
+      this.evaluateState();
     }
   }
 
@@ -815,75 +816,111 @@ class WahaClient {
    * e.g. already WORKING or STARTING) gracefully without throwing, queries getSession(),
    * and maps to legacy POS states.
    *
+   * WAHA Core exposes QR via /api/{session}/auth/qr (binary image or base64 JSON),
+   * with legacy fallback to /api/sessions/{session}/auth/qr.
+   *
    * @param {string} [sessionName=this.defaultSession]
    * @returns {Promise<{ qr: string|null, dataUrl: string|null, status: string, session?: Object }>}
    */
   async getQrImage(sessionName = this.defaultSession) {
     const target = sessionName || this.defaultSession;
+    const endpoints = [
+      `/api/${encodeURIComponent(target)}/auth/qr?format=image`,
+      `/api/${encodeURIComponent(target)}/auth/qr`,
+      `/api/sessions/${encodeURIComponent(target)}/auth/qr?format=image`,
+      `/api/sessions/${encodeURIComponent(target)}/auth/qr`
+    ];
 
-    try {
-      const res = await this.request('GET', `/api/sessions/${encodeURIComponent(target)}/auth/qr?format=image`, {
-        sessionName: target,
-        headers: {
-          'Accept': 'image/png, image/*, */*'
+    let lastErr = null;
+    for (const ep of endpoints) {
+      try {
+        const res = await this.request('GET', ep, {
+          sessionName: target,
+          headers: {
+            'Accept': 'image/png, image/*, application/json, */*'
+          }
+        });
+
+        let dataUrl = null;
+
+        // Case A: Raw binary PNG buffer
+        if (Buffer.isBuffer(res.data)) {
+          dataUrl = `data:image/png;base64,${res.data.toString('base64')}`;
+        } else if (typeof res.data === 'object' && res.data !== null) {
+          // Case B: Base64 JSON payload
+          const rawData = res.data.data || res.data.qr || res.data.value || '';
+          const mime = res.data.mimetype || 'image/png';
+          if (rawData.startsWith('data:')) {
+            dataUrl = rawData;
+          } else if (rawData) {
+            dataUrl = `data:${mime};base64,${rawData}`;
+          }
+        } else if (typeof res.data === 'string' && res.data.length > 0) {
+          // Case C: Raw string data URI or base64 string
+          dataUrl = res.data.startsWith('data:') ? res.data : `data:image/png;base64,${res.data}`;
         }
-      });
 
-      let dataUrl = null;
-
-      // Case A: Raw binary PNG buffer
-      if (Buffer.isBuffer(res.data)) {
-        dataUrl = `data:image/png;base64,${res.data.toString('base64')}`;
-      } else if (typeof res.data === 'object' && res.data !== null) {
-        // Case B: Base64 JSON payload
-        const rawData = res.data.data || res.data.qr || '';
-        const mime = res.data.mimetype || 'image/png';
-        if (rawData.startsWith('data:')) {
-          dataUrl = rawData;
-        } else if (rawData) {
-          dataUrl = `data:${mime};base64,${rawData}`;
+        if (dataUrl) {
+          return {
+            qr: dataUrl,
+            dataUrl,
+            status: 'SCAN_QR'
+          };
         }
-      } else if (typeof res.data === 'string' && res.data.length > 0) {
-        // Case C: Raw string data URI or base64 string
-        dataUrl = res.data.startsWith('data:') ? res.data : `data:image/png;base64,${res.data}`;
+      } catch (err) {
+        lastErr = err;
+        // If 400 (session already WORKING/STARTING, not in SCAN_QR_CODE), stop probing and check status
+        if (err.status === 400) {
+          break;
+        }
+        // If 404 (endpoint not recognized), fall through to next endpoint candidate
+        if (err.status === 404) {
+          continue;
+        }
       }
+    }
+
+    // If all endpoints failed or returned 400/404, query session status
+    if (lastErr && (lastErr.status === 400 || lastErr.status === 404)) {
+      const session = await this.getSession(target).catch(() => ({ status: 'DISCONNECTED' }));
+      let mappedStatus = 'DISCONNECTED';
+      if (session.status === 'WORKING') mappedStatus = 'CONNECTED';
+      else if (session.status === 'STARTING') mappedStatus = 'CONNECTING';
+      else if (session.status === 'SCAN_QR_CODE') mappedStatus = 'SCAN_QR';
 
       return {
-        qr: dataUrl,
-        dataUrl,
-        status: dataUrl ? 'SCAN_QR' : 'CONNECTING'
+        qr: null,
+        dataUrl: null,
+        status: mappedStatus,
+        session
       };
-    } catch (err) {
-      // WAHA returns HTTP 400 or 404 if session is not in SCAN_QR_CODE (e.g. WORKING or STARTING)
-      if (err.status === 400 || err.status === 404) {
-        const session = await this.getSession(target).catch(() => ({ status: 'DISCONNECTED' }));
-        let mappedStatus = 'DISCONNECTED';
-        if (session.status === 'WORKING') mappedStatus = 'CONNECTED';
-        else if (session.status === 'STARTING') mappedStatus = 'CONNECTING';
-        else if (session.status === 'SCAN_QR_CODE') mappedStatus = 'SCAN_QR';
-
-        return {
-          qr: null,
-          dataUrl: null,
-          status: mappedStatus,
-          session
-        };
-      }
-      throw err;
     }
+
+    if (lastErr) {
+      throw lastErr;
+    }
+
+    return {
+      qr: null,
+      dataUrl: null,
+      status: 'CONNECTING'
+    };
   }
 
   /**
-   * Retrieves connected WhatsApp user details from /api/sessions/{session}/me.
+   * Retrieves connected WhatsApp user details from /api/{session}/me or /api/sessions/{session}/me.
    *
    * @param {string} [sessionName=this.defaultSession]
    * @returns {Promise<{ id: string, pushName: string, phone: string, name: string }>}
    */
   async getMe(sessionName = this.defaultSession) {
     const target = sessionName || this.defaultSession;
-    const res = await this.request('GET', `/api/sessions/${encodeURIComponent(target)}/me`, {
-      sessionName: target
-    });
+    let res;
+    try {
+      res = await this.request('GET', `/api/${encodeURIComponent(target)}/me`, { sessionName: target });
+    } catch (e) {
+      res = await this.request('GET', `/api/sessions/${encodeURIComponent(target)}/me`, { sessionName: target });
+    }
 
     const data = res.data || {};
     const id = data.id || '';

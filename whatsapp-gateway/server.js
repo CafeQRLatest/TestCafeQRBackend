@@ -279,23 +279,20 @@ app.get('/api/status', async (req, res) => {
       hasQr = true;
     } else if (wahaStatus === 'STARTING') {
       legacyStatus = 'CONNECTING';
-      hasQr = true;
+      hasQr = false;
     } else if (wahaStatus === 'STOPPED' || wahaStatus === 'NOT_FOUND') {
-      // Auto-start session immediately so pairing QR is generated with zero manual commands
-      wahaClient.startSession(targetSession).catch(err => {
-        logger.warn({ err: err.message, session: targetSession }, '[WhatsApp Gateway] Auto-start session on status check error');
-      });
-      legacyStatus = 'CONNECTING';
-      hasQr = true;
+      legacyStatus = 'DISCONNECTED';
+      hasQr = false;
     } else {
       legacyStatus = 'DISCONNECTED';
+      hasQr = false;
     }
 
     return res.json({
       success: true,
       sessionId: requestedSession || targetSession,
       status: legacyStatus,
-      hasQr: Boolean(hasQr || legacyStatus === 'SCAN_QR'),
+      hasQr: (legacyStatus === 'SCAN_QR'),
       user
     });
   } catch (err) {
@@ -382,6 +379,8 @@ app.get('/api/qr', async (req, res) => {
         user
       });
     }
+
+    logger.info({ session: targetSession, hasQr: Boolean(qrResult.qr), status: qrResult.status }, '[WhatsApp Gateway] Fetched QR code result');
 
     return res.json({
       success: true,
