@@ -50,13 +50,11 @@ class SlidingWindowCircuitBreaker {
     this.failureThreshold = rawThreshold > 1 ? rawThreshold / 100 : rawThreshold;
     this.minCalls = Math.max(1, options.minCalls != null ? options.minCalls : 10);
     this.cooldownMs = options.cooldownMs != null ? options.cooldownMs : 60000;
-    this.probeTimeoutMs = options.probeTimeoutMs || 15000;
 
     this.state = BreakerState.CLOSED;
     this.history = []; // boolean[]: true for success, false for failure
     this.openedAt = 0;
     this.isProbing = false; // Atomic CAS permit for HALF_OPEN
-    this.probeStartedAt = 0;
   }
 
   /**
@@ -76,15 +74,9 @@ class SlidingWindowCircuitBreaker {
     }
 
     if (this.state === BreakerState.HALF_OPEN) {
-      // Lease timeout guard: auto-expire stale probe lock after probeTimeoutMs
-      if (this.isProbing && this.probeStartedAt && (now - this.probeStartedAt >= this.probeTimeoutMs)) {
-        this.isProbing = false;
-      }
-
       // Atomic CAS probe permit: only the first caller gets the permit
       if (!this.isProbing) {
         this.isProbing = true;
-        this.probeStartedAt = now;
         return true;
       }
       return false;
@@ -101,11 +93,9 @@ class SlidingWindowCircuitBreaker {
       this.state = BreakerState.CLOSED;
       this.history = [];
       this.isProbing = false;
-      this.probeStartedAt = 0;
       this.openedAt = 0;
     } else if (this.state === BreakerState.CLOSED) {
       this.pushHistory(true);
-      this.evaluateState();
     }
   }
 
@@ -117,7 +107,6 @@ class SlidingWindowCircuitBreaker {
       this.state = BreakerState.OPEN;
       this.openedAt = Date.now();
       this.isProbing = false;
-      this.probeStartedAt = 0;
     } else if (this.state === BreakerState.CLOSED) {
       this.pushHistory(false);
       this.evaluateState();
@@ -189,7 +178,6 @@ class SlidingWindowCircuitBreaker {
     this.history = [];
     this.openedAt = 0;
     this.isProbing = false;
-    this.probeStartedAt = 0;
   }
 }
 
@@ -508,103 +496,92 @@ class WahaClient {
     let lastError = null;
     let lastResponse = null;
 
-    try {
-      for (let attempt = 0; attempt <= maxRetries; attempt++) {
-        try {
-          const response = await dispatchHttpRequest(url, {
-            method,
-            headers,
-            body: options.body,
-            timeoutMs
-          });
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        const response = await dispatchHttpRequest(url, {
+          method,
+          headers,
+          body: options.body,
+          timeoutMs
+        });
 
-          lastResponse = response;
+        lastResponse = response;
 
-          // Successful HTTP response
-          if (response.ok) {
-            if (breaker) breaker.recordSuccess();
-            return response;
+        // Successful HTTP response
+        if (response.ok) {
+          if (breaker) breaker.recordSuccess();
+          return response;
+        }
+
+        // Handle specific non-OK statuses
+        // Transient server errors (429, 502, 503, 504) -> retry
+        if (this.isTransient(null, response.status)) {
+          lastError = new Error(`WAHA transient error: HTTP ${response.status} (${response.statusText})`);
+          lastError.status = response.status;
+          lastError.data = response.data;
+
+          if (attempt < maxRetries) {
+            const jitterDelay = this.calculateJitter(attempt);
+            await this._sleepFn(jitterDelay);
+            continue;
           }
+          // Exhausted retries on transient error
+          if (breaker) breaker.recordFailure();
+          throw lastError;
+        }
 
-          // Handle specific non-OK statuses
-          // Transient server errors (429, 502, 503, 504) -> retry
-          if (this.isTransient(null, response.status)) {
-            lastError = new Error(`WAHA transient error: HTTP ${response.status} (${response.statusText})`);
-            lastError.status = response.status;
-            lastError.data = response.data;
+        // Non-transient client/server error (400, 401, 404, 500, etc.)
+        const errorMsg = (response.data && response.data.message)
+          ? response.data.message
+          : `WAHA HTTP ${response.status}: ${response.statusText}`;
+        const error = new Error(errorMsg);
+        error.status = response.status;
+        error.data = response.data;
+        error.rawBuffer = response.rawBuffer;
 
-            if (attempt < maxRetries) {
-              const jitterDelay = this.calculateJitter(attempt);
-              await this._sleepFn(jitterDelay);
-              continue;
-            }
-            // Exhausted retries on transient error
-            if (breaker) breaker.recordFailure();
-            throw lastError;
-          }
+        // Trip breaker on server crashes (500)
+        if (response.status >= 500 && breaker) {
+          breaker.recordFailure();
+        } else if (response.status < 500 && breaker) {
+          // Client errors (400, 404) are normal API contracts; do not count as server failure
+          breaker.recordSuccess();
+        }
 
-          // Non-transient client/server error (400, 401, 404, 500, etc.)
-          const errorMsg = (response.data && response.data.message)
-            ? response.data.message
-            : `WAHA HTTP ${response.status}: ${response.statusText}`;
-          const error = new Error(errorMsg);
-          error.status = response.status;
-          error.statusCode = response.status;
-          error.data = response.data;
-          error.rawBuffer = response.rawBuffer;
+        throw error;
+      } catch (err) {
+        lastError = err;
 
-          // Trip breaker on server crashes (500)
-          if (response.status >= 500 && breaker) {
-            breaker.recordFailure();
-          } else if (response.status < 500 && breaker) {
-            // Client errors (400, 404) are normal API contracts; do not count as server failure
-            breaker.recordSuccess();
-          }
-
-          throw error;
-        } catch (err) {
-          lastError = err;
-
-          // Don't retry if circuit breaker itself threw or if non-transient
-          if (err.name === 'CircuitBreakerOpenError') {
-            throw err;
-          }
-
-          // If error has a non-transient status code (e.g. 400, 404), throw immediately
-          if (err.status && !this.isTransient(err, err.status)) {
-            throw err;
-          }
-
-          // Check if network error is transient
-          if (this.isTransient(err, err.status)) {
-            if (attempt < maxRetries) {
-              const jitterDelay = this.calculateJitter(attempt);
-              await this._sleepFn(jitterDelay);
-              continue;
-            }
-            if (breaker) breaker.recordFailure();
-            throw err;
-          }
-
-          // Non-transient error caught
-          if (breaker && (!err.status || err.status >= 500)) {
-            breaker.recordFailure();
-          }
+        // Don't retry if circuit breaker itself threw or if non-transient
+        if (err.name === 'CircuitBreakerOpenError') {
           throw err;
         }
-      }
 
-      if (breaker) breaker.recordFailure();
-      throw lastError || new Error(`Failed request to ${url}`);
-    } finally {
-      // Probe permit release guarantee: release lock if probe attempt threw without transitioning state
-      if (breaker && breaker.isProbing) {
-        breaker.isProbing = false;
-        if (breaker.state === BreakerState.HALF_OPEN) {
+        // If error has a non-transient status code (e.g. 400, 404), throw immediately
+        if (err.status && !this.isTransient(err, err.status)) {
+          throw err;
+        }
+
+        // Check if network error is transient
+        if (this.isTransient(err, err.status)) {
+          if (attempt < maxRetries) {
+            const jitterDelay = this.calculateJitter(attempt);
+            await this._sleepFn(jitterDelay);
+            continue;
+          }
+          if (breaker) breaker.recordFailure();
+          throw err;
+        }
+
+        // Non-transient error caught
+        if (breaker && (!err.status || err.status >= 500)) {
           breaker.recordFailure();
         }
+        throw err;
       }
     }
+
+    if (breaker) breaker.recordFailure();
+    throw lastError || new Error(`Failed request to ${url}`);
   }
 
   /**
@@ -627,15 +604,9 @@ class WahaClient {
     ];
 
     const probeTimeoutMs = Math.max(5000, (timeoutSeconds || 50) * 1000);
-    const startTime = Date.now();
+    const perProbeTimeout = Math.min(15000, Math.floor(probeTimeoutMs / probeEndpoints.length));
 
     for (const ep of probeEndpoints) {
-      const remainingMs = probeTimeoutMs - (Date.now() - startTime);
-      if (remainingMs <= 0) {
-        break;
-      }
-      const perProbeTimeout = Math.min(15000, remainingMs);
-
       try {
         const res = await this.request('GET', ep, {
           skipBreaker: true,
@@ -786,7 +757,7 @@ class WahaClient {
       return res.data;
     } catch (err) {
       // Fallback: stop then start
-      await this.stopSession(target).catch(() => {});
+      await this.stopSession(target).catch(() => { });
       await this._sleepFn(1000);
       return this.startSession(target);
     }
@@ -826,9 +797,9 @@ class WahaClient {
       }
 
       if (session.status === 'STOPPED' || session.status === 'NOT_FOUND') {
-        await this.startSession(target).catch(() => {});
+        await this.startSession(target).catch(() => { });
       } else if (session.status === 'FAILED') {
-        await this.restartSession(target).catch(() => {});
+        await this.restartSession(target).catch(() => { });
       }
 
       await this._sleepFn(2000);
@@ -1021,7 +992,7 @@ class WahaClient {
       opts = (typeof sessionName === 'object' && sessionName !== null) ? sessionName : {};
     }
     target = target || this.defaultSession;
-    const chatId = normalizePhone(phone);
+    const chatId = formatChatId(phone);
 
     if (opts.simulateTyping) {
       await this.simulateTyping(chatId, opts.typingDelayMs || 800, target);
@@ -1063,7 +1034,7 @@ class WahaClient {
       opts = (typeof sessionName === 'object' && sessionName !== null) ? sessionName : {};
     }
     target = target || this.defaultSession;
-    const chatId = normalizePhone(phone);
+    const chatId = formatChatId(phone);
 
     if (opts.simulateTyping) {
       await this.simulateTyping(chatId, opts.typingDelayMs || 800, target);
@@ -1098,7 +1069,7 @@ class WahaClient {
       });
       return res.data;
     } catch (err) {
-      if (err.status === 404 || err.statusCode === 404 || String(err.message).includes('404')) {
+      if (err.statusCode === 404 || String(err.message).includes('404')) {
         // Fallback to /api/sendFile for older WAHA Core releases
         const res = await this.request('POST', '/api/sendFile', {
           sessionName: target,
@@ -1147,7 +1118,7 @@ class WahaClient {
       return this.sendImage(phone, fileData, filename, mimetype || 'image/jpeg', caption, opts, target);
     }
 
-    const chatId = normalizePhone(phone);
+    const chatId = formatChatId(phone);
 
     if (opts.simulateTyping) {
       await this.simulateTyping(chatId, opts.typingDelayMs || 800, target);
@@ -1182,10 +1153,6 @@ class WahaClient {
     return res.data;
   }
 
-  normalizePhone(phone, defaultCountryCode) {
-    return normalizePhone(phone, defaultCountryCode);
-  }
-
   formatChatId(phone, defaultCountryCode) {
     return formatChatId(phone, defaultCountryCode);
   }
@@ -1196,77 +1163,38 @@ class WahaClient {
 }
 
 /**
- * Canonical phone normalization adhering to Indian telecommunications & WhatsApp standards.
- * - Handles string and numeric inputs safely.
- * - Strips pandas float artifact '.0' (e.g. 9876543210.0 -> 9876543210).
- * - Strips all non-digit formatting characters (+, -, spaces, brackets).
- * - Strips leading zero from 11-digit numbers (e.g. 09496958200 -> 9496958200).
- * - Prepends Indian country code '91' to 10-digit numbers (e.g. 9876543210 -> 919876543210).
- * - Rejects invalid, empty, boolean, or short (<10 digits) numbers.
- * - Appends or preserves @c.us / @g.us suffix.
+ * Formats a phone number into international WhatsApp Chat ID (<digits>@c.us).
+ * - Cleanly handles string and number inputs.
+ * - Preserves existing @c.us or @g.us suffixes.
+ * - Strips non-digits and leading zeros.
+ * - Prepends defaultCountryCode ('91') for 10-digit numbers.
+ * - Appends @c.us.
  *
- * @param {string|number} rawPhone
+ * @param {string|number} phone
  * @param {string} [defaultCountryCode='91']
- * @returns {string} Fully normalized WhatsApp JID, e.g. "919496958200@c.us"
- * @throws {Error} If phone is invalid, non-string/non-numeric, or too short (<10 digits)
+ * @returns {string} e.g. "919496958200@c.us"
  */
-function normalizePhone(rawPhone, defaultCountryCode = process.env.DEFAULT_COUNTRY_CODE || '91') {
-  if (rawPhone === null || rawPhone === undefined || typeof rawPhone === 'boolean') {
-    throw new Error('Invalid phone input: non-string/non-numeric');
-  }
-  if (typeof rawPhone !== 'string' && typeof rawPhone !== 'number') {
-    throw new Error('Invalid phone input: non-string/non-numeric');
-  }
-
-  let s = String(rawPhone).trim();
-  if (!s) {
-    throw new Error(`Phone number invalid or too short: ${rawPhone}`);
-  }
-
-  // Preserve group JIDs
-  if (s.endsWith('@g.us')) {
-    return s;
-  }
-
-  // If already ends with @c.us, strip suffix first to normalize digits
-  if (s.endsWith('@c.us')) {
-    s = s.slice(0, -5);
-  }
-
-  // Strip pandas float artifact (.0 or .00)
-  if (s.endsWith('.0')) {
-    s = s.slice(0, -2);
-  } else {
-    s = s.replace(/\.0+$/, '');
-  }
-
-  // Strip all non-digit characters
-  s = s.replace(/[^0-9]/g, '');
-
-  // Strip leading zeros if 11 digits (e.g. 09496958200 -> 9496958200)
-  if (s.length === 11 && s.startsWith('0')) {
-    s = s.slice(1);
-  }
-
-  // Prepend default Indian country code for 10-digit national numbers
-  if (s.length === 10) {
-    s = `${defaultCountryCode || '91'}${s}`;
-  }
-
-  // Validation: Must be at least 10 digits and not all zeros
-  if (s.length < 10 || s.includes('0000000000')) {
-    throw new Error(`Phone number invalid or too short: ${rawPhone}`);
-  }
-
-  return `${s}@c.us`;
-}
-
 function formatChatId(phone, defaultCountryCode = process.env.DEFAULT_COUNTRY_CODE || '91') {
-  try {
-    return normalizePhone(phone, defaultCountryCode);
-  } catch (err) {
-    return '';
+  if (phone === null || phone === undefined) return '';
+  const str = String(phone).trim();
+  if (!str) return '';
+
+  if (str.endsWith('@c.us') || str.endsWith('@g.us')) {
+    return str;
   }
+
+  // Strip non-digits
+  let digits = str.replace(/\D/g, '');
+  // Strip leading zeros
+  digits = digits.replace(/^0+/, '');
+  if (!digits) return '';
+
+  // If 10 digits, prepend defaultCountryCode
+  if (digits.length === 10) {
+    digits = `${defaultCountryCode}${digits}`;
+  }
+
+  return `${digits}@c.us`;
 }
 
 /**
@@ -1287,7 +1215,6 @@ function extractMessageId(resp) {
   return null;
 }
 
-WahaClient.normalizePhone = normalizePhone;
 WahaClient.formatChatId = formatChatId;
 WahaClient.extractMessageId = extractMessageId;
 
@@ -1296,7 +1223,6 @@ module.exports = {
   SlidingWindowCircuitBreaker,
   BreakerState,
   CircuitBreakerOpenError,
-  normalizePhone,
   formatChatId,
   extractMessageId
 };
