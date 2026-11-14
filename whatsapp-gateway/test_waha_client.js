@@ -784,17 +784,17 @@ async function runAllTests() {
     assert.strictEqual(resScan.hasQr, true);
     assert.strictEqual(resScan.user, null);
 
-    // 2. STARTING -> CONNECTING with hasQr: false
+    // 2. STARTING -> CONNECTING with hasQr: true
     mockStatus = 'STARTING';
     const resStarting = await queryStatus();
     assert.strictEqual(resStarting.status, 'CONNECTING');
-    assert.strictEqual(resStarting.hasQr, false);
+    assert.strictEqual(resStarting.hasQr, true);
 
-    // 3. STOPPED -> DISCONNECTED with hasQr: false
+    // 3. STOPPED -> auto-starts session, returns CONNECTING with hasQr: true
     mockStatus = 'STOPPED';
     const resStopped = await queryStatus();
-    assert.strictEqual(resStopped.status, 'DISCONNECTED');
-    assert.strictEqual(resStopped.hasQr, false);
+    assert.strictEqual(resStopped.status, 'CONNECTING');
+    assert.strictEqual(resStopped.hasQr, true);
 
     await gateway.close();
     await mockWaha.close();

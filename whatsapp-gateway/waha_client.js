@@ -686,15 +686,27 @@ class WahaClient {
    */
   async startSession(sessionName = this.defaultSession, options = {}) {
     const target = sessionName || this.defaultSession;
-    const createPayload = Object.assign({
+    const payload = Object.assign({
       name: target,
       start: true
     }, options);
 
+    // 1. Try atomic upsert & start via POST /api/sessions/start (SI Lead Xtract reference pattern)
+    try {
+      const res = await this.request('POST', '/api/sessions/start', {
+        sessionName: target,
+        body: payload
+      });
+      return res.data;
+    } catch (err) {
+      // Fall through to standard creation flow
+    }
+
+    // 2. Try POST /api/sessions (create session)
     try {
       const res = await this.request('POST', '/api/sessions', {
         sessionName: target,
-        body: createPayload
+        body: payload
       });
       return res.data;
     } catch (err) {
