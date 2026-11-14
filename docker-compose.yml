@@ -32,9 +32,11 @@ services:
       - CLOUDFLARE_R2_ENDPOINT=${CLOUDFLARE_R2_ENDPOINT:-}
       - CLOUDFLARE_R2_BUCKET_NAME=${CLOUDFLARE_R2_BUCKET_NAME:-}
       - CLOUDFLARE_R2_PUBLIC_URL=${CLOUDFLARE_R2_PUBLIC_URL:-}
+      - WHATSAPP_GATEWAY_URL=${WHATSAPP_GATEWAY_URL:-http://whatsapp-gateway:3005}
     depends_on:
       - db
       - redis
+      - whatsapp-gateway
 
   # Database Service
   db:
@@ -54,5 +56,48 @@ services:
     ports:
       - "6379:6379"
 
+  # WAHA Core Service (Self-Hosted WhatsApp Engine)
+  waha:
+    image: devlikeapro/waha
+    container_name: cafeqr-waha
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - WHATSAPP_API_KEY=${WAHA_API_KEY:-cafeqr-waha-secret-2026}
+      - WHATSAPP_DEFAULT_ENGINE=NOWEB
+      - WAHA_DASHBOARD_ENABLED=true
+      - WAHA_LOG_LEVEL=info
+    volumes:
+      - waha_sessions:/app/.sessions
+
+  # Cafe QR WhatsApp Gateway Adapter
+  whatsapp-gateway:
+    build: ./whatsapp-gateway
+    container_name: cafeqr-whatsapp-gateway
+    restart: unless-stopped
+    ports:
+      - "3005:3005"
+    environment:
+      - NODE_ENV=production
+      - PORT=3005
+      - WAHA_BASE_URL=${WAHA_BASE_URL:-http://waha:3000}
+      - WAHA_API_KEY=${WAHA_API_KEY:-cafeqr-waha-secret-2026}
+      - WAHA_DEFAULT_SESSION=${WAHA_DEFAULT_SESSION:-cafe_qr_orders}
+      - WAHA_TIMEOUT_MS=${WAHA_TIMEOUT_MS:-15000}
+      - WHATSAPP_HOOK_HMAC_KEY=${WHATSAPP_HOOK_HMAC_KEY:-cafeqr-webhook-hmac-2026}
+      - BACKEND_AUTO_CAPTURE_URL=http://backend:8080/api/v1/public/leads/auto-capture
+      - FOUNDER_SECRET_KEY=${FOUNDER_SECRET_KEY:-cafeqr-founder-2024-secret}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    depends_on:
+      - waha
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3005/health',(r)=>{process.exit(r.statusCode===200?0:1)}).on('error',()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
 volumes:
   postgres_data:
+  waha_sessions:
