@@ -3799,9 +3799,14 @@ public class OrderService {
                     null, roundOffAmount, paymentType));
         }
 
-        // Update Invoice status if it exists
+        // Update Invoice status if it exists.
+        // invoice.totalAmount is pre-round-off, while amountPaid is the rounded grand total.
+        // Add the round-off back before comparing, otherwise a fully paid bill shows PARTIAL with a wrong due.
         if (invoice != null) {
-            BigDecimal due = moneyValue(invoice.getTotalAmount()).subtract(moneyValue(amountPaid));
+            BigDecimal effectiveRoundOff = roundOffAmount != null ? roundOffAmount
+                    : (order.getRoundOffAmount() != null ? order.getRoundOffAmount() : BigDecimal.ZERO);
+            BigDecimal payableTotal = moneyValue(invoice.getTotalAmount()).add(moneyValue(effectiveRoundOff));
+            BigDecimal due = payableTotal.subtract(moneyValue(amountPaid));
             if (due.compareTo(BigDecimal.ZERO) <= 0) {
                 invoice.setStatus("PAID");
                 invoice.setIsPaid(true);

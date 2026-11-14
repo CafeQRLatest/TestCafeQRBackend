@@ -490,6 +490,10 @@ class OrderServiceTest {
 
                 assertThat(settled.getGrandTotal()).isEqualByComparingTo("100.00");
                 assertThat(invoice.getTotalAmount()).isEqualByComparingTo("100.40");
+                // Round-off is part of the payable total, so a fully paid bill must be PAID with zero due.
+                assertThat(invoice.getStatus()).isEqualTo("PAID");
+                assertThat(invoice.getIsPaid()).isTrue();
+                assertThat(invoice.getAmountDue()).isEqualByComparingTo("0");
         }
 
         @Test
