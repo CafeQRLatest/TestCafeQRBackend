@@ -161,6 +161,9 @@ services:
       dockerfile: Dockerfile
     container_name: cafeqr-whatsapp-gateway
     restart: unless-stopped
+    environment:
+      # One WhatsApp number per branch (org_<id>) instead of one shared number for all orgs
+      - WAHA_MULTI_SESSION=${WAHA_MULTI_SESSION:-true}
     volumes:
       - whatsapp_auth_data:/app/auth_sessions
     networks:
