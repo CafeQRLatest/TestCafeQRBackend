@@ -67,6 +67,7 @@ public class WhatsAppController {
         String phone = body != null ? body.get("phone") : null;
         String pdfBase64 = body != null ? body.get("pdfBase64") : null;
         String frontendUrl = body != null ? body.get("frontendUrl") : null;
+        String filename = body != null ? body.get("filename") : null;
 
         log.info("[WhatsAppController] Received sendOrderBill: orderId={}, phone={}, hasPdfBase64={}, frontendUrl={}",
                 orderIdStr, phone, pdfBase64 != null && !pdfBase64.isBlank(), frontendUrl);
@@ -83,7 +84,7 @@ public class WhatsAppController {
         }
 
         try {
-            boolean sent = whatsAppService.sendOrderBillWithAttachment(orderId, phone, pdfBase64, frontendUrl);
+            boolean sent = whatsAppService.sendOrderBillWithAttachment(orderId, phone, pdfBase64, frontendUrl, filename);
             log.info("[WhatsAppController] sendOrderBill result for order {}: sent={}", orderId, sent);
             Map<String, Object> result = Map.of(
                     "success", sent,

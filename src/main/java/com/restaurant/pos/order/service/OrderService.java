@@ -2149,7 +2149,9 @@ public class OrderService {
             if ("COMPLETED".equalsIgnoreCase(saved.getOrderStatus())
                     && "PAID".equalsIgnoreCase(saved.getPaymentStatus())) {
                 try {
-                    if (whatsAppService != null && (hydrated.getInvoicePdfBase64() != null || hydrated.getSourceLocalRef() == null)) {
+                    if (whatsAppService != null && Boolean.TRUE.equals(order.getDeferWhatsAppDispatch())) {
+                        whatsAppService.reserveForClientDispatch(hydrated.getId());
+                    } else if (whatsAppService != null && (hydrated.getInvoicePdfBase64() != null || hydrated.getSourceLocalRef() == null)) {
                         whatsAppService.sendOrderSettledBillAsync(hydrated);
                     }
                 } catch (Exception ex) {
@@ -3346,7 +3348,9 @@ public class OrderService {
 
         try {
             boolean deferWhatsApp = Boolean.TRUE.equals(safeRequest.getDeferWhatsAppDispatch());
-            if (whatsAppService != null && !deferWhatsApp) {
+            if (whatsAppService != null && deferWhatsApp) {
+                whatsAppService.reserveForClientDispatch(hydrated.getId());
+            } else if (whatsAppService != null) {
                 whatsAppService.sendOrderSettledBillAsync(hydrated);
             }
         } catch (Exception ex) {
@@ -3450,7 +3454,9 @@ public class OrderService {
 
         try {
             boolean deferWhatsApp = Boolean.TRUE.equals(safeRequest.getDeferWhatsAppDispatch());
-            if (whatsAppService != null && !deferWhatsApp) {
+            if (whatsAppService != null && deferWhatsApp) {
+                whatsAppService.reserveForClientDispatch(hydrated.getId());
+            } else if (whatsAppService != null) {
                 whatsAppService.sendOrderSettledBillAsync(hydrated);
             }
         } catch (Exception ex) {

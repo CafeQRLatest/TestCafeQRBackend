@@ -1226,27 +1226,93 @@ class WahaClient {
  * @param {string} [defaultCountryCode='91']
  * @returns {string} e.g. "919496958200@c.us"
  */
+function normalizePhone(rawPhone, defaultCountryCode = process.env.DEFAULT_COUNTRY_CODE || '91') {
+  if (rawPhone === null || rawPhone === undefined || typeof rawPhone === 'boolean') {
+    throw new Error('Invalid phone input: non-string/non-numeric');
+  }
+  if (typeof rawPhone !== 'string' && typeof rawPhone !== 'number') {
+    throw new Error('Invalid phone input: non-string/non-numeric');
+  }
+
+  let s = String(rawPhone).trim();
+  if (!s) {
+    throw new Error(`Phone number invalid or too short: ${rawPhone}`);
+  }
+
+  // Preserve group JIDs
+  if (s.endsWith('@g.us')) {
+    return s;
+  }
+
+  // If already ends with @c.us, strip suffix first to normalize digits
+  if (s.endsWith('@c.us')) {
+    s = s.slice(0, -5);
+  }
+
+  // Strip pandas float artifact (.0 or .00)
+  if (s.endsWith('.0')) {
+    s = s.slice(0, -2);
+  } else {
+    s = s.replace(/\.0+$/, '');
+  }
+
+  // An explicit "+" means the number already carries its country code (the backend resolves it from the
+  // store's country). Never re-prefix it: e.g. +65 9123 4567 is 10 digits and must not become 91…
+  const isExplicitInternational = s.startsWith('+');
+
+  // Strip all non-digit characters
+  s = s.replace(/[^0-9]/g, '');
+
+  if (isExplicitInternational) {
+    if (s.length < 8 || s.length > 15 || s.startsWith('0')) {
+      throw new Error(`Phone number invalid or too short: ${rawPhone}`);
+    }
+    return `${s}@c.us`;
+  }
+
+  // Strip leading zeros if 11 digits (e.g. 09496958200 -> 9496958200)
+  if (s.length === 11 && s.startsWith('0')) {
+    s = s.slice(1);
+  }
+
+  // Prepend default Indian country code for 10-digit national numbers
+  if (s.length === 10) {
+    s = `${defaultCountryCode || '91'}${s}`;
+  }
+
+  // Validation: Must be at least 10 digits and not all zeros
+  if (s.length < 10 || s.includes('0000000000')) {
+    throw new Error(`Phone number invalid or too short: ${rawPhone}`);
+  }
+
+  return `${s}@c.us`;
+}
+
 function formatChatId(phone, defaultCountryCode = process.env.DEFAULT_COUNTRY_CODE || '91') {
-  if (phone === null || phone === undefined) return '';
-  const str = String(phone).trim();
-  if (!str) return '';
+  try {
+    return normalizePhone(phone, defaultCountryCode);
+  } catch (err) {
+    if (phone === null || phone === undefined) return '';
+    const str = String(phone).trim();
+    if (!str) return '';
 
-  if (str.endsWith('@c.us') || str.endsWith('@g.us')) {
-    return str;
+    if (str.endsWith('@c.us') || str.endsWith('@g.us')) {
+      return str;
+    }
+
+    // Strip non-digits
+    let digits = str.replace(/\D/g, '');
+    // Strip leading zeros
+    digits = digits.replace(/^0+/, '');
+    if (!digits) return '';
+
+    // If 10 digits, prepend defaultCountryCode
+    if (digits.length === 10) {
+      digits = `${defaultCountryCode}${digits}`;
+    }
+
+    return `${digits}@c.us`;
   }
-
-  // Strip non-digits
-  let digits = str.replace(/\D/g, '');
-  // Strip leading zeros
-  digits = digits.replace(/^0+/, '');
-  if (!digits) return '';
-
-  // If 10 digits, prepend defaultCountryCode
-  if (digits.length === 10) {
-    digits = `${defaultCountryCode}${digits}`;
-  }
-
-  return `${digits}@c.us`;
 }
 
 /**
@@ -1259,7 +1325,7 @@ function extractMessageId(resp) {
   if (!resp) return null;
   if (typeof resp === 'string') return resp;
   if (resp?.id?._serialized && typeof resp.id._serialized === 'string') return resp.id._serialized;
-  if (typeof resp?.id === 'string') return resp.id;
+  if (resp?.id === 'string') return resp.id;
   if (resp?.key?.id && typeof resp.key.id === 'string') return resp.key.id;
   if (typeof resp?.messageId === 'string') return resp.messageId;
   if (resp?.data?.id && typeof resp.data.id === 'string') return resp.data.id;
@@ -1267,6 +1333,7 @@ function extractMessageId(resp) {
   return null;
 }
 
+WahaClient.normalizePhone = normalizePhone;
 WahaClient.formatChatId = formatChatId;
 WahaClient.extractMessageId = extractMessageId;
 
@@ -1275,6 +1342,7 @@ module.exports = {
   SlidingWindowCircuitBreaker,
   BreakerState,
   CircuitBreakerOpenError,
+  normalizePhone,
   formatChatId,
   extractMessageId
 };
