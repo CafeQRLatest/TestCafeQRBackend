@@ -85,6 +85,7 @@ services:
       - WAHA_BASE_URL=${WAHA_BASE_URL:-http://waha:3000}
       - WAHA_API_KEY=${WAHA_API_KEY:-cafeqr-waha-secret-2026}
       - WAHA_DEFAULT_SESSION=${WAHA_DEFAULT_SESSION:-cafe_qr_orders}
+      - WAHA_MULTI_SESSION=${WAHA_MULTI_SESSION:-true}
       - WAHA_TIMEOUT_MS=${WAHA_TIMEOUT_MS:-15000}
       - WHATSAPP_HOOK_HMAC_KEY=${WHATSAPP_HOOK_HMAC_KEY:-cafeqr-webhook-hmac-2026}
       - BACKEND_AUTO_CAPTURE_URL=http://backend:8080/api/v1/public/leads/auto-capture

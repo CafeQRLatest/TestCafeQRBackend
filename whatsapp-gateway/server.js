@@ -219,6 +219,9 @@ function resolveWahaSession(rawSessionId) {
   if (trimmed === 'cafeqr_official') {
     return 'cafeqr_official';
   }
+  if (trimmed === 'default' || trimmed === '') {
+    return WAHA_DEFAULT_SESSION;
+  }
   if (process.env.WAHA_MULTI_SESSION === 'true') {
     return trimmed.replace(/[^a-zA-Z0-9_-]/g, '_');
   }
