@@ -2,6 +2,7 @@ package com.restaurant.pos.whatsapp.service;
 
 import com.restaurant.pos.client.domain.Client;
 import com.restaurant.pos.client.domain.Organization;
+import com.restaurant.pos.common.context.TimezoneResolver;
 import com.restaurant.pos.invoice.domain.Invoice;
 import com.restaurant.pos.order.domain.Order;
 import com.restaurant.pos.purchasing.domain.Currency;
@@ -30,6 +31,9 @@ class WhatsAppBillFormatterTest {
 
     @Mock
     private CurrencyRepository currencyRepository;
+
+    @Mock
+    private TimezoneResolver timezoneResolver;
 
     @InjectMocks
     private WhatsAppBillFormatter formatter;
@@ -138,6 +142,31 @@ class WhatsAppBillFormatterTest {
         order.setGrandTotal(new BigDecimal("4.5"));
         String msg = formatter.formatDigitalBill(order, null, organization, client);
         assertTrue(msg.contains("Total: *OMR 4.500* (Paid)"), msg);
+    }
+
+    // ---- date shown in store timezone (same as invoice PDF) ----
+
+    @Test
+    void date_convertedFromUtcToStoreTimezone() {
+        when(timezoneResolver.resolveTimezone(clientId, orgId)).thenReturn(java.time.ZoneId.of("Asia/Kolkata"));
+        Invoice invoice = Invoice.builder().invoiceNo("INV-1").invoiceDate(LocalDateTime.of(2026, 11, 9, 22, 0)).build();
+        String msg = formatter.formatDigitalBill(order("PAID"), invoice, organization, client);
+        assertTrue(msg.contains("Date: 10 Nov 2026, 03:30 AM"), msg); // 22:00 UTC = 03:30 IST next day
+    }
+
+    @Test
+    void date_dubaiStore() {
+        when(timezoneResolver.resolveTimezone(clientId, orgId)).thenReturn(java.time.ZoneId.of("Asia/Dubai"));
+        String msg = formatter.formatDigitalBill(order("PAID"), null, organization, client); // createdAt 09 Oct 22:00 UTC
+        assertTrue(msg.contains("Date: 10 Oct 2026, 02:00 AM"), msg);
+    }
+
+    @Test
+    void date_noTimezoneConfigured_usesStoreCountry() {
+        when(timezoneResolver.resolveTimezone(clientId, orgId)).thenReturn(java.time.ZoneId.of("UTC"));
+        client.setCountry("ZA");
+        String msg = formatter.formatDigitalBill(order("PAID"), null, organization, client);
+        assertTrue(msg.contains("Date: 10 Oct 2026, 12:00 AM"), msg); // UTC+2
     }
 
     // ---- phone normalisation ----

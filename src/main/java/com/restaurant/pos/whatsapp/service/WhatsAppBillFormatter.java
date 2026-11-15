@@ -2,6 +2,7 @@ package com.restaurant.pos.whatsapp.service;
 
 import com.restaurant.pos.client.domain.Client;
 import com.restaurant.pos.client.domain.Organization;
+import com.restaurant.pos.common.context.TimezoneResolver;
 import com.restaurant.pos.invoice.domain.Invoice;
 import com.restaurant.pos.order.domain.Order;
 import com.restaurant.pos.purchasing.domain.Currency;
@@ -13,6 +14,8 @@ import org.springframework.stereotype.Component;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Locale;
@@ -57,8 +60,25 @@ public class WhatsAppBillFormatter {
             Map.entry("BR", new String[]{"55", "0"})
     );
 
+    /** Fallback zones for single-timezone countries when the store has no timezone configured. */
+    private static final Map<String, String> COUNTRY_ZONES = Map.ofEntries(
+            Map.entry("IN", "Asia/Kolkata"),
+            Map.entry("AE", "Asia/Dubai"),
+            Map.entry("SA", "Asia/Riyadh"),
+            Map.entry("QA", "Asia/Qatar"),
+            Map.entry("OM", "Asia/Muscat"),
+            Map.entry("KW", "Asia/Kuwait"),
+            Map.entry("BH", "Asia/Bahrain"),
+            Map.entry("ZA", "Africa/Johannesburg"),
+            Map.entry("SG", "Asia/Singapore"),
+            Map.entry("GB", "Europe/London")
+    );
+
     @Autowired(required = false)
     private CurrencyRepository currencyRepository;
+
+    @Autowired(required = false)
+    private TimezoneResolver timezoneResolver;
 
     /**
      * Formats the short digital-bill WhatsApp message: store, customer greeting, bill number, token, date,
@@ -98,7 +118,7 @@ public class WhatsAppBillFormatter {
             sb.append("Token: #").append(token).append("\n");
         }
         if (date != null) {
-            sb.append("Date: ").append(date.format(DATE_FMT)).append("\n");
+            sb.append("Date: ").append(toStoreTime(date, order, org, client).format(DATE_FMT)).append("\n");
         }
         sb.append("Total: *").append(formatMoney(grandTotal, currency, dp)).append("*");
         String status = paymentStatusLabel(order);
@@ -109,6 +129,35 @@ public class WhatsAppBillFormatter {
 
         sb.append("\n_Powered by Cafe QR POS_");
         return sb.toString();
+    }
+
+    /**
+     * Stored timestamps are UTC (JVM + Hibernate run in UTC). Converts to the store's timezone, resolved the same
+     * way as the rest of the backend (branch → client), so the message shows the same time as the invoice PDF.
+     */
+    LocalDateTime toStoreTime(LocalDateTime utc, Order order, Organization org, Client client) {
+        ZoneId zone = null;
+        UUID clientId = order.getClientId() != null ? order.getClientId() : (client != null ? client.getId() : null);
+        UUID orgId = order.getOrgId() != null ? order.getOrgId() : (org != null ? org.getId() : null);
+        if (timezoneResolver != null && (clientId != null || orgId != null)) {
+            try {
+                zone = timezoneResolver.resolveTimezone(clientId, orgId);
+            } catch (Exception ex) {
+                log.warn("[WhatsAppBillFormatter] Could not resolve timezone for order {}: {}", order.getId(), ex.getMessage());
+            }
+        }
+        if (zone == null || "UTC".equals(zone.getId()) || "Z".equals(zone.getId())) {
+            // No timezone configured: fall back to the store country's zone (single-timezone countries only)
+            String country = client != null && client.getCountry() != null ? client.getCountry().trim().toUpperCase(Locale.ROOT) : null;
+            String countryZone = country != null ? COUNTRY_ZONES.get(country) : null;
+            if (countryZone != null) {
+                zone = ZoneId.of(countryZone);
+            }
+        }
+        if (zone == null) {
+            return utc;
+        }
+        return utc.atZone(ZoneOffset.UTC).withZoneSameInstant(zone).toLocalDateTime();
     }
 
     /** "Paid", "Partly paid", "Due – on credit", or null when the status is unknown. */
