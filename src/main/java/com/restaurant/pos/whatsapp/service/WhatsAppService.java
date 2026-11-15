@@ -68,9 +68,6 @@ public class WhatsAppService {
     @Value("${whatsapp.gateway.url:${WHATSAPP_GATEWAY_URL:http://whatsapp-gateway:3005}}")
     private String defaultGatewayUrl;
 
-    @Value("${app.frontend-url:${FRONTEND_URL:http://localhost:3000}}")
-    private String defaultFrontendUrl;
-
     /** How long a POS-reserved dispatch blocks server-side (text-only) sends for the same order. */
     private static final long CLIENT_DISPATCH_RESERVATION_MS = 180_000;
     /** Duplicate-send guard window. */
@@ -97,22 +94,17 @@ public class WhatsAppService {
     @Async
     public void sendOrderSettledBillAsync(Order order) {
         try {
-            sendOrderSettledBill(order, null);
+            sendOrderSettledBill(order);
         } catch (Exception ex) {
             log.error("[WhatsAppService] Unexpected error sending bill for order {}", order != null ? order.getId() : null, ex);
         }
-    }
-
-    @Transactional(readOnly = true)
-    public boolean sendOrderSettledBill(Order order) {
-        return sendOrderSettledBill(order, null);
     }
 
     /**
      * Server-initiated send (settle hook / outbox consumer). Skipped when the POS has reserved the dispatch.
      */
     @Transactional(readOnly = true)
-    public boolean sendOrderSettledBill(Order order, String explicitFrontendUrl) {
+    public boolean sendOrderSettledBill(Order order) {
         if (order == null || order.getId() == null) return false;
         Long reservedAt = clientDispatchReservations.get(order.getId());
         if (reservedAt != null && System.currentTimeMillis() - reservedAt < CLIENT_DISPATCH_RESERVATION_MS) {
@@ -120,17 +112,12 @@ public class WhatsAppService {
                     order.getId());
             return false;
         }
-        return dispatchBill(order, explicitFrontendUrl, null);
+        return dispatchBill(order, null);
     }
 
     @Transactional(readOnly = true)
     public boolean sendOrderBillWithAttachment(java.util.UUID orderId, String explicitPhone, String pdfBase64) {
-        return sendOrderBillWithAttachment(orderId, explicitPhone, pdfBase64, null, null);
-    }
-
-    @Transactional(readOnly = true)
-    public boolean sendOrderBillWithAttachment(java.util.UUID orderId, String explicitPhone, String pdfBase64, String explicitFrontendUrl) {
-        return sendOrderBillWithAttachment(orderId, explicitPhone, pdfBase64, explicitFrontendUrl, null);
+        return sendOrderBillWithAttachment(orderId, explicitPhone, pdfBase64, null);
     }
 
     /**
@@ -138,10 +125,9 @@ public class WhatsAppService {
      * is attached, with the bill summary as the caption.
      */
     @Transactional(readOnly = true)
-    public boolean sendOrderBillWithAttachment(java.util.UUID orderId, String explicitPhone, String pdfBase64,
-                                               String explicitFrontendUrl, String filename) {
-        log.info("[WhatsAppService] sendOrderBillWithAttachment called for orderId: {}, explicitPhone: {}, hasPdf: {}, frontendUrl: {}",
-                orderId, explicitPhone, pdfBase64 != null && !pdfBase64.isBlank(), explicitFrontendUrl);
+    public boolean sendOrderBillWithAttachment(java.util.UUID orderId, String explicitPhone, String pdfBase64, String filename) {
+        log.info("[WhatsAppService] sendOrderBillWithAttachment called for orderId: {}, explicitPhone: {}, hasPdf: {}",
+                orderId, explicitPhone, pdfBase64 != null && !pdfBase64.isBlank());
         if (orderId == null) return false;
         clientDispatchReservations.remove(orderId);
         Order order = orderRepository.findByIdWithLines(orderId).orElse(null);
@@ -155,10 +141,10 @@ public class WhatsAppService {
         if (explicitPhone != null && !explicitPhone.isBlank()) {
             order.setCustomerPhone(explicitPhone);
         }
-        return dispatchBill(order, explicitFrontendUrl, filename);
+        return dispatchBill(order, filename);
     }
 
-    private boolean dispatchBill(Order order, String explicitFrontendUrl, String requestedFilename) {
+    private boolean dispatchBill(Order order, String requestedFilename) {
         try {
             if (order.getLines() == null || !org.hibernate.Hibernate.isInitialized(order.getLines())) {
                 Order reloaded = orderRepository.findByIdWithLines(order.getId()).orElse(null);
@@ -222,18 +208,8 @@ public class WhatsAppService {
                     .orElse(invoices.get(0));
         }
 
-        // Public invoice URL: must be reachable by the customer, never the till's localhost / LAN address
-        String baseUrl = resolvePublicBaseUrl(explicitFrontendUrl);
-        String targetId = (invoice != null && invoice.getId() != null)
-                ? invoice.getId().toString()
-                : order.getId().toString();
-        String publicInvoiceUrl = baseUrl != null ? baseUrl + "/invoice/" + targetId : null;
-        if (publicInvoiceUrl == null) {
-            log.warn("[WhatsAppService] No public frontend URL configured (FRONTEND_URL='{}', request='{}'); sending bill for order {} without link",
-                    defaultFrontendUrl, explicitFrontendUrl, order.getId());
-        }
-
-        String billMessage = billFormatter.formatDigitalBill(order, invoice, org, client, publicInvoiceUrl);
+        // No e-bill link: the invoice PDF is attached, and the web invoice page asks the customer to log in
+        String billMessage = billFormatter.formatDigitalBill(order, invoice, org, client);
         if (billMessage.isBlank()) {
             recentlySentOrders.remove(order.getId(), now);
             log.warn("[WhatsAppService] Formatted digital bill message was empty for order {}", order.getId());
@@ -247,15 +223,15 @@ public class WhatsAppService {
         String fallbackSessionId = order.getClientId() != null ? "client_" + order.getClientId() : null;
         String primarySessionId = branchSessionId != null ? branchSessionId : fallbackSessionId;
 
-        log.info("[WhatsAppService] Dispatching bill for order {} to session {} (fallback: {}), url: {}, pdf: {}",
-                order.getId(), primarySessionId, fallbackSessionId, publicInvoiceUrl, filename);
+        log.info("[WhatsAppService] Dispatching bill for order {} to session {} (fallback: {}), pdf: {}",
+                order.getId(), primarySessionId, fallbackSessionId, filename);
 
         // "+" tells the gateway the number already has its country code (resolved from the store's country)
         boolean dispatched = dispatchToGateway(primarySessionId, fallbackSessionId, "+" + normalizedPhone,
                 billMessage, pdf, filename);
         if (dispatched) {
             log.info("[WhatsAppService] Digital bill successfully sent for order {} ({})",
-                    order.getId(), pdf != null ? "with invoice PDF" : "text + link only");
+                    order.getId(), pdf != null ? "with invoice PDF" : "text only");
         } else {
             recentlySentOrders.remove(order.getId(), now);
             log.warn("[WhatsAppService] Digital bill dispatch failed for order {}", order.getId());
@@ -457,56 +433,6 @@ public class WhatsAppService {
             fallback.put("success", false);
             fallback.put("message", "Failed to clear contact session: " + ex.getMessage());
             return fallback;
-        }
-    }
-
-    /**
-     * Picks the base URL for the customer-facing e-bill link: the requesting frontend's origin when it is a
-     * public address (supports multiple deployed domains), otherwise the configured FRONTEND_URL when public.
-     * Returns null when neither is publicly reachable (e.g. till running on localhost / LAN in production).
-     */
-    String resolvePublicBaseUrl(String explicitFrontendUrl) {
-        for (String candidate : new String[]{explicitFrontendUrl, defaultFrontendUrl}) {
-            if (isPublicUrl(candidate)) {
-                String url = candidate.trim();
-                while (url.endsWith("/")) url = url.substring(0, url.length() - 1);
-                return url;
-            }
-        }
-        return null;
-    }
-
-    static boolean isPublicUrl(String url) {
-        if (url == null || url.isBlank()) return false;
-        try {
-            java.net.URI uri = java.net.URI.create(url.trim());
-            String scheme = uri.getScheme();
-            String host = uri.getHost();
-            if (host == null || scheme == null
-                    || !("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme))) {
-                return false;
-            }
-            host = host.toLowerCase(java.util.Locale.ROOT);
-            if (host.equals("localhost") || host.endsWith(".localhost") || host.endsWith(".local")
-                    || host.equals("0.0.0.0") || host.equals("[::1]") || host.equals("::1")
-                    || host.startsWith("127.") || host.startsWith("10.") || host.startsWith("192.168.")
-                    || host.startsWith("169.254.")) {
-                return false;
-            }
-            if (host.startsWith("172.")) {
-                String[] parts = host.split("\\.");
-                if (parts.length > 1) {
-                    try {
-                        int second = Integer.parseInt(parts[1]);
-                        if (second >= 16 && second <= 31) return false;
-                    } catch (NumberFormatException ignored) {
-                        // not an IPv4 literal
-                    }
-                }
-            }
-            return true;
-        } catch (IllegalArgumentException ex) {
-            return false;
         }
     }
 

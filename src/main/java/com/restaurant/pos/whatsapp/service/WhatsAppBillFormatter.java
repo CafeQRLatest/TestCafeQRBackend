@@ -62,9 +62,9 @@ public class WhatsAppBillFormatter {
 
     /**
      * Formats the short digital-bill WhatsApp message: store, customer greeting, bill number, token, date,
-     * total with paid / due status, and the public e-bill link.
+     * total with paid / due status. Sent as the caption of the attached invoice PDF (no web link).
      */
-    public String formatDigitalBill(Order order, Invoice invoice, Organization org, Client client, String publicInvoiceUrl) {
+    public String formatDigitalBill(Order order, Invoice invoice, Organization org, Client client) {
         if (order == null) return "";
 
         String storeName = plain(getStoreName(org, client));
@@ -106,10 +106,6 @@ public class WhatsAppBillFormatter {
             sb.append(" (").append(status).append(")");
         }
         sb.append("\n");
-
-        if (publicInvoiceUrl != null && !publicInvoiceUrl.isBlank()) {
-            sb.append("\nView / download your bill:\n").append(publicInvoiceUrl.trim()).append("\n");
-        }
 
         sb.append("\n_Powered by Cafe QR POS_");
         return sb.toString();

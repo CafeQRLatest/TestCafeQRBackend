@@ -75,8 +75,7 @@ class WhatsAppBillFormatterTest {
                 .invoiceDate(LocalDateTime.of(2026, 11, 9, 22, 0))
                 .build();
 
-        String msg = formatter.formatDigitalBill(order("PAID"), invoice, organization, client,
-                "https://app.cafeqr.in/invoice/abc");
+        String msg = formatter.formatDigitalBill(order("PAID"), invoice, organization, client);
 
         assertEquals(
                 "🧾 *Your bill from Riyas Test Restaurant 1*\n\n"
@@ -85,7 +84,6 @@ class WhatsAppBillFormatterTest {
                         + "Token: #23\n"
                         + "Date: 09 Nov 2026, 10:00 PM\n"
                         + "Total: *₹ 84.00* (Paid)\n"
-                        + "\nView / download your bill:\nhttps://app.cafeqr.in/invoice/abc\n"
                         + "\n_Powered by Cafe QR POS_",
                 msg);
     }
@@ -95,16 +93,16 @@ class WhatsAppBillFormatterTest {
         inr();
         Order order = order("PENDING");
         order.setReference("CREDIT");
-        String msg = formatter.formatDigitalBill(order, null, organization, client, null);
+        String msg = formatter.formatDigitalBill(order, null, organization, client);
         assertTrue(msg.contains("Total: *₹ 84.00* (Due – on credit)"), msg);
         assertTrue(msg.contains("Bill No: SO-2026-0000243-HQ"), msg);
-        assertFalse(msg.contains("View / download"), msg);
+        assertFalse(msg.contains("http"), msg);
     }
 
     @Test
     void digitalBill_partialPayment() {
         inr();
-        String msg = formatter.formatDigitalBill(order("PARTIAL"), null, organization, client, null);
+        String msg = formatter.formatDigitalBill(order("PARTIAL"), null, organization, client);
         assertTrue(msg.contains("(Partly paid)"), msg);
     }
 
@@ -113,7 +111,7 @@ class WhatsAppBillFormatterTest {
         Order order = order("PAID");
         order.setOrderNo(null);
         order.setCustomerName("Walk-in Guest");
-        String msg = formatter.formatDigitalBill(order, null, organization, client, null);
+        String msg = formatter.formatDigitalBill(order, null, organization, client);
         assertFalse(msg.contains("null"), msg);
         assertFalse(msg.contains("Bill No"), msg);
         assertTrue(msg.contains("Thanks for visiting!"), msg);
@@ -125,7 +123,7 @@ class WhatsAppBillFormatterTest {
         organization.setName("*Cafe_Bold*");
         Order order = order("PAID");
         order.setCustomerName("_Ann_ *B*");
-        String msg = formatter.formatDigitalBill(order, null, organization, client, null);
+        String msg = formatter.formatDigitalBill(order, null, organization, client);
         assertTrue(msg.startsWith("🧾 *Your bill from CafeBold*\n"), msg);
         assertTrue(msg.contains("Hi Ann B, thanks"), msg);
     }
@@ -138,7 +136,7 @@ class WhatsAppBillFormatterTest {
         Order order = order("PAID");
         order.setCurrencyId(currencyId);
         order.setGrandTotal(new BigDecimal("4.5"));
-        String msg = formatter.formatDigitalBill(order, null, organization, client, null);
+        String msg = formatter.formatDigitalBill(order, null, organization, client);
         assertTrue(msg.contains("Total: *OMR 4.500* (Paid)"), msg);
     }
 
@@ -184,19 +182,4 @@ class WhatsAppBillFormatterTest {
         assertEquals("919847920009", formatter.normalizePhoneNumber("9847920009", null));
     }
 
-    // ---- public link base URL ----
-
-    @Test
-    void publicUrlDetection() {
-        assertTrue(WhatsAppService.isPublicUrl("https://app.cafeqr.in"));
-        assertTrue(WhatsAppService.isPublicUrl("https://cafeqr-frontend.pages.dev/"));
-        assertFalse(WhatsAppService.isPublicUrl("http://localhost:3000"));
-        assertFalse(WhatsAppService.isPublicUrl("http://127.0.0.1:3000"));
-        assertFalse(WhatsAppService.isPublicUrl("http://192.168.1.20:3000"));
-        assertFalse(WhatsAppService.isPublicUrl("http://10.0.0.5"));
-        assertFalse(WhatsAppService.isPublicUrl("http://172.20.1.1"));
-        assertTrue(WhatsAppService.isPublicUrl("http://172.50.1.1"));
-        assertFalse(WhatsAppService.isPublicUrl(""));
-        assertFalse(WhatsAppService.isPublicUrl(null));
-    }
 }

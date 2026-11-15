@@ -43,7 +43,6 @@ class WhatsAppServiceTest {
         WhatsAppBillFormatter formatter = new WhatsAppBillFormatter(); // no currency repo → no symbol, 2 dp
         service = spy(new WhatsAppService(formatter, mock(OrganizationRepository.class), clientRepository,
                 invoiceRepository, mock(CustomerRepository.class), orderRepository));
-        ReflectionTestUtils.setField(service, "defaultFrontendUrl", "https://app.cafeqr.in");
         ReflectionTestUtils.setField(service, "defaultGatewayUrl", "http://gateway.invalid");
         doReturn(true).when(service).dispatchToGateway(any(), any(), any(), any(), any(), any());
 
@@ -60,25 +59,24 @@ class WhatsAppServiceTest {
 
     @Test
     void posSend_attachesInvoicePdfWithCaption() {
-        boolean sent = service.sendOrderBillWithAttachment(orderId, "98479 20009", PDF_B64, "http://localhost:3000", null);
+        boolean sent = service.sendOrderBillWithAttachment(orderId, "98479 20009", PDF_B64, null);
 
         assertTrue(sent);
         verify(service).dispatchToGateway(eq("client_" + clientId), eq("client_" + clientId), eq("+919847920009"),
-                argThat(text -> text.contains("Bill No: INV-2026-0001") && text.contains("https://app.cafeqr.in/invoice/")),
+                argThat(text -> text.contains("Bill No: INV-2026-0001") && !text.contains("http")),
                 eq(PDF_B64), eq("Invoice-INV-2026-0001.pdf"));
     }
 
     @Test
     void posSend_usesPosFilenameAndStripsDataUriPrefix() {
-        service.sendOrderBillWithAttachment(orderId, "9847920009", "data:application/pdf;base64," + PDF_B64,
-                null, "Invoice-SO-1.pdf");
+        service.sendOrderBillWithAttachment(orderId, "9847920009", "data:application/pdf;base64," + PDF_B64, "Invoice-SO-1.pdf");
         verify(service).dispatchToGateway(any(), any(), any(), any(), eq(PDF_B64), eq("Invoice-SO-1.pdf"));
     }
 
     @Test
     void nonPdfAttachment_isDropped_billStillSent() {
         String png = Base64.getEncoder().encodeToString(new byte[]{(byte) 0x89, 'P', 'N', 'G'});
-        assertTrue(service.sendOrderBillWithAttachment(orderId, "9847920009", png, null, null));
+        assertTrue(service.sendOrderBillWithAttachment(orderId, "9847920009", png, null));
         verify(service).dispatchToGateway(any(), any(), any(), any(), isNull(), isNull());
     }
 
@@ -90,7 +88,7 @@ class WhatsAppServiceTest {
         assertFalse(service.sendOrderSettledBill(order));
         verify(service, never()).dispatchToGateway(any(), any(), any(), any(), any(), any());
 
-        assertTrue(service.sendOrderBillWithAttachment(orderId, "9847920009", PDF_B64, null, null));
+        assertTrue(service.sendOrderBillWithAttachment(orderId, "9847920009", PDF_B64, null));
         verify(service).dispatchToGateway(any(), any(), any(), any(), eq(PDF_B64), any());
     }
 
@@ -98,37 +96,30 @@ class WhatsAppServiceTest {
     void serverSendWithoutPhone_doesNotBlockPosSendWithPhone() {
         assertFalse(service.sendOrderSettledBill(order)); // no phone anywhere on the order
 
-        assertTrue(service.sendOrderBillWithAttachment(orderId, "9847920009", PDF_B64, null, null));
+        assertTrue(service.sendOrderBillWithAttachment(orderId, "9847920009", PDF_B64, null));
         verify(service, times(1)).dispatchToGateway(any(), any(), eq("+919847920009"), any(), eq(PDF_B64), any());
     }
 
     @Test
     void duplicateWithinWindow_isNotSentTwice() {
-        service.sendOrderBillWithAttachment(orderId, "9847920009", PDF_B64, null, null);
-        service.sendOrderBillWithAttachment(orderId, "9847920009", PDF_B64, null, null);
+        service.sendOrderBillWithAttachment(orderId, "9847920009", PDF_B64, null);
+        service.sendOrderBillWithAttachment(orderId, "9847920009", PDF_B64, null);
         verify(service, times(1)).dispatchToGateway(any(), any(), any(), any(), any(), any());
     }
 
     @Test
     void failedDispatch_releasesClaimForRetry() {
         doReturn(false).doReturn(true).when(service).dispatchToGateway(any(), any(), any(), any(), any(), any());
-        assertFalse(service.sendOrderBillWithAttachment(orderId, "9847920009", PDF_B64, null, null));
-        assertTrue(service.sendOrderBillWithAttachment(orderId, "9847920009", PDF_B64, null, null));
+        assertFalse(service.sendOrderBillWithAttachment(orderId, "9847920009", PDF_B64, null));
+        assertTrue(service.sendOrderBillWithAttachment(orderId, "9847920009", PDF_B64, null));
         verify(service, times(2)).dispatchToGateway(any(), any(), any(), any(), any(), any());
     }
 
     @Test
     void storeCountryDrivesDialCode() {
         when(clientRepository.findById(clientId)).thenReturn(Optional.of(Client.builder().id(clientId).country("ZA").build()));
-        service.sendOrderBillWithAttachment(orderId, "082 123 4567", PDF_B64, null, null);
+        service.sendOrderBillWithAttachment(orderId, "082 123 4567", PDF_B64, null);
         verify(service).dispatchToGateway(any(), any(), eq("+27821234567"), any(), any(), any());
     }
 
-    @Test
-    void noPublicUrl_billSentWithoutLink() {
-        ReflectionTestUtils.setField(service, "defaultFrontendUrl", "http://localhost:3000");
-        service.sendOrderBillWithAttachment(orderId, "9847920009", PDF_B64, "http://192.168.1.4:3000", null);
-        verify(service).dispatchToGateway(any(), any(), any(),
-                argThat(text -> !text.contains("http") && !text.contains("View / download")), any(), any());
-    }
 }
