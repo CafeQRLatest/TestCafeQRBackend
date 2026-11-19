@@ -346,9 +346,10 @@ public class PaymentBalanceReportService {
             }
             return selectedOrgId;
         }
-        if (SecurityUtils.isSuperAdmin()) {
-            throw new com.restaurant.pos.common.exception.BusinessException("Select a branch before viewing payment balances.");
+        if (SecurityUtils.isSuperAdmin() && requestedOrgId != null) {
+            throw new com.restaurant.pos.common.exception.BusinessException("The requested branch does not match the active branch.");
         }
+        // Super admin with the global "All branches" selection reads every branch of their client
         return null;
     }
 

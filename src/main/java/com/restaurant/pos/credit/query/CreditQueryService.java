@@ -680,11 +680,8 @@ public class CreditQueryService {
     }
 
     private UUID resolveReadOrgId() {
-        UUID selectedOrgId = TenantContext.getCurrentOrg();
-        if (selectedOrgId == null && SecurityUtils.isSuperAdmin()) {
-            throw new BusinessException("Select a branch before viewing credit data.");
-        }
-        return selectedOrgId;
+        // null = super admin with the global "All branches" selection (every branch of their client)
+        return TenantContext.getCurrentOrg();
     }
 
     private void requirePartnerOrg(UUID partnerOrgId, UUID selectedOrgId) {

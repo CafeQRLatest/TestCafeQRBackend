@@ -44,7 +44,7 @@ public class SalesQueryService {
 
         UUID orgId;
         if (SecurityUtils.isSuperAdmin()) {
-            orgId = branchContext.getReadOrgId(query.getOrgId());
+            orgId = branchContext.getSelectedReadOrgId(query.getOrgId());
         } else {
             orgId = TenantContext.getCurrentOrg();
         }

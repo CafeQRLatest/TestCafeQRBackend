@@ -381,7 +381,7 @@ public class OrderOverviewService {
         }
 
         UUID clientId = TenantContext.getCurrentTenant();
-        UUID orgId = SecurityUtils.isSuperAdmin() ? branchContext.getReadOrgId(query.getOrgId()) : TenantContext.getCurrentOrg();
+        UUID orgId = SecurityUtils.isSuperAdmin() ? branchContext.getSelectedReadOrgId(query.getOrgId()) : TenantContext.getCurrentOrg();
 
         if (query.getTerminalId() != null) {
             if (orgId != null) {
