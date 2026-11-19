@@ -51,6 +51,22 @@ public class PurchaseOrderCommandService {
     private final com.restaurant.pos.invoice.repository.InvoiceRepository invoiceRepository;
     private final com.restaurant.pos.order.repository.PaymentRepository paymentRepository;
     private final PlatformTransactionManager transactionManager;
+    private final com.restaurant.pos.purchasing.repository.VendorRepository vendorRepository;
+
+    /**
+     * An inactive vendor must not be used on a new purchase or swapped onto an existing one.
+     * Purchases already placed with a vendor that was deactivated later are left untouched.
+     */
+    private void assertVendorActive(UUID clientId, UUID vendorId) {
+        if (vendorId == null) {
+            return;
+        }
+        com.restaurant.pos.purchasing.domain.Vendor vendor = vendorRepository.findByIdAndClientId(vendorId, clientId)
+                .orElseThrow(() -> new BusinessException("Vendor not found"));
+        if ("N".equalsIgnoreCase(vendor.getIsactive())) {
+            throw new BusinessException("Vendor '" + vendor.getName() + "' is inactive and cannot be used for a purchase order.");
+        }
+    }
 
     /**
      * A fresh transaction per purchase order for bulk operations. Without it, one PO whose
@@ -72,6 +88,7 @@ public class PurchaseOrderCommandService {
 
         UUID clientId = TenantContext.getCurrentTenant();
         UUID orgId = branchContext.requireWriteOrgId(command.getOrgId());
+        assertVendorActive(clientId, command.getVendorId());
         String sourceRef = StringUtils.hasText(idempotencyKey) ? idempotencyKey : command.getSourceLocalRef();
 
         // Idempotency check: Return existing order if identical sourceLocalRef was already processed
@@ -173,6 +190,11 @@ public class PurchaseOrderCommandService {
         }
 
         boolean isDraft = OrderStatus.DRAFT.name().equalsIgnoreCase(existingEntity.getOrderStatus());
+
+        // Only a vendor change is checked; keeping the original (possibly since-deactivated) vendor is allowed
+        if (command.getVendorId() != null && !command.getVendorId().equals(existingEntity.getVendorId())) {
+            assertVendorActive(clientId, command.getVendorId());
+        }
 
         // IF DRAFT: Update existing entity in place directly without creating _VOID_ revision snapshots
         if (isDraft) {

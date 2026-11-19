@@ -102,7 +102,8 @@ public class CreditQueryService {
 
                 BigDecimal totalCredit = creditGuard.money(vendor.getOpeningBalance(), dp).add(invTotal);
                 BigDecimal balance = creditGuard.money(vendor.getOpeningBalance(), dp).add(pendingBal).setScale(dp, RoundingMode.HALF_UP);
-                String vStatus = "Y".equalsIgnoreCase(vendor.getIsactive()) ? "ACTIVE" : "INACTIVE";
+                // Same rule as the purchase-order check: only an explicit 'N' is inactive.
+                String vStatus = "N".equalsIgnoreCase(vendor.getIsactive()) ? "INACTIVE" : "ACTIVE";
 
                 return CreditBPartnerDto.builder()
                         .id(vendor.getId())
