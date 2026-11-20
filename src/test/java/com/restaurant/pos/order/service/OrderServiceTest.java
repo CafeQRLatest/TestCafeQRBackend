@@ -215,23 +215,46 @@ class OrderServiceTest {
         }
 
         @Test
-        void superAdminMustSelectBranchBeforeReadingSalesHistory() {
+        void superAdminWithAllBranchesSelectionReadsSalesHistoryAcrossBranches() {
                 TenantContext.setCurrentOrg(null);
                 SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(
                                 "owner@example.com",
                                 null,
                                 List.of(new SimpleGrantedAuthority("ROLE_SUPER_ADMIN"))));
+                when(orderRepository.findAll(any(Specification.class), any(Pageable.class))).thenReturn(Page.empty());
+
+                orderService.getSalesOrderHistory(
+                                Instant.parse("2026-05-23T00:00:00Z"),
+                                Instant.parse("2026-05-23T23:59:59Z"),
+                                0,
+                                20,
+                                null);
+
+                // "All branches" = no org filter (still limited to the super admin's own client).
+                capturedSalesHistorySpecs(1).forEach(this::assertSpecificationDoesNotFilterOrg);
+        }
+
+        @Test
+        void superAdminWithAllBranchesSelectionCannotNarrowToAnotherBranchByParameter() {
+                TenantContext.setCurrentOrg(null);
+                SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(
+                                "owner@example.com",
+                                null,
+                                List.of(new SimpleGrantedAuthority("ROLE_SUPER_ADMIN"))));
+
                 assertThatThrownBy(() -> orderService.getSalesOrderHistory(
                                 Instant.parse("2026-05-23T00:00:00Z"),
                                 Instant.parse("2026-05-23T23:59:59Z"),
                                 0,
                                 20,
-                                "INV-1"))
+                                null,
+                                null,
+                                UUID.randomUUID(),
+                                null))
                                 .isInstanceOf(BusinessException.class)
-                                .hasMessageContaining("branch must be selected");
+                                .hasMessageContaining("does not match the active branch");
 
                 verify(orderRepository, never()).findAll(any(Specification.class), any(Pageable.class));
-                verify(customerRepository, never()).findIdsByClientAndOrgAndSearch(any(), any(), any());
         }
 
         @Test
