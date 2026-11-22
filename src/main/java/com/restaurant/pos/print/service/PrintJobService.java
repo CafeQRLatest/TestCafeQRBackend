@@ -485,9 +485,10 @@ public class PrintJobService {
         out.put("totalDiscountAmount", order.getTotalDiscountAmount());
         out.put("total_discount_amount", order.getTotalDiscountAmount());
 
-        String updatedByName = resolveUserName(order.getUpdatedBy());
-        out.put("updatedByName", updatedByName);
-        out.put("updated_by_name", updatedByName);
+        // KOT shows this as "Created:", so it carries the creator's name.
+        String createdByName = resolveUserName(order.getCreatedBy());
+        out.put("createdByName", createdByName);
+        out.put("created_by_name", createdByName);
 
         // Add customer fields so receipt & KOT printing can show customer details
         populateCustomerDetailsIfNeeded(order, out);
