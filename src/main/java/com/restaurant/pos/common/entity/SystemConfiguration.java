@@ -51,6 +51,9 @@ public class SystemConfiguration {
     @Column(name = "credit_allocation_mode", length = 30)
     @Builder.Default
     private String creditAllocationMode = "OLDEST_FIRST";
+    @Column(name = "category_sort_mode", length = 20)
+    @Builder.Default
+    private String categorySortMode = "NAME_ASC";
     private boolean tableManagementEnabled;
     private boolean qrOrderingEnabled;
     private boolean inventoryEnabled;

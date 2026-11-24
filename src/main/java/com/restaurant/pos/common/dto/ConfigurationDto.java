@@ -29,6 +29,8 @@ public class ConfigurationDto {
     private boolean creditEnabled;
     @Builder.Default
     private String creditAllocationMode = "OLDEST_FIRST";
+    @Builder.Default
+    private String categorySortMode = "NAME_ASC";
     private boolean tableManagementEnabled;
     private boolean qrOrderingEnabled;
     private boolean inventoryEnabled;

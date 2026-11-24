@@ -209,6 +209,8 @@ public class SystemConfigurationService {
             try {
                 posCacheInvalidationService.invalidateConfiguration(clientId, orgId);
                 posCacheInvalidationService.invalidateProducts(clientId, orgId);
+                // category tab order depends on categorySortMode
+                posCacheInvalidationService.invalidateCategories(clientId, orgId);
             } catch (Exception ex) {
                 log.warn("Failed to invalidate POS caches for clientId={}, orgId={}: {}", clientId, orgId, ex.getMessage());
             }
@@ -314,6 +316,7 @@ public class SystemConfigurationService {
                 .menuImagesEnabled(source.isMenuImagesEnabled())
                 .creditEnabled(source.isCreditEnabled())
                 .creditAllocationMode(normalizeCreditAllocationMode(source.getCreditAllocationMode()))
+                .categorySortMode(com.restaurant.pos.product.domain.CategorySortMode.fromValue(source.getCategorySortMode()).name())
                 .tableManagementEnabled(source.isTableManagementEnabled())
                 .qrOrderingEnabled(source.isQrOrderingEnabled())
                 .inventoryEnabled(source.isInventoryEnabled())
@@ -491,6 +494,7 @@ public class SystemConfigurationService {
                 .menuImagesEnabled(entity.isMenuImagesEnabled())
                 .creditEnabled(isFeatureEnabled(entity.getClientId(), orgId, ModuleName.CREDIT_LEDGER, entity.isCreditEnabled()))
                 .creditAllocationMode(normalizeCreditAllocationMode(entity.getCreditAllocationMode()))
+                .categorySortMode(com.restaurant.pos.product.domain.CategorySortMode.fromValue(entity.getCategorySortMode()).name())
                 .tableManagementEnabled(entity.isTableManagementEnabled())
                 .qrOrderingEnabled(entity.isQrOrderingEnabled())
                 .inventoryEnabled(isFeatureEnabled(entity.getClientId(), orgId, ModuleName.INVENTORY, entity.isInventoryEnabled()))
@@ -579,6 +583,7 @@ public class SystemConfigurationService {
         entity.setMenuImagesEnabled(dto.isMenuImagesEnabled());
         entity.setCreditEnabled(dto.isCreditEnabled());
         entity.setCreditAllocationMode(normalizeCreditAllocationMode(dto.getCreditAllocationMode()));
+        entity.setCategorySortMode(com.restaurant.pos.product.domain.CategorySortMode.fromValue(dto.getCategorySortMode()).name());
         entity.setTableManagementEnabled(dto.isTableManagementEnabled());
         entity.setQrOrderingEnabled(dto.isQrOrderingEnabled());
         entity.setInventoryEnabled(dto.isInventoryEnabled());
