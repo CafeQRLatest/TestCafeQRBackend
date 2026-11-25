@@ -59,6 +59,8 @@ public class ConfigurationDto {
     private String cashDrawerOpenTenders = "CASH";
     @Builder.Default
     private boolean cashDrawerManualReasonRequired = true;
+    @Builder.Default
+    private boolean highlightPosEnabled = true;
     private boolean takeawayHideKitchenMode;
     private boolean dineInAutoPrintKotOnSettle;
     private boolean dineInHideKitchenMode;

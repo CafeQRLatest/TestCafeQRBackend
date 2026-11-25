@@ -279,6 +279,7 @@ public class SystemConfigurationService {
                 .cashDrawerAutoOpenOnOrderSettle(true)
                 .cashDrawerOpenTenders("CASH")
                 .cashDrawerManualReasonRequired(true)
+                .highlightPosEnabled(true)
                 .takeawayHideKitchenMode(false)
                 .dineInAutoPrintKotOnSettle(false)
                 .defaultBillingUiMode("board")
@@ -339,6 +340,7 @@ public class SystemConfigurationService {
                 .cashDrawerAutoOpenOnOrderSettle(source.isCashDrawerAutoOpenOnOrderSettle())
                 .cashDrawerOpenTenders(source.getCashDrawerOpenTenders())
                 .cashDrawerManualReasonRequired(source.isCashDrawerManualReasonRequired())
+                .highlightPosEnabled(source.isHighlightPosEnabled())
                 .takeawayHideKitchenMode(source.isTakeawayHideKitchenMode())
                 .dineInAutoPrintKotOnSettle(source.isDineInAutoPrintKotOnSettle())
                 .dineInHideKitchenMode(source.isDineInHideKitchenMode())
@@ -517,6 +519,7 @@ public class SystemConfigurationService {
                 .cashDrawerAutoOpenOnOrderSettle(entity.isCashDrawerAutoOpenOnOrderSettle())
                 .cashDrawerOpenTenders(entity.getCashDrawerOpenTenders() != null ? entity.getCashDrawerOpenTenders() : "CASH")
                 .cashDrawerManualReasonRequired(entity.isCashDrawerManualReasonRequired())
+                .highlightPosEnabled(entity.isHighlightPosEnabled())
                 .takeawayHideKitchenMode(entity.isTakeawayHideKitchenMode())
                 .dineInAutoPrintKotOnSettle(entity.isDineInAutoPrintKotOnSettle())
                 .dineInHideKitchenMode(entity.isDineInHideKitchenMode())
@@ -606,6 +609,7 @@ public class SystemConfigurationService {
         entity.setCashDrawerAutoOpenOnOrderSettle(dto.isCashDrawerAutoOpenOnOrderSettle());
         entity.setCashDrawerOpenTenders(com.restaurant.pos.cashdrawer.domain.CashDrawerTenders.normalize(dto.getCashDrawerOpenTenders()));
         entity.setCashDrawerManualReasonRequired(dto.isCashDrawerManualReasonRequired());
+        entity.setHighlightPosEnabled(dto.isHighlightPosEnabled());
         entity.setTakeawayHideKitchenMode(dto.isTakeawayHideKitchenMode());
         entity.setDineInAutoPrintKotOnSettle(dto.isDineInAutoPrintKotOnSettle());
         entity.setDineInHideKitchenMode(dto.isDineInHideKitchenMode());

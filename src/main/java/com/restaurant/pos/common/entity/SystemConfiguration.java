@@ -93,6 +93,10 @@ public class SystemConfiguration {
     @Builder.Default
     @Column(name = "cash_drawer_manual_reason_required")
     private boolean cashDrawerManualReasonRequired = true;
+    /** Menu highlight: blink the POS card / sidebar link and list POS first. */
+    @Builder.Default
+    @Column(name = "highlight_pos_enabled")
+    private boolean highlightPosEnabled = true;
     private boolean takeawayHideKitchenMode;
     private boolean dineInAutoPrintKotOnSettle;
     private boolean dineInHideKitchenMode;
