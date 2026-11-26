@@ -400,6 +400,40 @@ class OrderCalculationServiceTest {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
+    // TC-10b  Round-off disabled in config ignores request mode and amount
+    // ─────────────────────────────────────────────────────────────────────────
+    @Test
+    void tc10b_roundOffDisabledIgnoresRequestedRoundOff() {
+        ConfigurationDto config = ConfigurationDto.builder()
+                .taxEnabled(true)
+                .pricesIncludeTax(false)
+                .currencyDecimalPlaces(2)
+                .roundOffEnabled(false)
+                .roundOffMode("automatic")
+                .roundOffAutoFactor(BigDecimal.ONE)
+                .build();
+
+        CalculationLineRequest line = CalculationLineRequest.builder()
+                .productId(UUID.randomUUID())
+                .quantity(BigDecimal.ONE)
+                .unitPrice(new BigDecimal("100.50"))
+                .taxRate(BigDecimal.ZERO)
+                .taxType("EXCLUSIVE")
+                .build();
+
+        for (CalculationRequest request : List.of(
+                CalculationRequest.builder().lines(List.of(line)).roundOffMode("AUTOMATIC").build(),
+                CalculationRequest.builder().lines(List.of(line)).roundOffMode("MANUAL")
+                        .requestedRoundOff(new BigDecimal("-0.50")).build(),
+                CalculationRequest.builder().lines(List.of(line))
+                        .requestedRoundOff(new BigDecimal("0.50")).build())) {
+            CalculationResult result = calculationService.calculate(request, config);
+            assertThat(result.getRoundOffAmount()).isEqualByComparingTo("0.00");
+            assertThat(result.getGrandTotal()).isEqualByComparingTo("100.50");
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
     // TC-11  Explicit taxType=NONE overrides config
     // ─────────────────────────────────────────────────────────────────────────
     @Test

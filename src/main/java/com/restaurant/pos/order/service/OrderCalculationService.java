@@ -421,6 +421,9 @@ public class OrderCalculationService {
     /** Computes round-off, honouring explicit request mode before falling back to config. */
     private BigDecimal computeRoundOff(CalculationRequest request, ConfigurationDto config,
                                        BigDecimal sumTotal, int dp) {
+        // Round-off switched off in settings: never apply one, whatever the request or the stored order carries.
+        if (config != null && !config.isRoundOffEnabled()) return BigDecimal.ZERO;
+
         // Manual limit comes from the configuration (the POS dialog enforces the same value, inclusive).
         // Without a configured limit, keep the legacy exclusive (-1.00, 1.00) bound.
         boolean hasConfiguredLimit = config != null && config.getRoundOffManualLimit() != null
